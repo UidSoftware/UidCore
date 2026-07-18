@@ -1,0 +1,57 @@
+# Env
+.env
+.env.prod
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.venv/
+venv/
+env/
+
+# Django
+*.log
+local_settings.py
+db.sqlite3
+media/
+staticfiles/
+
+# Node / React
+node_modules/
+.cache/
+*.local
+
+# Vite
+frontend/dist/
+
+# Docker
+*.override.yml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Claw Empire — symlink pras skills compartilhadas, criado em todo worktree
+.claude/skills
+.claude/worktrees/
+.claude/settings.local.json
+
+# Claw Empire — bookkeeping interno e worktrees isoladas por task (nao e codigo do projeto)
+.climpire/
+.climpire-worktrees/
