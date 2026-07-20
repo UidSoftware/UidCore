@@ -3,6 +3,8 @@ import useAuthStore from '../stores/authStore.js'
 import AppLayout from '../components/layout/AppLayout.jsx'
 import Login from '../pages/Login.jsx'
 import Dashboard from '../pages/Dashboard.jsx'
+import Clientes from '../pages/Clientes.jsx'
+import Fornecedores from '../pages/Fornecedores.jsx'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -34,8 +36,8 @@ export default function AppRoutes() {
       >
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/clientes" element={<PlaceholderPage title="Clientes" />} />
-        <Route path="/fornecedores" element={<PlaceholderPage title="Fornecedores" />} />
+        <Route path="/clientes" element={<Clientes />} />
+        <Route path="/fornecedores" element={<Fornecedores />} />
         <Route path="/vendas" element={<PlaceholderPage title="Vendas" />} />
         <Route path="/pagamentos" element={<PlaceholderPage title="Pagamentos" />} />
         <Route path="/financeiro" element={<PlaceholderPage title="Financeiro" />} />
