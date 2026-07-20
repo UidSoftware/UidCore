@@ -1,0 +1,881 @@
+import { useState, useEffect, useCallback } from 'react'
+import api from '../api/client.js'
+import Card from '../components/ui/Card.jsx'
+import Button from '../components/ui/Button.jsx'
+import Input from '../components/ui/Input.jsx'
+import Select from '../components/ui/Select.jsx'
+import Modal from '../components/ui/Modal.jsx'
+import Pagination from '../components/ui/Pagination.jsx'
+
+const PAGE_SIZE = 20
+const TABS = [
+  { key: 'resumo', label: 'Resumo' },
+  { key: 'receitas', label: 'Contas a Receber' },
+  { key: 'despesas', label: 'Contas a Pagar' },
+  { key: 'contas', label: 'Contas' },
+  { key: 'livro', label: 'Livro Caixa' },
+]
+
+const TIPO_RECEITA = [
+  { value: 'SERVICO', label: 'Serviço' },
+  { value: 'PRODUTO', label: 'Produto' },
+  { value: 'MENSALIDADE', label: 'Mensalidade' },
+  { value: 'RECEITA_FINANCEIRA', label: 'Receita Financeira' },
+  { value: 'OUTRO', label: 'Outro' },
+]
+
+const TIPO_DESPESA = [
+  { value: 'FIXA', label: 'Despesa Fixa' },
+  { value: 'VARIAVEL', label: 'Despesa Variável' },
+  { value: 'PROLABORE', label: 'Pró-labore' },
+  { value: 'IMPOSTO', label: 'Imposto / DAS' },
+  { value: 'OUTRO', label: 'Outro' },
+]
+
+const STATUS_RECEITA = [
+  { value: '', label: 'Todos' },
+  { value: 'PENDENTE', label: 'Pendente' },
+  { value: 'RECEBIDO', label: 'Recebido' },
+  { value: 'ATRASADO', label: 'Atrasado' },
+  { value: 'CANCELADO', label: 'Cancelado' },
+]
+
+const STATUS_DESPESA = [
+  { value: '', label: 'Todos' },
+  { value: 'PENDENTE', label: 'Pendente' },
+  { value: 'PAGO', label: 'Pago' },
+  { value: 'ATRASADO', label: 'Atrasado' },
+  { value: 'CANCELADO', label: 'Cancelado' },
+]
+
+const TIPO_CONTA = [
+  { value: 'CORRENTE', label: 'Conta Corrente' },
+  { value: 'POUPANCA', label: 'Poupança' },
+  { value: 'CAIXA', label: 'Caixa' },
+  { value: 'CARTEIRA', label: 'Carteira Digital' },
+]
+
+const FORMA_PAGAMENTO = [
+  { value: '', label: 'Selecione...' },
+  { value: 'PIX', label: 'PIX' },
+  { value: 'TED_DOC', label: 'TED/DOC' },
+  { value: 'BOLETO', label: 'Boleto' },
+  { value: 'CARTAO_DEBITO', label: 'Cartão Débito' },
+  { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' },
+  { value: 'DINHEIRO', label: 'Dinheiro' },
+  { value: 'OUTRO', label: 'Outro' },
+]
+
+const STATUS_BADGES = {
+  PENDENTE: 'bg-yellow-100 text-yellow-800',
+  RECEBIDO: 'bg-green-100 text-green-800',
+  PAGO: 'bg-green-100 text-green-800',
+  ATRASADO: 'bg-red-100 text-red-800',
+  CANCELADO: 'bg-gray-100 text-gray-600',
+}
+
+const BRL = (v) =>
+  Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+function Badge({ status }) {
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGES[status] || 'bg-gray-100 text-gray-600'}`}>
+      {status}
+    </span>
+  )
+}
+
+export default function Financeiro() {
+  const [tab, setTab] = useState('resumo')
+  const [toast, setToast] = useState(null)
+  const [contasOptions, setContasOptions] = useState([])
+
+  const showToast = (msg, type = 'success') => {
+    setToast({ msg, type })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  useEffect(() => {
+    api.get('/financeiro/contas/').then((r) => {
+      const list = (r.data.results || r.data || []).map((c) => ({
+        value: c.id, label: c.nome,
+      }))
+      setContasOptions(list)
+    }).catch(() => {})
+  }, [])
+
+  return (
+    <div className="space-y-4">
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${toast.type === 'error' ? 'bg-red-600' : 'bg-accent-600'}`}>
+          {toast.msg}
+        </div>
+      )}
+
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
+        <p className="text-sm text-gray-500 mt-0.5">Gestão financeira completa</p>
+      </div>
+
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
+              tab === t.key
+                ? 'bg-primary-600 text-white'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'resumo' && <ResumoTab />}
+      {tab === 'receitas' && <ReceitasTab showToast={showToast} contasOptions={contasOptions} />}
+      {tab === 'despesas' && <DespesasTab showToast={showToast} contasOptions={contasOptions} />}
+      {tab === 'contas' && <ContasTab showToast={showToast} />}
+      {tab === 'livro' && <LivroCaixaTab contasOptions={contasOptions} />}
+    </div>
+  )
+}
+
+function ResumoTab() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    api.get('/financeiro/dashboard/')
+      .then((r) => setData(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
+  if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar dados.</div>
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Saldo Total" value={BRL(data.saldo_total_contas)} color="blue" />
+        <KpiCard label="Receita (mês)" value={BRL(data.receita_mes)} color="green" />
+        <KpiCard label="Despesa (mês)" value={BRL(data.despesa_mes)} color="red" />
+        <KpiCard label="Resultado" value={BRL(data.resultado_mes)} color={Number(data.resultado_mes) >= 0 ? 'green' : 'red'} />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card title="Receitas a Vencer (30 dias)">
+          {data.receitas_vencer?.length === 0 ? (
+            <p className="text-sm text-gray-400">Nenhuma receita pendente.</p>
+          ) : (
+            <div className="space-y-2">
+              {data.receitas_vencer?.map((r, i) => (
+                <div key={i} className="flex justify-between items-center text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-800 truncate">{r.descricao}</p>
+                    <p className="text-xs text-gray-400">{r.cliente__nome_razao_social || '—'} &middot; {r.vencimento}</p>
+                  </div>
+                  <span className="font-semibold text-green-700 whitespace-nowrap ml-2">{BRL(r.valor_liquido)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        <Card title="Despesas a Vencer (30 dias)">
+          {data.despesas_vencer?.length === 0 ? (
+            <p className="text-sm text-gray-400">Nenhuma despesa pendente.</p>
+          ) : (
+            <div className="space-y-2">
+              {data.despesas_vencer?.map((d, i) => (
+                <div key={i} className="flex justify-between items-center text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-800 truncate">{d.descricao}</p>
+                    <p className="text-xs text-gray-400">{d.fornecedor || '—'} &middot; {d.vencimento}</p>
+                  </div>
+                  <span className="font-semibold text-red-700 whitespace-nowrap ml-2">{BRL(d.valor_liquido)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {data.grafico_6_meses && (
+        <Card title="Receita x Despesa (6 meses)">
+          <div className="flex items-end gap-2 h-40">
+            {data.grafico_6_meses.map((m) => {
+              const max = Math.max(...data.grafico_6_meses.map((x) => Math.max(Number(x.receita), Number(x.despesa), 1)))
+              const hRec = (Number(m.receita) / max) * 100
+              const hDes = (Number(m.despesa) / max) * 100
+              return (
+                <div key={m.mes} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="flex gap-0.5 items-end h-32 w-full justify-center">
+                    <div className="w-3 bg-green-400 rounded-t" style={{ height: `${hRec}%` }} title={BRL(m.receita)} />
+                    <div className="w-3 bg-red-400 rounded-t" style={{ height: `${hDes}%` }} title={BRL(m.despesa)} />
+                  </div>
+                  <span className="text-[10px] text-gray-500">{m.label}</span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="flex gap-4 mt-2 text-xs text-gray-500">
+            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-green-400 rounded-full" />Receita</span>
+            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-red-400 rounded-full" />Despesa</span>
+          </div>
+        </Card>
+      )}
+    </div>
+  )
+}
+
+function KpiCard({ label, value, color }) {
+  const colors = {
+    blue: 'bg-blue-50 text-blue-700',
+    green: 'bg-green-50 text-green-700',
+    red: 'bg-red-50 text-red-700',
+  }
+  return (
+    <div className={`rounded-xl p-4 ${colors[color] || colors.blue}`}>
+      <p className="text-xs font-medium opacity-70">{label}</p>
+      <p className="text-lg font-bold mt-1">{value}</p>
+    </div>
+  )
+}
+
+function ReceitasTab({ showToast, contasOptions }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(EMPTY_RECEITA)
+
+  const fetch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = { search, page, page_size: PAGE_SIZE }
+      if (statusFilter) params.status = statusFilter
+      const r = await api.get('/financeiro/receitas/', { params })
+      setItems(r.data.results || r.data || [])
+      const count = r.data.count || (r.data.results || r.data || []).length
+      setTotalPages(Math.max(1, Math.ceil(count / PAGE_SIZE)))
+    } catch { showToast('Erro ao carregar receitas.', 'error') }
+    finally { setLoading(false) }
+  }, [search, statusFilter, page])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  const openNew = () => { setForm(EMPTY_RECEITA); setEditingId(null); setModalOpen(true) }
+  const openEdit = (item) => {
+    setForm({
+      tipo: item.tipo || 'SERVICO', descricao: item.descricao || '',
+      cliente: item.cliente || '', categoria: item.categoria || '',
+      valor_bruto: item.valor_bruto || '', desconto: item.desconto || '0',
+      conta: item.conta || '', vencimento: item.vencimento || '',
+      observacoes: item.observacoes || '',
+    })
+    setEditingId(item.id); setModalOpen(true)
+  }
+  const closeModal = () => { setModalOpen(false); setEditingId(null) }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setSaving(true)
+    try {
+      const payload = { ...form }
+      if (!payload.cliente) delete payload.cliente
+      if (!payload.categoria) delete payload.categoria
+      if (editingId) {
+        await api.patch(`/financeiro/receitas/${editingId}/`, payload)
+        showToast('Receita atualizada.')
+      } else {
+        await api.post('/financeiro/receitas/', payload)
+        showToast('Receita cadastrada.')
+      }
+      closeModal(); fetch()
+    } catch { showToast('Erro ao salvar receita.', 'error') }
+    finally { setSaving(false) }
+  }
+
+  const marcarRecebido = async (item) => {
+    try {
+      await api.patch(`/financeiro/receitas/${item.id}/receber/`, {})
+      showToast('Receita marcada como recebida.')
+      fetch()
+    } catch { showToast('Erro ao marcar recebimento.', 'error') }
+  }
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Excluir "${item.descricao}"?`)) return
+    try { await api.delete(`/financeiro/receitas/${item.id}/`); showToast('Receita removida.'); fetch() }
+    catch { showToast('Erro ao remover.', 'error') }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-800">Contas a Receber</h2>
+        <Button onClick={openNew}>+ Nova Receita</Button>
+      </div>
+
+      <Card>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <Input placeholder="Buscar..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+          </div>
+          <div className="w-full sm:w-48">
+            <Select options={STATUS_RECEITA} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} />
+          </div>
+        </div>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhuma receita encontrada.</p></div>
+      ) : (
+        <>
+          {/* Mobile */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {items.map((item) => (
+              <Card key={item.id}>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{item.descricao}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{item.tipo} &middot; {item.vencimento}</p>
+                  </div>
+                  <Badge status={item.status} />
+                </div>
+                <div className="mt-2 flex justify-between items-center">
+                  <span className="text-lg font-bold text-green-700">{BRL(item.valor_liquido)}</span>
+                  <span className="text-xs text-gray-400">{item.conta_nome}</span>
+                </div>
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  {item.status === 'PENDENTE' && (
+                    <Button size="sm" onClick={() => marcarRecebido(item)}>Receber</Button>
+                  )}
+                  <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
+                  <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden md:block">
+            <Card>
+              <div className="overflow-x-auto -mx-6 -my-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Descrição</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Tipo</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Vencimento</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Conta</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {items.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{item.descricao}</td>
+                        <td className="px-4 py-3 text-gray-600">{item.tipo}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-green-700">{BRL(item.valor_liquido)}</td>
+                        <td className="px-4 py-3 text-gray-600">{item.vencimento}</td>
+                        <td className="px-4 py-3"><Badge status={item.status} /></td>
+                        <td className="px-4 py-3 text-gray-600">{item.conta_nome}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {item.status === 'PENDENTE' && (
+                              <Button size="sm" onClick={() => marcarRecebido(item)}>Receber</Button>
+                            )}
+                            <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
+                            <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        </>
+      )}
+
+      {modalOpen && (
+        <Modal title={editingId ? 'Editar Receita' : 'Nova Receita'} onClose={closeModal} maxW="max-w-2xl">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select label="Tipo" name="tipo" options={TIPO_RECEITA} value={form.tipo} onChange={handleChange} />
+              <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
+            </div>
+            <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} required />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} required />
+              <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
+              <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} required />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700">Observações</label>
+              <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
+              <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+const EMPTY_RECEITA = {
+  tipo: 'SERVICO', descricao: '', cliente: '', categoria: '',
+  valor_bruto: '', desconto: '0', conta: '', vencimento: '', observacoes: '',
+}
+
+function DespesasTab({ showToast, contasOptions }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(EMPTY_DESPESA)
+
+  const fetch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = { search, page, page_size: PAGE_SIZE }
+      if (statusFilter) params.status = statusFilter
+      const r = await api.get('/financeiro/despesas/', { params })
+      setItems(r.data.results || r.data || [])
+      const count = r.data.count || (r.data.results || r.data || []).length
+      setTotalPages(Math.max(1, Math.ceil(count / PAGE_SIZE)))
+    } catch { showToast('Erro ao carregar despesas.', 'error') }
+    finally { setLoading(false) }
+  }, [search, statusFilter, page])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  const openNew = () => { setForm(EMPTY_DESPESA); setEditingId(null); setModalOpen(true) }
+  const openEdit = (item) => {
+    setForm({
+      tipo: item.tipo || 'VARIAVEL', descricao: item.descricao || '',
+      fornecedor: item.fornecedor || '', categoria: item.categoria || '',
+      valor_bruto: item.valor_bruto || '', desconto: item.desconto || '0',
+      conta: item.conta || '', vencimento: item.vencimento || '',
+      forma_pagamento: item.forma_pagamento || '', observacoes: item.observacoes || '',
+    })
+    setEditingId(item.id); setModalOpen(true)
+  }
+  const closeModal = () => { setModalOpen(false); setEditingId(null) }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setSaving(true)
+    try {
+      const payload = { ...form }
+      if (!payload.categoria) delete payload.categoria
+      if (editingId) {
+        await api.patch(`/financeiro/despesas/${editingId}/`, payload)
+        showToast('Despesa atualizada.')
+      } else {
+        await api.post('/financeiro/despesas/', payload)
+        showToast('Despesa cadastrada.')
+      }
+      closeModal(); fetch()
+    } catch { showToast('Erro ao salvar despesa.', 'error') }
+    finally { setSaving(false) }
+  }
+
+  const marcarPago = async (item) => {
+    try {
+      await api.patch(`/financeiro/despesas/${item.id}/pagar/`, {})
+      showToast('Despesa marcada como paga.')
+      fetch()
+    } catch { showToast('Erro ao marcar pagamento.', 'error') }
+  }
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Excluir "${item.descricao}"?`)) return
+    try { await api.delete(`/financeiro/despesas/${item.id}/`); showToast('Despesa removida.'); fetch() }
+    catch { showToast('Erro ao remover.', 'error') }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-800">Contas a Pagar</h2>
+        <Button onClick={openNew}>+ Nova Despesa</Button>
+      </div>
+
+      <Card>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <Input placeholder="Buscar..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1) }} />
+          </div>
+          <div className="w-full sm:w-48">
+            <Select options={STATUS_DESPESA} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} />
+          </div>
+        </div>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhuma despesa encontrada.</p></div>
+      ) : (
+        <>
+          {/* Mobile */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {items.map((item) => (
+              <Card key={item.id}>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{item.descricao}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{item.tipo} &middot; {item.vencimento}</p>
+                  </div>
+                  <Badge status={item.status} />
+                </div>
+                <div className="mt-2 flex justify-between items-center">
+                  <span className="text-lg font-bold text-red-700">{BRL(item.valor_liquido)}</span>
+                  <span className="text-xs text-gray-400">{item.conta_nome}</span>
+                </div>
+                {item.fornecedor && <p className="text-xs text-gray-500 mt-1">{item.fornecedor}</p>}
+                <div className="mt-3 flex gap-2 flex-wrap">
+                  {item.status === 'PENDENTE' && (
+                    <Button size="sm" onClick={() => marcarPago(item)}>Pagar</Button>
+                  )}
+                  <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
+                  <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden md:block">
+            <Card>
+              <div className="overflow-x-auto -mx-6 -my-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Descrição</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Tipo</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Vencimento</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Fornecedor</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {items.map((item) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{item.descricao}</td>
+                        <td className="px-4 py-3 text-gray-600">{item.tipo}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-red-700">{BRL(item.valor_liquido)}</td>
+                        <td className="px-4 py-3 text-gray-600">{item.vencimento}</td>
+                        <td className="px-4 py-3"><Badge status={item.status} /></td>
+                        <td className="px-4 py-3 text-gray-600 max-w-[120px] truncate">{item.fornecedor || '—'}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            {item.status === 'PENDENTE' && (
+                              <Button size="sm" onClick={() => marcarPago(item)}>Pagar</Button>
+                            )}
+                            <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
+                            <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        </>
+      )}
+
+      {modalOpen && (
+        <Modal title={editingId ? 'Editar Despesa' : 'Nova Despesa'} onClose={closeModal} maxW="max-w-2xl">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select label="Tipo" name="tipo" options={TIPO_DESPESA} value={form.tipo} onChange={handleChange} />
+              <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
+            </div>
+            <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} required />
+            <Input label="Fornecedor" name="fornecedor" value={form.fornecedor} onChange={handleChange} />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} required />
+              <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
+              <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} required />
+            </div>
+            <Select label="Forma de Pagamento" name="forma_pagamento" options={FORMA_PAGAMENTO} value={form.forma_pagamento} onChange={handleChange} />
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700">Observações</label>
+              <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
+              <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+const EMPTY_DESPESA = {
+  tipo: 'VARIAVEL', descricao: '', fornecedor: '', categoria: '',
+  valor_bruto: '', desconto: '0', conta: '', vencimento: '',
+  forma_pagamento: '', observacoes: '',
+}
+
+function ContasTab({ showToast }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(EMPTY_CONTA)
+  const [totais, setTotais] = useState(null)
+
+  const fetch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [r, t] = await Promise.all([
+        api.get('/financeiro/contas/'),
+        api.get('/financeiro/livro-caixa/totais/'),
+      ])
+      setItems(r.data.results || r.data || [])
+      setTotais(t.data)
+    } catch { showToast('Erro ao carregar contas.', 'error') }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  const openNew = () => { setForm(EMPTY_CONTA); setEditingId(null); setModalOpen(true) }
+  const openEdit = (item) => {
+    setForm({
+      nome: item.nome || '', tipo: item.tipo || 'CORRENTE',
+      banco: item.banco || '', agencia: item.agencia || '',
+      numero: item.numero || '', saldo_inicial: item.saldo_inicial || '0',
+    })
+    setEditingId(item.id); setModalOpen(true)
+  }
+  const closeModal = () => { setModalOpen(false); setEditingId(null) }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setSaving(true)
+    try {
+      if (editingId) {
+        await api.patch(`/financeiro/contas/${editingId}/`, form)
+        showToast('Conta atualizada.')
+      } else {
+        await api.post('/financeiro/contas/', form)
+        showToast('Conta cadastrada.')
+      }
+      closeModal(); fetch()
+    } catch { showToast('Erro ao salvar conta.', 'error') }
+    finally { setSaving(false) }
+  }
+
+  const handleDelete = async (item) => {
+    if (!window.confirm(`Excluir a conta "${item.nome}"?`)) return
+    try { await api.delete(`/financeiro/contas/${item.id}/`); showToast('Conta removida.'); fetch() }
+    catch { showToast('Erro ao remover conta.', 'error') }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-800">Contas Bancárias</h2>
+        <Button onClick={openNew}>+ Nova Conta</Button>
+      </div>
+
+      {totais && (
+        <div className="grid grid-cols-3 gap-3">
+          <KpiCard label="Entradas" value={BRL(totais.total_entradas)} color="green" />
+          <KpiCard label="Saídas" value={BRL(totais.total_saidas)} color="red" />
+          <KpiCard label="Saldo Atual" value={BRL(totais.saldo_atual)} color="blue" />
+        </div>
+      )}
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhuma conta cadastrada.</p></div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {items.map((item) => (
+            <Card key={item.id}>
+              <div className="flex justify-between items-start">
+                <div>
+                  <p className="font-semibold text-gray-900">{item.nome}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{item.tipo} {item.banco ? `— ${item.banco}` : ''}</p>
+                </div>
+              </div>
+              {(item.agencia || item.numero) && (
+                <p className="text-xs text-gray-400 mt-1">Ag: {item.agencia || '—'} / CC: {item.numero || '—'}</p>
+              )}
+              <p className="text-sm text-gray-600 mt-2">Saldo inicial: {BRL(item.saldo_inicial)}</p>
+              <div className="mt-3 flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
+                <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {modalOpen && (
+        <Modal title={editingId ? 'Editar Conta' : 'Nova Conta'} onClose={closeModal}>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Input label="Nome" name="nome" value={form.nome} onChange={handleChange} required />
+            <Select label="Tipo" name="tipo" options={TIPO_CONTA} value={form.tipo} onChange={handleChange} />
+            <Input label="Banco" name="banco" value={form.banco} onChange={handleChange} />
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Agência" name="agencia" value={form.agencia} onChange={handleChange} />
+              <Input label="Número" name="numero" value={form.numero} onChange={handleChange} />
+            </div>
+            <Input label="Saldo Inicial (R$)" name="saldo_inicial" type="number" step="0.01" value={form.saldo_inicial} onChange={handleChange} />
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
+              <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
+const EMPTY_CONTA = {
+  nome: '', tipo: 'CORRENTE', banco: '', agencia: '', numero: '', saldo_inicial: '0',
+}
+
+function LivroCaixaTab({ contasOptions }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [contaFilter, setContaFilter] = useState('')
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+
+  const fetch = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = { page, page_size: PAGE_SIZE }
+      if (contaFilter) params.conta = contaFilter
+      const r = await api.get('/financeiro/livro-caixa/', { params })
+      setItems(r.data.results || r.data || [])
+      const count = r.data.count || (r.data.results || r.data || []).length
+      setTotalPages(Math.max(1, Math.ceil(count / PAGE_SIZE)))
+    } catch {}
+    finally { setLoading(false) }
+  }, [contaFilter, page])
+
+  useEffect(() => { fetch() }, [fetch])
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-800">Livro Caixa</h2>
+        <div className="w-48">
+          <Select options={[{ value: '', label: 'Todas as contas' }, ...contasOptions]} value={contaFilter} onChange={(e) => { setContaFilter(e.target.value); setPage(1) }} />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+      ) : items.length === 0 ? (
+        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhum lançamento encontrado.</p></div>
+      ) : (
+        <>
+          {/* Mobile */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {items.map((item) => (
+              <Card key={item.id}>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-gray-900 truncate">{item.descricao}</p>
+                    <p className="text-xs text-gray-500 mt-0.5">{item.origem_label} &middot; {item.data}</p>
+                  </div>
+                  <span className={`text-lg font-bold ${item.tipo === 'ENTRADA' ? 'text-green-700' : 'text-red-700'}`}>
+                    {item.tipo === 'ENTRADA' ? '+' : '-'}{BRL(item.valor)}
+                  </span>
+                </div>
+                <div className="mt-2 flex justify-between text-xs text-gray-500">
+                  <span>{item.conta_nome}</span>
+                  <span>Saldo: {BRL(item.saldo_atual)}</span>
+                </div>
+                {item.estornado && <span className="text-xs text-red-500 font-medium mt-1 block">ESTORNADO</span>}
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop */}
+          <div className="hidden md:block">
+            <Card>
+              <div className="overflow-x-auto -mx-6 -my-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Data</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Descrição</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Origem</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Conta</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Saldo</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {items.map((item) => (
+                      <tr key={item.id} className={`hover:bg-gray-50 ${item.estornado ? 'opacity-50 line-through' : ''}`}>
+                        <td className="px-4 py-3 text-gray-600">{item.data}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[250px] truncate">{item.descricao}</td>
+                        <td className="px-4 py-3 text-gray-600">{item.origem_label}</td>
+                        <td className="px-4 py-3 text-gray-600">{item.conta_nome}</td>
+                        <td className={`px-4 py-3 text-right font-semibold ${item.tipo === 'ENTRADA' ? 'text-green-700' : 'text-red-700'}`}>
+                          {item.tipo === 'ENTRADA' ? '+' : '-'}{BRL(item.valor)}
+                        </td>
+                        <td className="px-4 py-3 text-right text-gray-700 font-medium">{BRL(item.saldo_atual)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        </>
+      )}
+    </div>
+  )
+}

@@ -5,6 +5,7 @@ import Login from '../pages/Login.jsx'
 import Dashboard from '../pages/Dashboard.jsx'
 import Clientes from '../pages/Clientes.jsx'
 import Fornecedores from '../pages/Fornecedores.jsx'
+import Financeiro from '../pages/Financeiro.jsx'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -40,7 +41,7 @@ export default function AppRoutes() {
         <Route path="/fornecedores" element={<Fornecedores />} />
         <Route path="/vendas" element={<PlaceholderPage title="Vendas" />} />
         <Route path="/pagamentos" element={<PlaceholderPage title="Pagamentos" />} />
-        <Route path="/financeiro" element={<PlaceholderPage title="Financeiro" />} />
+        <Route path="/financeiro" element={<Financeiro />} />
         <Route path="/administrativo" element={<PlaceholderPage title="Administrativo" />} />
         <Route path="/rh" element={<PlaceholderPage title="RH" />} />
         <Route path="/agendamento" element={<PlaceholderPage title="Agendamento" />} />
