@@ -264,6 +264,7 @@ class DespesaViewSet(ModelViewSet):
                 saldo_atual=Decimal('0'),
                 criado_por=request.user,
                 estorno_de=lancamento_original,
+                estornado=True,
             )
 
             if lancamento_original:
@@ -318,6 +319,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
                 saldo_atual=Decimal('0'),
                 criado_por=request.user,
                 estorno_de=lancamento,
+                estornado=True,
             )
             lancamento.estornado = True
             lancamento.save(update_fields=['estornado'])
