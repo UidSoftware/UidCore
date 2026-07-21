@@ -86,15 +86,18 @@ def calcular_balanco(data_ref=None):
 
     saldo_caixa = _saldo_total_contas()
 
+    # Contas a receber/pagar precisam incluir PENDENTE e ATRASADO — um
+    # recebível/pagável em atraso continua sendo um recebível/pagável,
+    # só que vencido; excluir ATRASADO subestimava o balanço.
     contas_a_receber = Receita.objects.filter(
-        is_active=True, status='PENDENTE',
+        is_active=True, status__in=['PENDENTE', 'ATRASADO'],
     ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
 
     ativo_circulante = saldo_caixa + contas_a_receber
     ativo_total = ativo_circulante
 
     contas_a_pagar = Despesa.objects.filter(
-        is_active=True, status='PENDENTE', estornado=False,
+        is_active=True, status__in=['PENDENTE', 'ATRASADO'], estornado=False,
     ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
 
     emprestimos = Aporte.objects.filter(
@@ -109,12 +112,16 @@ def calcular_balanco(data_ref=None):
         is_active=True,
     ).exclude(tipo='EMPRESTIMO').aggregate(v=Sum('valor'))['v'] or Decimal('0')
 
+    # Lucros acumulados em regime de competência (não de caixa), pra bater
+    # com contas_a_receber/contas_a_pagar acima (também competência) — regime
+    # de caixa aqui deixava a equação Ativo = Passivo + PL sem fechar sempre
+    # que existisse qualquer receita/despesa pendente ou atrasada.
     total_receitas = Receita.objects.filter(
-        is_active=True, status='RECEBIDO',
-    ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
+        is_active=True,
+    ).exclude(status='CANCELADO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
     total_despesas = Despesa.objects.filter(
-        is_active=True, status='PAGO', estornado=False,
-    ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
+        is_active=True, estornado=False,
+    ).exclude(status='CANCELADO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
     lucros_acumulados = total_receitas - total_despesas
 
     patrimonio_liquido = capital_aportes + lucros_acumulados
