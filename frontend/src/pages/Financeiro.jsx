@@ -14,6 +14,9 @@ const TABS = [
   { key: 'despesas', label: 'Contas a Pagar' },
   { key: 'contas', label: 'Contas' },
   { key: 'livro', label: 'Livro Caixa' },
+  { key: 'dre', label: 'DRE' },
+  { key: 'balanco', label: 'Balanço' },
+  { key: 'indicadores', label: 'Indicadores' },
 ]
 
 const TIPO_RECEITA = [
@@ -138,6 +141,9 @@ export default function Financeiro() {
       {tab === 'despesas' && <DespesasTab showToast={showToast} contasOptions={contasOptions} />}
       {tab === 'contas' && <ContasTab showToast={showToast} />}
       {tab === 'livro' && <LivroCaixaTab contasOptions={contasOptions} />}
+      {tab === 'dre' && <DreTab />}
+      {tab === 'balanco' && <BalancoTab />}
+      {tab === 'indicadores' && <IndicadoresTab />}
     </div>
   )
 }
@@ -165,6 +171,15 @@ function ResumoTab() {
         <KpiCard label="Despesa (mês)" value={BRL(data.despesa_mes)} color="red" />
         <KpiCard label="Resultado" value={BRL(data.resultado_mes)} color={Number(data.resultado_mes) >= 0 ? 'green' : 'red'} />
       </div>
+
+      {data.indicadores && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <KpiCard label="MRR" value={BRL(data.indicadores.mrr)} color="blue" />
+          <KpiCard label="Margem Líquida" value={`${data.indicadores.margem_liquida}%`} color={Number(data.indicadores.margem_liquida) >= 0 ? 'green' : 'red'} />
+          <KpiCard label="Runway" value={`${data.indicadores.runway_meses} meses`} color={Number(data.indicadores.runway_meses) >= 6 ? 'green' : Number(data.indicadores.runway_meses) >= 3 ? 'blue' : 'red'} />
+          <KpiCard label="Ponto Equilíbrio" value={BRL(data.indicadores.ponto_equilibrio)} color="blue" />
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card title="Receitas a Vencer (30 dias)">
@@ -779,6 +794,416 @@ function ContasTab({ showToast }) {
 
 const EMPTY_CONTA = {
   nome: '', tipo: 'CORRENTE', banco: '', agencia: '', numero: '', saldo_inicial: '0',
+}
+
+const MESES_OPTS = [
+  { value: '', label: 'Ano completo' },
+  { value: '1', label: 'Janeiro' }, { value: '2', label: 'Fevereiro' },
+  { value: '3', label: 'Março' }, { value: '4', label: 'Abril' },
+  { value: '5', label: 'Maio' }, { value: '6', label: 'Junho' },
+  { value: '7', label: 'Julho' }, { value: '8', label: 'Agosto' },
+  { value: '9', label: 'Setembro' }, { value: '10', label: 'Outubro' },
+  { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
+]
+
+const MESES_SHORT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+const DRE_LINHAS = [
+  { key: 'receita_operacional', label: 'Receita Operacional', bold: false },
+  { key: 'receita_financeira', label: 'Receita Financeira', bold: false },
+  { key: 'receita_bruta', label: 'Receita Bruta', bold: true },
+  { key: 'descontos', label: '(-) Descontos', bold: false, negative: true },
+  { key: 'receita_liquida', label: 'Receita Líquida', bold: true },
+  { key: 'despesas_fixas', label: '(-) Despesas Fixas', bold: false, negative: true },
+  { key: 'despesas_variaveis', label: '(-) Despesas Variáveis', bold: false, negative: true },
+  { key: 'prolabore', label: '(-) Pró-labore', bold: false, negative: true },
+  { key: 'impostos', label: '(-) Impostos/DAS', bold: false, negative: true },
+  { key: 'outros', label: '(-) Outros', bold: false, negative: true },
+  { key: 'total_despesas', label: 'Total Despesas', bold: true, negative: true },
+  { key: 'resultado', label: 'Resultado Líquido', bold: true, highlight: true },
+  { key: 'ebitda', label: 'EBITDA', bold: true, highlight: true },
+]
+
+function DreTab() {
+  const currentYear = new Date().getFullYear()
+  const [ano, setAno] = useState(String(currentYear))
+  const [mes, setMes] = useState('')
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const anoOpts = Array.from({ length: 4 }, (_, i) => ({
+    value: String(currentYear - 2 + i), label: String(currentYear - 2 + i),
+  }))
+
+  useEffect(() => {
+    setLoading(true)
+    const params = { ano }
+    if (mes) params.mes = mes
+    api.get('/financeiro/dre/', { params })
+      .then((r) => setData(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [ano, mes])
+
+  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
+  if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar DRE.</div>
+
+  const singleMonth = !!mes && data.dados
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-lg font-semibold text-gray-800">Demonstrativo de Resultado (DRE)</h2>
+        <div className="flex gap-2">
+          <div className="w-28">
+            <Select options={anoOpts} value={ano} onChange={(e) => setAno(e.target.value)} />
+          </div>
+          <div className="w-40">
+            <Select options={MESES_OPTS} value={mes} onChange={(e) => setMes(e.target.value)} />
+          </div>
+        </div>
+      </div>
+
+      {singleMonth ? (
+        <Card title={`DRE — ${data.dados.mes}`}>
+          <div className="space-y-1">
+            {DRE_LINHAS.map((l) => {
+              const val = Number(data.dados[l.key] || 0)
+              return (
+                <div key={l.key} className={`flex justify-between py-1.5 px-2 rounded ${l.highlight ? 'bg-gray-50' : ''}`}>
+                  <span className={`text-sm ${l.bold ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{l.label}</span>
+                  <span className={`text-sm font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (val >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-800'}`}>
+                    {BRL(val)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {(data.dados.receitas_por_categoria && Object.keys(data.dados.receitas_por_categoria).length > 0) && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <p className="text-sm font-semibold text-gray-700 mb-2">Receitas por Categoria</p>
+              {Object.entries(data.dados.receitas_por_categoria).map(([cat, val]) => (
+                <div key={cat} className="flex justify-between py-1 px-2 text-sm">
+                  <span className="text-gray-600">{cat}</span>
+                  <span className="font-mono text-green-700">{BRL(val)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {(data.dados.despesas_por_categoria && Object.keys(data.dados.despesas_por_categoria).length > 0) && (
+            <div className="mt-4 pt-4 border-t border-gray-200">
+              <p className="text-sm font-semibold text-gray-700 mb-2">Despesas por Categoria</p>
+              {Object.entries(data.dados.despesas_por_categoria).map(([cat, val]) => (
+                <div key={cat} className="flex justify-between py-1 px-2 text-sm">
+                  <span className="text-gray-600">{cat}</span>
+                  <span className="font-mono text-red-700">{BRL(val)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      ) : (
+        <>
+          {/* Mobile: single-column month cards */}
+          <div className="flex flex-col gap-3 md:hidden">
+            {data.meses?.filter((m) => {
+              const total = DRE_LINHAS.reduce((s, l) => s + Math.abs(Number(m[l.key] || 0)), 0)
+              return total > 0
+            }).map((m, i) => (
+              <Card key={i} title={m.mes}>
+                <div className="space-y-1">
+                  {DRE_LINHAS.map((l) => (
+                    <div key={l.key} className={`flex justify-between py-1 ${l.highlight ? 'bg-gray-50 rounded px-1' : ''}`}>
+                      <span className={`text-xs ${l.bold ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{l.label}</span>
+                      <span className={`text-xs font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (Number(m[l.key] || 0) >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-800'}`}>
+                        {BRL(m[l.key])}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            ))}
+          </div>
+
+          {/* Desktop: full table */}
+          <div className="hidden md:block">
+            <Card>
+              <div className="overflow-x-auto -mx-6 -my-4">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="text-left px-3 py-2 font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[160px]">Linha</th>
+                      {data.meses?.map((m, i) => (
+                        <th key={i} className="text-right px-2 py-2 font-semibold text-gray-600 whitespace-nowrap">{MESES_SHORT[i]}</th>
+                      ))}
+                      <th className="text-right px-3 py-2 font-bold text-gray-800 bg-gray-100">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {DRE_LINHAS.map((l) => (
+                      <tr key={l.key} className={l.highlight ? 'bg-gray-50' : 'hover:bg-gray-50'}>
+                        <td className={`px-3 py-2 sticky left-0 bg-white ${l.bold ? 'font-bold text-gray-900' : 'text-gray-600'} ${l.highlight ? '!bg-gray-50' : ''}`}>
+                          {l.label}
+                        </td>
+                        {data.meses?.map((m, i) => {
+                          const val = Number(m[l.key] || 0)
+                          return (
+                            <td key={i} className={`px-2 py-2 text-right font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (val >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-700'}`}>
+                              {BRL(val)}
+                            </td>
+                          )
+                        })}
+                        <td className={`px-3 py-2 text-right font-mono font-bold bg-gray-100 ${l.highlight ? (Number(data.totais_ano?.[l.key] || 0) >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-800'}`}>
+                          {BRL(data.totais_ano?.[l.key])}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          </div>
+
+          {data.totais_ano && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <KpiCard label="Receita Líquida (Ano)" value={BRL(data.totais_ano.receita_liquida)} color="green" />
+              <KpiCard label="Total Despesas (Ano)" value={BRL(data.totais_ano.total_despesas)} color="red" />
+              <KpiCard label="Resultado (Ano)" value={BRL(data.totais_ano.resultado)} color={Number(data.totais_ano.resultado) >= 0 ? 'green' : 'red'} />
+              <KpiCard label="EBITDA (Ano)" value={BRL(data.totais_ano.ebitda)} color={Number(data.totais_ano.ebitda) >= 0 ? 'green' : 'red'} />
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function BalancoTab() {
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [dataRef, setDataRef] = useState(new Date().toISOString().split('T')[0])
+
+  useEffect(() => {
+    setLoading(true)
+    api.get('/financeiro/balanco/', { params: { data: dataRef } })
+      .then((r) => setData(r.data))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [dataRef])
+
+  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
+  if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar balanço.</div>
+
+  const BalancoRow = ({ label, value, bold, indent }) => (
+    <div className={`flex justify-between py-1.5 ${indent ? 'pl-4' : ''}`}>
+      <span className={`text-sm ${bold ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{label}</span>
+      <span className={`text-sm font-mono ${bold ? 'font-bold text-gray-900' : 'text-gray-700'}`}>{BRL(value)}</span>
+    </div>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-lg font-semibold text-gray-800">Balanço Patrimonial</h2>
+        <div className="w-40">
+          <Input type="date" value={dataRef} onChange={(e) => setDataRef(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card title="Ativo">
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1">Circulante</p>
+            <BalancoRow label="Caixa e Equivalentes" value={data.ativo.circulante.caixa_equivalentes} indent />
+            <BalancoRow label="Contas a Receber" value={data.ativo.circulante.contas_a_receber} indent />
+            <BalancoRow label="Total Circulante" value={data.ativo.circulante.total} bold />
+            <div className="border-t border-gray-200 mt-2 pt-2">
+              <BalancoRow label="ATIVO TOTAL" value={data.ativo.total} bold />
+            </div>
+          </div>
+        </Card>
+
+        <div className="space-y-4">
+          <Card title="Passivo">
+            <div className="space-y-1">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1">Circulante</p>
+              <BalancoRow label="Contas a Pagar" value={data.passivo.circulante.contas_a_pagar} indent />
+              <BalancoRow label="Total Circulante" value={data.passivo.circulante.total} bold />
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2">Exigível LP</p>
+              <BalancoRow label="Empréstimos" value={data.passivo.exigivel_lp.emprestimos} indent />
+              <BalancoRow label="Total Exigível LP" value={data.passivo.exigivel_lp.total} bold />
+              <div className="border-t border-gray-200 mt-2 pt-2">
+                <BalancoRow label="PASSIVO TOTAL" value={data.passivo.total} bold />
+              </div>
+            </div>
+          </Card>
+
+          <Card title="Patrimônio Líquido">
+            <div className="space-y-1">
+              <BalancoRow label="Capital / Aportes" value={data.patrimonio_liquido.capital_aportes} indent />
+              <BalancoRow label="Lucros Acumulados" value={data.patrimonio_liquido.lucros_acumulados} indent />
+              <div className="border-t border-gray-200 mt-2 pt-2">
+                <BalancoRow label="PL TOTAL" value={data.patrimonio_liquido.total} bold />
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <KpiCard label="Ativo Total" value={BRL(data.total_ativo)} color="blue" />
+        <KpiCard label="Passivo + PL" value={BRL(data.total_passivo_pl)} color="blue" />
+        <div className={`rounded-xl p-4 ${data.equacao_ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+          <p className="text-xs font-medium opacity-70">Equação</p>
+          <p className="text-lg font-bold mt-1">{data.equacao_ok ? 'OK — Balanceado' : 'Desequilíbrio!'}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function IndicadoresTab() {
+  const [indicadores, setIndicadores] = useState(null)
+  const [fluxo, setFluxo] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    setLoading(true)
+    Promise.all([
+      api.get('/financeiro/indicadores/'),
+      api.get('/financeiro/fluxo-projetado/'),
+    ])
+      .then(([ind, fl]) => {
+        setIndicadores(ind.data)
+        setFluxo(fl.data)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
+  if (!indicadores) return <div className="text-center py-12 text-gray-400">Erro ao carregar indicadores.</div>
+
+  const DeltaArrow = ({ value }) => {
+    const v = Number(value || 0)
+    if (v === 0) return <span className="text-gray-400 text-xs">—</span>
+    return (
+      <span className={`text-xs font-semibold ${v > 0 ? 'text-green-600' : 'text-red-600'}`}>
+        {v > 0 ? '▲' : '▼'} {Math.abs(v).toFixed(1)}%
+      </span>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-gray-800">Indicadores de CFO</h2>
+
+      <Card title="Rentabilidade">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Margem Líquida</p>
+            <p className="text-lg font-bold text-gray-900">{indicadores.margem_liquida}%</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">EBITDA (mês)</p>
+            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.ebitda_mes)}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">vs. Mês Anterior</p>
+            <DeltaArrow value={indicadores.var_mes_anterior} />
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">vs. Mesmo Mês (Ano Ant.)</p>
+            <DeltaArrow value={indicadores.var_ano_anterior} />
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Operacional">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Ponto de Equilíbrio</p>
+            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.ponto_equilibrio)}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Ticket Médio</p>
+            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.ticket_medio)}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">MRR</p>
+            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.mrr)}</p>
+          </div>
+        </div>
+      </Card>
+
+      <Card title="Liquidez & Sobrevivência">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Saldo Total</p>
+            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.saldo_total)}</p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Runway</p>
+            <p className={`text-lg font-bold ${Number(indicadores.runway_meses) >= 6 ? 'text-green-700' : Number(indicadores.runway_meses) >= 3 ? 'text-yellow-700' : 'text-red-700'}`}>
+              {indicadores.runway_meses} meses
+            </p>
+          </div>
+          <div className="space-y-1">
+            <p className="text-xs text-gray-500">Resultado (mês)</p>
+            <p className={`text-lg font-bold ${Number(indicadores.resultado_mes) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+              {BRL(indicadores.resultado_mes)}
+            </p>
+          </div>
+        </div>
+      </Card>
+
+      {fluxo && (
+        <Card title="Fluxo de Caixa Projetado (90 dias)">
+          <div className="space-y-3">
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-gray-600">Saldo Atual</span>
+              <span className="font-bold text-blue-700">{BRL(fluxo.saldo_atual)}</span>
+            </div>
+
+            {fluxo.janelas?.map((j) => {
+              const maxVal = Math.max(
+                ...fluxo.janelas.map((w) => Math.max(Number(w.entradas_previstas), Number(w.saidas_previstas), 1))
+              )
+              const wEntrada = (Number(j.entradas_previstas) / maxVal) * 100
+              const wSaida = (Number(j.saidas_previstas) / maxVal) * 100
+              return (
+                <div key={j.periodo} className="space-y-1">
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span>{j.periodo} dias</span>
+                    <span className={Number(j.resultado_previsto) >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                      {BRL(j.resultado_previsto)}
+                    </span>
+                  </div>
+                  <div className="flex gap-1 h-4">
+                    <div className="bg-green-400 rounded" style={{ width: `${wEntrada}%` }} title={`Entradas: ${BRL(j.entradas_previstas)}`} />
+                    <div className="bg-red-400 rounded" style={{ width: `${wSaida}%` }} title={`Saídas: ${BRL(j.saidas_previstas)}`} />
+                  </div>
+                </div>
+              )
+            })}
+
+            <div className="border-t border-gray-200 pt-2 flex justify-between items-center text-sm">
+              <span className="text-gray-600 font-medium">Saldo Projetado (90 dias)</span>
+              <span className={`font-bold ${Number(fluxo.saldo_projetado_90_dias) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                {BRL(fluxo.saldo_projetado_90_dias)}
+              </span>
+            </div>
+
+            <div className="flex gap-4 text-xs text-gray-500">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-green-400 rounded-full" />Entradas</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-red-400 rounded-full" />Saídas</span>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  )
 }
 
 function LivroCaixaTab({ contasOptions }) {

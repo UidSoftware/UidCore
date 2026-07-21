@@ -16,4 +16,8 @@ urlpatterns = [
     path('fluxo-caixa/', views.fluxo_caixa, name='fluxo-caixa'),
     path('dre/', views.dre, name='dre'),
     path('dashboard/', views.dashboard_financeiro, name='dashboard-financeiro'),
+    path('balanco/', views.balanco_patrimonial, name='balanco-patrimonial'),
+    path('fluxo-projetado/', views.fluxo_projetado, name='fluxo-projetado'),
+    path('indicadores/', views.indicadores_cfo, name='indicadores-cfo'),
+    path('inferir-categoria/', views.inferir_categoria, name='inferir-categoria'),
 ]

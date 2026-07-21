@@ -22,6 +22,10 @@ from .serializers import (
     AporteSerializer, CategoriaSerializer, ContaSerializer,
     DespesaSerializer, LivroCaixaSerializer, ReceitaSerializer,
 )
+from .relatorios import (
+    calcular_balanco, calcular_dre_mes, calcular_fluxo_projetado,
+    calcular_indicadores_cfo, inferir_categoria_descricao,
+)
 
 
 class ReadCreateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, GenericViewSet):
@@ -443,6 +447,17 @@ def dre(request):
     except ValueError:
         return Response({'detail': 'Ano inválido.'}, status=400)
 
+    mes_param = request.query_params.get('mes')
+
+    if mes_param:
+        try:
+            mes_num = int(mes_param)
+        except ValueError:
+            return Response({'detail': 'Mês inválido.'}, status=400)
+        dados = calcular_dre_mes(ano, mes_num)
+        dados['mes'] = f'{mes_num:02d}/{ano}'
+        return Response({'ano': ano, 'mes': mes_num, 'dados': dados})
+
     meses = []
     totais = {
         'receita_operacional': Decimal('0'), 'receita_financeira': Decimal('0'),
@@ -450,52 +465,49 @@ def dre(request):
         'receita_liquida': Decimal('0'), 'despesas_fixas': Decimal('0'),
         'despesas_variaveis': Decimal('0'), 'prolabore': Decimal('0'),
         'impostos': Decimal('0'), 'total_despesas': Decimal('0'),
-        'resultado': Decimal('0'),
+        'resultado': Decimal('0'), 'ebitda': Decimal('0'),
     }
 
     for mes in range(1, 13):
-        rec_qs = Receita.objects.filter(
-            recebimento__year=ano, recebimento__month=mes, status='RECEBIDO', is_active=True,
-        )
-        desp_qs = Despesa.objects.filter(
-            pagamento__year=ano, pagamento__month=mes, status='PAGO', is_active=True, estornado=False,
-        )
-
-        receita_operacional = rec_qs.exclude(tipo='RECEITA_FINANCEIRA').aggregate(v=Sum('valor_bruto'))['v'] or Decimal('0')
-        receita_financeira = rec_qs.filter(tipo='RECEITA_FINANCEIRA').aggregate(v=Sum('valor_bruto'))['v'] or Decimal('0')
-        receita_bruta = receita_operacional + receita_financeira
-        descontos = rec_qs.aggregate(v=Sum('desconto'))['v'] or Decimal('0')
-        receita_liq = receita_bruta - descontos
-
-        fixas = desp_qs.filter(tipo='FIXA').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
-        variaveis = desp_qs.filter(tipo='VARIAVEL').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
-        prolabore = desp_qs.filter(tipo='PROLABORE').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
-        impostos = desp_qs.filter(tipo='IMPOSTO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
-        outros = desp_qs.filter(tipo='OUTRO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
-        total_desp = fixas + variaveis + prolabore + impostos + outros
-        resultado = receita_liq - total_desp
-
-        dados_mes = {
-            'mes': f'{mes:02d}/{ano}',
-            'receita_operacional': receita_operacional,
-            'receita_financeira': receita_financeira,
-            'receita_bruta': receita_bruta,
-            'descontos': descontos,
-            'receita_liquida': receita_liq,
-            'despesas_fixas': fixas,
-            'despesas_variaveis': variaveis,
-            'prolabore': prolabore,
-            'impostos': impostos,
-            'outros': outros,
-            'total_despesas': total_desp,
-            'resultado': resultado,
-        }
-        meses.append(dados_mes)
+        dados = calcular_dre_mes(ano, mes)
+        dados['mes'] = f'{mes:02d}/{ano}'
+        meses.append(dados)
 
         for k in totais:
-            totais[k] += dados_mes.get(k, Decimal('0'))
+            totais[k] += dados.get(k, Decimal('0'))
 
     return Response({'ano': ano, 'meses': meses, 'totais_ano': totais})
+
+
+@api_view(['GET'])
+def balanco_patrimonial(request):
+    data_str = request.query_params.get('data')
+    data_ref = None
+    if data_str:
+        try:
+            data_ref = date.fromisoformat(data_str)
+        except ValueError:
+            return Response({'detail': 'Data inválida. Use YYYY-MM-DD.'}, status=400)
+    return Response(calcular_balanco(data_ref))
+
+
+@api_view(['GET'])
+def fluxo_projetado(request):
+    return Response(calcular_fluxo_projetado())
+
+
+@api_view(['GET'])
+def indicadores_cfo(request):
+    return Response(calcular_indicadores_cfo())
+
+
+@api_view(['POST'])
+def inferir_categoria(request):
+    descricao = request.data.get('descricao', '')
+    if not descricao.strip():
+        return Response({'detail': 'Descrição é obrigatória.'}, status=400)
+    sugestao = inferir_categoria_descricao(descricao)
+    return Response({'categoria_sugerida': sugestao})
 
 
 @api_view(['GET'])
@@ -566,6 +578,9 @@ def dashboard_financeiro(request):
             'receita': rec, 'despesa': des, 'resultado': rec - des,
         })
 
+    indicadores = calcular_indicadores_cfo()
+    balanco = calcular_balanco()
+
     return Response({
         'receita_mes': receita_mes,
         'despesa_mes': despesa_mes,
@@ -577,4 +592,10 @@ def dashboard_financeiro(request):
         'grafico_6_meses': grafico,
         'receitas_atrasadas': Receita.objects.filter(is_active=True, status='ATRASADO').count(),
         'despesas_atrasadas': Despesa.objects.filter(is_active=True, status='ATRASADO').count(),
+        'indicadores': indicadores,
+        'balanco_resumo': {
+            'pl_total': balanco['patrimonio_liquido']['total'],
+            'ativo_total': balanco['ativo']['total'],
+            'passivo_total': balanco['passivo']['total'],
+        },
     })
