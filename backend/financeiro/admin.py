@@ -48,3 +48,26 @@ class LivroCaixaAdmin(admin.ModelAdmin):
     search_fields = ['descricao']
     date_hierarchy = 'data'
     readonly_fields = ['saldo_anterior', 'saldo_atual', 'criado_em']
+from .models import ConciliacaoExtrato, ItemConciliacao, PadraoSeguroConciliacao
+
+
+@admin.register(ConciliacaoExtrato)
+class ConciliacaoExtratoAdmin(admin.ModelAdmin):
+    list_display = ['conta', 'periodo', 'status', 'total_banco', 'total_sistema', 'divergencias', 'processado_em']
+    list_filter = ['status', 'conta']
+    date_hierarchy = 'periodo'
+    readonly_fields = ['processado_em', 'total_banco', 'total_sistema', 'divergencias']
+
+
+@admin.register(ItemConciliacao)
+class ItemConciliacaoAdmin(admin.ModelAdmin):
+    list_display = ['conciliacao', 'data_banco', 'descricao_banco', 'valor', 'tipo', 'status', 'confirmado']
+    list_filter = ['status', 'tipo', 'confirmado']
+    search_fields = ['descricao_banco']
+
+
+@admin.register(PadraoSeguroConciliacao)
+class PadraoSeguroConciliacaoAdmin(admin.ModelAdmin):
+    list_display = ['descricao_padrao', 'tipo', 'natureza', 'ativo', 'criado_em']
+    list_filter = ['tipo', 'natureza', 'ativo']
+    search_fields = ['descricao_padrao']

@@ -243,3 +243,93 @@ class LivroCaixa(models.Model):
 
     def __str__(self):
         return f'{self.get_tipo_display()} R$ {self.valor} — {self.descricao}'
+
+
+# --- Conciliacao Bancaria ---
+
+class StatusConciliacao(models.TextChoices):
+    PENDENTE         = 'PENDENTE',         'Pendente'
+    PROCESSADO       = 'PROCESSADO',       'Processado'
+    COM_DIVERGENCIAS = 'COM_DIVERGENCIAS', 'Com Divergencias'
+
+
+class ConciliacaoExtrato(BaseModel):
+    conta         = models.ForeignKey(Conta, on_delete=models.PROTECT, related_name='conciliacoes')
+    arquivo_nome  = models.CharField(max_length=500)
+    periodo       = models.DateField()
+    processado_em = models.DateTimeField(auto_now_add=True)
+    status        = models.CharField(
+        max_length=20, choices=StatusConciliacao.choices, default='PENDENTE',
+    )
+    total_banco   = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_sistema = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    divergencias  = models.IntegerField(default=0)
+    criado_por    = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+    )
+
+    class Meta:
+        db_table = 'fin_conciliacao_extrato'
+        ordering = ['-processado_em']
+
+    def __str__(self):
+        return f'Conciliacao {self.conta.nome} — {self.periodo.strftime("%m/%Y")}'
+
+
+class StatusItemConciliacao(models.TextChoices):
+    CONCILIADO       = 'CONCILIADO',       'Conciliado'
+    FALTANDO_SISTEMA = 'FALTANDO_SISTEMA', 'Faltando no Sistema'
+    FALTANDO_BANCO   = 'FALTANDO_BANCO',   'Faltando no Banco'
+
+
+class ItemConciliacao(models.Model):
+    conciliacao     = models.ForeignKey(
+        ConciliacaoExtrato, on_delete=models.CASCADE, related_name='itens',
+    )
+    data_banco      = models.DateField()
+    descricao_banco = models.CharField(max_length=500)
+    valor           = models.DecimalField(max_digits=12, decimal_places=2)
+    tipo            = models.CharField(max_length=10, choices=TipoLancamento.choices)
+    status          = models.CharField(max_length=20, choices=StatusItemConciliacao.choices)
+    lancamento_lc   = models.ForeignKey(
+        LivroCaixa, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='conciliacoes',
+    )
+    confirmado      = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'fin_item_conciliacao'
+        ordering = ['data_banco']
+
+    def __str__(self):
+        return f'{self.data_banco} {self.tipo} R${self.valor} — {self.status}'
+
+
+class NaturezaPadraoConciliacao(models.TextChoices):
+    APORTE             = 'APORTE',             'Aporte (capital social)'
+    RECEITA_FINANCEIRA = 'RECEITA_FINANCEIRA', 'Receita Financeira (rendimento)'
+
+
+class PadraoSeguroConciliacao(models.Model):
+    descricao_padrao = models.CharField(max_length=300)
+    tipo             = models.CharField(max_length=10, choices=TipoLancamento.choices)
+    natureza         = models.CharField(
+        max_length=20,
+        choices=NaturezaPadraoConciliacao.choices,
+        default='APORTE',
+        help_text='Apenas para tipo=ENTRADA: APORTE vai para PL; RECEITA_FINANCEIRA entra no DRE.',
+    )
+    ativo            = models.BooleanField(default=True)
+    criado_em        = models.DateTimeField(auto_now_add=True)
+    criado_por       = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+    )
+
+    class Meta:
+        db_table = 'fin_padrao_seguro_conciliacao'
+        ordering = ['tipo', 'descricao_padrao']
+
+    def __str__(self):
+        return f'[{self.tipo}] {self.descricao_padrao}'

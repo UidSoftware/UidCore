@@ -10,6 +10,8 @@ router.register('aportes', views.AporteViewSet, basename='aporte')
 router.register('receitas', views.ReceitaViewSet, basename='receita')
 router.register('despesas', views.DespesaViewSet, basename='despesa')
 router.register('livro-caixa', views.LivroCaixaViewSet, basename='livro-caixa')
+router.register('conciliacoes', views.ConciliacaoViewSet, basename='conciliacao')
+router.register('padroes-conciliacao', views.PadraoSeguroConciliacaoViewSet, basename='padrao-conciliacao')
 
 urlpatterns = [
     path('', include(router.urls)),

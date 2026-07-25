@@ -104,3 +104,53 @@ class LivroCaixaSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id', 'criado_em', 'saldo_anterior', 'saldo_atual', 'estornado', 'estorno_de',
         ]
+
+
+# --- Conciliacao Bancaria ---
+
+from .models import ConciliacaoExtrato, ItemConciliacao, PadraoSeguroConciliacao
+
+
+class ConciliacaoExtratoSerializer(serializers.ModelSerializer):
+    id           = serializers.IntegerField(source='pk', read_only=True)
+    conta_nome   = serializers.CharField(source='conta.nome', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = ConciliacaoExtrato
+        fields = [
+            'id', 'conta', 'conta_nome', 'arquivo_nome', 'periodo',
+            'processado_em', 'status', 'status_label',
+            'total_banco', 'total_sistema', 'divergencias',
+        ]
+        read_only_fields = [
+            'id', 'conta_nome', 'processado_em', 'status', 'status_label',
+            'total_banco', 'total_sistema', 'divergencias',
+        ]
+
+
+class ItemConciliacaoSerializer(serializers.ModelSerializer):
+    id           = serializers.IntegerField(source='pk', read_only=True)
+    tipo_label   = serializers.CharField(source='get_tipo_display', read_only=True)
+    status_label = serializers.CharField(source='get_status_display', read_only=True)
+
+    class Meta:
+        model = ItemConciliacao
+        fields = [
+            'id', 'conciliacao', 'data_banco', 'descricao_banco',
+            'valor', 'tipo', 'tipo_label', 'status', 'status_label',
+            'lancamento_lc', 'confirmado',
+        ]
+
+
+class PadraoSeguroConciliacaoSerializer(serializers.ModelSerializer):
+    id             = serializers.IntegerField(source='pk', read_only=True)
+    tipo_label     = serializers.CharField(source='get_tipo_display', read_only=True)
+    natureza_label = serializers.CharField(source='get_natureza_display', read_only=True)
+
+    class Meta:
+        model = PadraoSeguroConciliacao
+        fields = [
+            'id', 'descricao_padrao', 'tipo', 'tipo_label',
+            'natureza', 'natureza_label', 'ativo', 'criado_em',
+        ]

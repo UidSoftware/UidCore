@@ -599,3 +599,138 @@ def dashboard_financeiro(request):
             'passivo_total': balanco['passivo']['total'],
         },
     })
+
+
+# --- Conciliacao Bancaria ---
+
+import tempfile
+import os
+
+from rest_framework.parsers import MultiPartParser, FormParser
+from rest_framework.viewsets import ReadOnlyModelViewSet, ModelViewSet
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
+
+from .models import (
+    ConciliacaoExtrato, ItemConciliacao, PadraoSeguroConciliacao,
+)
+from .serializers import (
+    ConciliacaoExtratoSerializer, ItemConciliacaoSerializer,
+    PadraoSeguroConciliacaoSerializer,
+)
+from .parsers import extrair_texto_pdf, get_parser
+from .conciliacao_service import criar_conciliacao
+
+
+class ConciliacaoViewSet(ReadOnlyModelViewSet):
+    queryset = ConciliacaoExtrato.objects.filter(is_active=True)
+    serializer_class = ConciliacaoExtratoSerializer
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['post'], url_path='upload', parser_classes=[MultiPartParser])
+    def upload(self, request):
+        from datetime import datetime
+
+        arquivo = request.data.get('arquivo')
+        conta_id = request.data.get('conta_id')
+        periodo_str = request.data.get('periodo')
+        senha = request.data.get('senha') or None
+        auto = str(request.data.get('auto', 'false')).lower() in ('true', '1', 'yes')
+
+        if not arquivo or not conta_id or not periodo_str:
+            return Response(
+                {'erro': 'arquivo, conta_id e periodo sao obrigatorios.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            conta = Conta.objects.get(pk=conta_id, is_active=True)
+        except Conta.DoesNotExist:
+            return Response({'erro': 'Conta nao encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            periodo = datetime.strptime(periodo_str + '-01', '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'erro': 'Formato de periodo invalido. Use YYYY-MM.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # Salva arquivo temporario
+        sufixo = os.path.splitext(arquivo.name)[1] or '.pdf'
+        with tempfile.NamedTemporaryFile(delete=False, suffix=sufixo) as tmp:
+            for chunk in arquivo.chunks():
+                tmp.write(chunk)
+            tmp_path = tmp.name
+
+        try:
+            texto = extrair_texto_pdf(tmp_path, senha=senha)
+        except RuntimeError as e:
+            return Response({'erro': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+        try:
+            parser = get_parser(conta.nome)
+        except ValueError as e:
+            return Response({'erro': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        transacoes_banco = parser(texto, ano=periodo.year)
+        transacoes_banco = [
+            t for t in transacoes_banco
+            if t['data'].year == periodo.year and t['data'].month == periodo.month
+        ]
+
+        conc = criar_conciliacao(
+            conta=conta,
+            transacoes_banco=transacoes_banco,
+            periodo=periodo,
+            arquivo_nome=arquivo.name,
+            criado_por=request.user,
+            auto=auto,
+        )
+
+        return Response(
+            ConciliacaoExtratoSerializer(conc).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    @action(detail=True, methods=['get'], url_path='itens')
+    def itens(self, request, pk=None):
+        conciliacao = self.get_object()
+        return Response(
+            ItemConciliacaoSerializer(conciliacao.itens.all(), many=True).data
+        )
+
+    @action(detail=True, methods=['post'], url_path='confirmar-item')
+    def confirmar_item(self, request, pk=None):
+        conciliacao = self.get_object()
+        item_id = request.data.get('item_id')
+        if not item_id:
+            return Response({'erro': 'item_id e obrigatorio.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        item = get_object_or_404(ItemConciliacao, pk=item_id, conciliacao=conciliacao)
+        item.confirmado = True
+        item.save(update_fields=['confirmado'])
+
+        divergencias = conciliacao.itens.filter(
+            status='FALTANDO_SISTEMA', confirmado=False
+        ).count()
+        conciliacao.divergencias = divergencias
+        conciliacao.status = 'PROCESSADO' if divergencias == 0 else 'COM_DIVERGENCIAS'
+        conciliacao.save(update_fields=['divergencias', 'status'])
+
+        return Response({'ok': True, 'divergencias_restantes': divergencias})
+
+
+class PadraoSeguroConciliacaoViewSet(ModelViewSet):
+    queryset = PadraoSeguroConciliacao.objects.filter(ativo=True)
+    serializer_class = PadraoSeguroConciliacaoSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_destroy(self, instance):
+        instance.ativo = False
+        instance.save(update_fields=['ativo'])
