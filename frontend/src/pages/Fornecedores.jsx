@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client.js'
+import { extractErrorMessage } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
@@ -89,7 +90,7 @@ export default function Fornecedores() {
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
+    setTimeout(() => setToast(null), type === 'error' ? 7000 : 3500)
   }
 
   const fetchFornecedores = useCallback(async () => {
@@ -164,8 +165,8 @@ export default function Fornecedores() {
       }
       closeModal()
       fetchFornecedores()
-    } catch {
-      showToast('Erro ao salvar fornecedor.', 'error')
+    } catch (error) {
+      showToast(extractErrorMessage(error, 'Erro ao salvar fornecedor.'), 'error')
     } finally {
       setSaving(false)
     }
@@ -177,8 +178,8 @@ export default function Fornecedores() {
       await api.delete(`/fornecedores/${fornecedor.id}/`)
       showToast('Fornecedor removido.')
       fetchFornecedores()
-    } catch {
-      showToast('Erro ao remover fornecedor.', 'error')
+    } catch (error) {
+      showToast(extractErrorMessage(error, 'Erro ao remover fornecedor.'), 'error')
     }
   }
 
@@ -192,7 +193,7 @@ export default function Fornecedores() {
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${
+          className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white whitespace-pre-line break-words ${
             toast.type === 'error' ? 'bg-red-600' : 'bg-accent-600'
           }`}
         >

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client.js'
+import { extractErrorMessage } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
@@ -95,7 +96,7 @@ export default function Financeiro() {
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
+    setTimeout(() => setToast(null), type === 'error' ? 7000 : 3500)
   }
 
   useEffect(() => {
@@ -110,7 +111,7 @@ export default function Financeiro() {
   return (
     <div className="space-y-4">
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${toast.type === 'error' ? 'bg-red-600' : 'bg-accent-600'}`}>
+        <div className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white whitespace-pre-line break-words ${toast.type === 'error' ? 'bg-red-600' : 'bg-accent-600'}`}>
           {toast.msg}
         </div>
       )}
@@ -317,7 +318,7 @@ function ReceitasTab({ showToast, contasOptions }) {
         showToast('Receita cadastrada.')
       }
       closeModal(); fetch()
-    } catch { showToast('Erro ao salvar receita.', 'error') }
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao salvar receita.'), 'error') }
     finally { setSaving(false) }
   }
 
@@ -326,13 +327,13 @@ function ReceitasTab({ showToast, contasOptions }) {
       await api.patch(`/financeiro/receitas/${item.id}/receber/`, {})
       showToast('Receita marcada como recebida.')
       fetch()
-    } catch { showToast('Erro ao marcar recebimento.', 'error') }
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao marcar recebimento.'), 'error') }
   }
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Excluir "${item.descricao}"?`)) return
     try { await api.delete(`/financeiro/receitas/${item.id}/`); showToast('Receita removida.'); fetch() }
-    catch { showToast('Erro ao remover.', 'error') }
+    catch (error) { showToast(extractErrorMessage(error, 'Erro ao remover.'), 'error') }
   }
 
   return (
@@ -519,7 +520,7 @@ function DespesasTab({ showToast, contasOptions }) {
         showToast('Despesa cadastrada.')
       }
       closeModal(); fetch()
-    } catch { showToast('Erro ao salvar despesa.', 'error') }
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao salvar despesa.'), 'error') }
     finally { setSaving(false) }
   }
 
@@ -528,13 +529,13 @@ function DespesasTab({ showToast, contasOptions }) {
       await api.patch(`/financeiro/despesas/${item.id}/pagar/`, {})
       showToast('Despesa marcada como paga.')
       fetch()
-    } catch { showToast('Erro ao marcar pagamento.', 'error') }
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao marcar pagamento.'), 'error') }
   }
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Excluir "${item.descricao}"?`)) return
     try { await api.delete(`/financeiro/despesas/${item.id}/`); showToast('Despesa removida.'); fetch() }
-    catch { showToast('Erro ao remover.', 'error') }
+    catch (error) { showToast(extractErrorMessage(error, 'Erro ao remover.'), 'error') }
   }
 
   return (
@@ -718,14 +719,14 @@ function ContasTab({ showToast }) {
         showToast('Conta cadastrada.')
       }
       closeModal(); fetch()
-    } catch { showToast('Erro ao salvar conta.', 'error') }
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao salvar conta.'), 'error') }
     finally { setSaving(false) }
   }
 
   const handleDelete = async (item) => {
     if (!window.confirm(`Excluir a conta "${item.nome}"?`)) return
     try { await api.delete(`/financeiro/contas/${item.id}/`); showToast('Conta removida.'); fetch() }
-    catch { showToast('Erro ao remover conta.', 'error') }
+    catch (error) { showToast(extractErrorMessage(error, 'Erro ao remover conta.'), 'error') }
   }
 
   return (

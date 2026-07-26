@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../../api/client.js'
+import { extractErrorMessage } from '../../utils/errors.js'
 import Card from './Card.jsx'
 import Button from './Button.jsx'
 import Input from './Input.jsx'
@@ -47,7 +48,7 @@ export default function ResourceCrud({
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
-    setTimeout(() => setToast(null), 3500)
+    setTimeout(() => setToast(null), type === 'error' ? 7000 : 3500)
   }
 
   const fetchItems = useCallback(async () => {
@@ -137,8 +138,8 @@ export default function ResourceCrud({
       }
       closeModal()
       fetchItems()
-    } catch {
-      showToast('Erro ao salvar. Confira os campos obrigatórios.', 'error')
+    } catch (error) {
+      showToast(extractErrorMessage(error, 'Erro ao salvar.'), 'error')
     } finally {
       setSaving(false)
     }
@@ -152,8 +153,8 @@ export default function ResourceCrud({
       await api.delete(`/${resource}/${item.id}/`)
       showToast('Registro removido.')
       fetchItems()
-    } catch {
-      showToast('Erro ao remover registro.', 'error')
+    } catch (error) {
+      showToast(extractErrorMessage(error, 'Erro ao remover registro.'), 'error')
     }
   }
 
@@ -261,7 +262,7 @@ export default function ResourceCrud({
     <div className="space-y-4">
       {toast && (
         <div
-          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${
+          className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white whitespace-pre-line break-words ${
             toast.type === 'error' ? 'bg-red-600' : 'bg-accent-600'
           }`}
         >
