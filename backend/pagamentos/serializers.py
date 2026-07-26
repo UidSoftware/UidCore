@@ -28,7 +28,7 @@ class CobrancaSerializer(serializers.ModelSerializer):
             'vencimento', 'status', 'status_label', 'metodo', 'metodo_nome',
             'data_pagamento', 'comprovante', 'observacoes', 'is_active', 'created_at',
         ]
-        read_only_fields = ['id', 'cliente_nome', 'metodo_nome', 'status_label', 'created_at']
+        read_only_fields = ['id', 'cliente_nome', 'metodo_nome', 'status_label', 'is_active', 'created_at']
 
 
 class ParcelaSerializer(serializers.ModelSerializer):

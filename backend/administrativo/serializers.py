@@ -27,4 +27,4 @@ class DocumentoSerializer(serializers.ModelSerializer):
             'cliente', 'cliente_nome', 'descricao', 'status', 'status_label',
             'validade', 'is_active', 'created_at',
         ]
-        read_only_fields = ['id', 'tipo_nome', 'cliente_nome', 'status_label', 'created_at']
+        read_only_fields = ['id', 'tipo_nome', 'cliente_nome', 'status_label', 'is_active', 'created_at']
