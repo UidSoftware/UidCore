@@ -17,7 +17,8 @@ class StatusOrcamento(models.TextChoices):
 class Orcamento(BaseModel):
     numero      = models.CharField(max_length=20, unique=True, blank=True)
     cliente     = models.ForeignKey(
-        'clientes.Cliente', on_delete=models.PROTECT, related_name='orcamentos',
+        'clientes.Cliente', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='orcamentos',
     )
     descricao   = models.TextField(blank=True)
     valor_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -68,7 +69,8 @@ class StatusPedido(models.TextChoices):
 class Pedido(BaseModel):
     numero               = models.CharField(max_length=20, unique=True, blank=True)
     cliente              = models.ForeignKey(
-        'clientes.Cliente', on_delete=models.PROTECT, related_name='pedidos',
+        'clientes.Cliente', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='pedidos',
     )
     orcamento            = models.ForeignKey(
         Orcamento, null=True, blank=True,
@@ -113,10 +115,12 @@ class Pedido(BaseModel):
 
 
 class ItemPedido(BaseModel):
-    pedido         = models.ForeignKey(Pedido, on_delete=models.CASCADE, related_name='itens')
-    descricao      = models.CharField(max_length=255)
+    pedido         = models.ForeignKey(
+        Pedido, null=True, blank=True, on_delete=models.CASCADE, related_name='itens',
+    )
+    descricao      = models.CharField(max_length=255, blank=True)
     quantidade     = models.IntegerField(default=1)
-    valor_unitario = models.DecimalField(max_digits=12, decimal_places=2)
+    valor_unitario = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     valor_total    = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
 
     class Meta:

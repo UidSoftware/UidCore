@@ -25,10 +25,10 @@ export default function Portal() {
         ]}
         fields={[
           {
-            name: 'usuario', label: 'ID do Usuário', type: 'number', min: '1', required: true,
+            name: 'usuario', label: 'ID do Usuário', type: 'number', min: '1',
             placeholder: 'ID do usuário já cadastrado (accounts.User)',
           },
-          { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social', required: true },
+          { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social' },
           { name: 'ativo', label: 'Ativo', type: 'checkbox' },
         ]}
         emptyForm={{ usuario: '', cliente: '', ativo: true }}

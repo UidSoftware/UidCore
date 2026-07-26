@@ -55,9 +55,9 @@ export default function Administrativo() {
             { key: 'validade', label: 'Validade', date: true },
           ]}
           fields={[
-            { name: 'titulo', label: 'Título', type: 'text', required: true },
-            { name: 'tipo', label: 'Tipo de Documento', type: 'select-remote', endpoint: 'administrativo/tipos', labelField: 'nome', required: true },
-            { name: 'arquivo', label: 'Arquivo', type: 'file', required: true },
+            { name: 'titulo', label: 'Título', type: 'text' },
+            { name: 'tipo', label: 'Tipo de Documento', type: 'select-remote', endpoint: 'administrativo/tipos', labelField: 'nome' },
+            { name: 'arquivo', label: 'Arquivo', type: 'file' },
             { name: 'cliente', label: 'Cliente (opcional)', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_DOCUMENTO },
             { name: 'validade', label: 'Validade', type: 'date' },
@@ -80,7 +80,7 @@ export default function Administrativo() {
             { key: 'descricao', label: 'Descrição' },
           ]}
           fields={[
-            { name: 'nome', label: 'Nome', type: 'text', required: true },
+            { name: 'nome', label: 'Nome', type: 'text' },
             { name: 'descricao', label: 'Descrição', type: 'textarea' },
           ]}
           emptyForm={{ nome: '', descricao: '' }}

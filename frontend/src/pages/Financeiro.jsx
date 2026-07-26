@@ -438,11 +438,11 @@ function ReceitasTab({ showToast, contasOptions }) {
               <Select label="Tipo" name="tipo" options={TIPO_RECEITA} value={form.tipo} onChange={handleChange} />
               <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
             </div>
-            <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} required />
+            <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} required />
+              <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} />
               <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
-              <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} required />
+              <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} />
             </div>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700">Observações</label>
@@ -641,12 +641,12 @@ function DespesasTab({ showToast, contasOptions }) {
               <Select label="Tipo" name="tipo" options={TIPO_DESPESA} value={form.tipo} onChange={handleChange} />
               <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
             </div>
-            <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} required />
+            <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} />
             <Input label="Fornecedor" name="fornecedor" value={form.fornecedor} onChange={handleChange} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} required />
+              <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} />
               <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
-              <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} required />
+              <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} />
             </div>
             <Select label="Forma de Pagamento" name="forma_pagamento" options={FORMA_PAGAMENTO} value={form.forma_pagamento} onChange={handleChange} />
             <div className="flex flex-col gap-1">
@@ -774,7 +774,7 @@ function ContasTab({ showToast }) {
       {modalOpen && (
         <Modal title={editingId ? 'Editar Conta' : 'Nova Conta'} onClose={closeModal}>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <Input label="Nome" name="nome" value={form.nome} onChange={handleChange} required />
+            <Input label="Nome" name="nome" value={form.nome} onChange={handleChange} />
             <Select label="Tipo" name="tipo" options={TIPO_CONTA} value={form.tipo} onChange={handleChange} />
             <Input label="Banco" name="banco" value={form.banco} onChange={handleChange} />
             <div className="grid grid-cols-2 gap-4">

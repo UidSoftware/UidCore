@@ -389,7 +389,6 @@ export default function Fornecedores() {
               value={form.nome_razao_social}
               onChange={handleChange}
               placeholder="Nome ou razão social do fornecedor"
-              required
             />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

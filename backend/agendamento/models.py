@@ -5,7 +5,7 @@ from common.models import BaseModel
 
 
 class Agenda(BaseModel):
-    nome      = models.CharField(max_length=100)
+    nome      = models.CharField(max_length=100, blank=True)
     descricao = models.TextField(blank=True)
     cor       = models.CharField(max_length=7, default='#3B82F6')
     ativo     = models.BooleanField(default=True)
@@ -26,11 +26,13 @@ class StatusCompromisso(models.TextChoices):
 
 
 class Compromisso(BaseModel):
-    agenda      = models.ForeignKey(Agenda, on_delete=models.PROTECT, related_name='compromissos')
-    titulo      = models.CharField(max_length=255)
+    agenda      = models.ForeignKey(
+        Agenda, null=True, blank=True, on_delete=models.PROTECT, related_name='compromissos',
+    )
+    titulo      = models.CharField(max_length=255, blank=True)
     descricao   = models.TextField(blank=True)
-    inicio      = models.DateTimeField()
-    fim         = models.DateTimeField()
+    inicio      = models.DateTimeField(null=True, blank=True)
+    fim         = models.DateTimeField(null=True, blank=True)
     local       = models.CharField(max_length=255, blank=True)
     cliente     = models.ForeignKey(
         'clientes.Cliente', null=True, blank=True,

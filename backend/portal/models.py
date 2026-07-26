@@ -4,10 +4,12 @@ from django.db import models
 
 class AcessoPortalCliente(models.Model):
     usuario       = models.OneToOneField(
-        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='acesso_portal',
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.CASCADE, related_name='acesso_portal',
     )
     cliente       = models.ForeignKey(
-        'clientes.Cliente', on_delete=models.PROTECT, related_name='acessos_portal',
+        'clientes.Cliente', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='acessos_portal',
     )
     ativo         = models.BooleanField(default=True)
     ultimo_acesso = models.DateTimeField(null=True, blank=True)

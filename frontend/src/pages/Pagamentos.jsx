@@ -72,10 +72,10 @@ export default function Pagamentos() {
             { key: 'metodo_nome', label: 'Método' },
           ]}
           fields={[
-            { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social', required: true },
-            { name: 'descricao', label: 'Descrição', type: 'text', required: true },
-            { name: 'valor', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0', required: true },
-            { name: 'vencimento', label: 'Vencimento', type: 'date', required: true },
+            { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social' },
+            { name: 'descricao', label: 'Descrição', type: 'text' },
+            { name: 'valor', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0' },
+            { name: 'vencimento', label: 'Vencimento', type: 'date' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_COBRANCA },
             { name: 'metodo', label: 'Método', type: 'select-remote', endpoint: 'pagamentos/metodos', labelField: 'nome_display' },
             { name: 'data_pagamento', label: 'Data Pagamento', type: 'date' },
@@ -100,10 +100,10 @@ export default function Pagamentos() {
             { key: 'status_label', label: 'Status', badge: true },
           ]}
           fields={[
-            { name: 'cobranca', label: 'Cobrança', type: 'select-remote', endpoint: 'pagamentos/cobrancas', labelField: 'descricao', required: true },
-            { name: 'numero', label: 'Número', type: 'number', min: '1', required: true },
-            { name: 'valor', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0', required: true },
-            { name: 'vencimento', label: 'Vencimento', type: 'date', required: true },
+            { name: 'cobranca', label: 'Cobrança', type: 'select-remote', endpoint: 'pagamentos/cobrancas', labelField: 'descricao' },
+            { name: 'numero', label: 'Número', type: 'number', min: '1' },
+            { name: 'valor', label: 'Valor (R$)', type: 'number', step: '0.01', min: '0' },
+            { name: 'vencimento', label: 'Vencimento', type: 'date' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_PARCELA },
             { name: 'data_pagamento', label: 'Data Pagamento', type: 'date' },
           ]}
@@ -124,7 +124,7 @@ export default function Pagamentos() {
             { key: 'ativo', label: 'Ativo', boolean: true },
           ]}
           fields={[
-            { name: 'nome', label: 'Nome', type: 'select', options: NOME_METODO, required: true },
+            { name: 'nome', label: 'Nome', type: 'select', options: NOME_METODO },
             { name: 'ativo', label: 'Ativo', type: 'checkbox' },
           ]}
           emptyForm={{ nome: 'PIX', ativo: true }}

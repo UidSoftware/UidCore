@@ -65,7 +65,7 @@ export default function Vendas() {
             { key: 'validade', label: 'Validade', date: true },
           ]}
           fields={[
-            { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social', required: true },
+            { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social' },
             { name: 'valor_total', label: 'Valor Total (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_ORCAMENTO },
             { name: 'validade', label: 'Validade', type: 'date' },
@@ -92,7 +92,7 @@ export default function Vendas() {
             { key: 'data_entrega_prevista', label: 'Entrega prevista', date: true },
           ]}
           fields={[
-            { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social', required: true },
+            { name: 'cliente', label: 'Cliente', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social' },
             { name: 'valor_total', label: 'Valor Total (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_PEDIDO },
             { name: 'data_pedido', label: 'Data do Pedido', type: 'date' },
@@ -118,8 +118,8 @@ export default function Vendas() {
             { key: 'valor_total', label: 'Total', money: true },
           ]}
           fields={[
-            { name: 'pedido', label: 'Pedido', type: 'select-remote', endpoint: 'vendas/pedidos', labelField: 'numero', required: true },
-            { name: 'descricao', label: 'Descrição', type: 'text', required: true },
+            { name: 'pedido', label: 'Pedido', type: 'select-remote', endpoint: 'vendas/pedidos', labelField: 'numero' },
+            { name: 'descricao', label: 'Descrição', type: 'text' },
             { name: 'quantidade', label: 'Quantidade', type: 'number', min: '1' },
             { name: 'valor_unitario', label: 'Valor Unitário (R$)', type: 'number', step: '0.01', min: '0' },
           ]}

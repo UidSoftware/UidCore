@@ -55,11 +55,11 @@ export default function Agendamento() {
             { key: 'status_label', label: 'Status', badge: true },
           ]}
           fields={[
-            { name: 'titulo', label: 'Título', type: 'text', required: true },
-            { name: 'agenda', label: 'Agenda', type: 'select-remote', endpoint: 'agendamento/agendas', labelField: 'nome', required: true },
+            { name: 'titulo', label: 'Título', type: 'text' },
+            { name: 'agenda', label: 'Agenda', type: 'select-remote', endpoint: 'agendamento/agendas', labelField: 'nome' },
             { name: 'cliente', label: 'Cliente (opcional)', type: 'select-remote', endpoint: 'clientes', labelField: 'nome_razao_social' },
-            { name: 'inicio', label: 'Início', type: 'datetime-local', required: true },
-            { name: 'fim', label: 'Fim', type: 'datetime-local', required: true },
+            { name: 'inicio', label: 'Início', type: 'datetime-local' },
+            { name: 'fim', label: 'Fim', type: 'datetime-local' },
             { name: 'local', label: 'Local', type: 'text' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_COMPROMISSO },
             { name: 'descricao', label: 'Descrição', type: 'textarea' },
@@ -83,7 +83,7 @@ export default function Agendamento() {
             { key: 'ativo', label: 'Ativa', boolean: true },
           ]}
           fields={[
-            { name: 'nome', label: 'Nome', type: 'text', required: true },
+            { name: 'nome', label: 'Nome', type: 'text' },
             { name: 'cor', label: 'Cor (hex)', type: 'text', placeholder: '#3B82F6' },
             { name: 'descricao', label: 'Descrição', type: 'textarea' },
             { name: 'ativo', label: 'Ativa', type: 'checkbox' },

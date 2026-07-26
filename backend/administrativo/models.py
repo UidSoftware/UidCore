@@ -5,7 +5,7 @@ from common.models import BaseModel
 
 
 class TipoDocumento(BaseModel):
-    nome      = models.CharField(max_length=100, unique=True)
+    nome      = models.CharField(max_length=100, unique=True, null=True, blank=True)
     descricao = models.TextField(blank=True)
 
     class Meta:
@@ -24,11 +24,12 @@ class StatusDocumento(models.TextChoices):
 
 
 class Documento(BaseModel):
-    titulo     = models.CharField(max_length=255)
+    titulo     = models.CharField(max_length=255, blank=True)
     tipo       = models.ForeignKey(
-        TipoDocumento, on_delete=models.PROTECT, related_name='documentos',
+        TipoDocumento, null=True, blank=True,
+        on_delete=models.PROTECT, related_name='documentos',
     )
-    arquivo    = models.FileField(upload_to='docs/')
+    arquivo    = models.FileField(upload_to='docs/', null=True, blank=True)
     cliente    = models.ForeignKey(
         'clientes.Cliente', null=True, blank=True,
         on_delete=models.PROTECT, related_name='documentos',

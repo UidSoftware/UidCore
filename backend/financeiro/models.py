@@ -14,8 +14,8 @@ class TipoConta(models.TextChoices):
 
 
 class Conta(BaseModel):
-    nome = models.CharField(max_length=100)
-    tipo = models.CharField(max_length=20, choices=TipoConta.choices)
+    nome = models.CharField(max_length=100, blank=True)
+    tipo = models.CharField(max_length=20, choices=TipoConta.choices, blank=True)
     banco = models.CharField(max_length=100, blank=True)
     agencia = models.CharField(max_length=20, blank=True)
     numero = models.CharField(max_length=30, blank=True)
@@ -41,12 +41,12 @@ class TipoAporte(models.TextChoices):
 
 
 class Aporte(BaseModel):
-    tipo = models.CharField(max_length=20, choices=TipoAporte.choices)
-    descricao = models.CharField(max_length=255)
-    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    tipo = models.CharField(max_length=20, choices=TipoAporte.choices, blank=True)
+    descricao = models.CharField(max_length=255, blank=True)
+    valor = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     conta = models.ForeignKey(Conta, on_delete=models.PROTECT, related_name='aportes')
-    data = models.DateField()
-    responsavel = models.CharField(max_length=150)
+    data = models.DateField(null=True, blank=True)
+    responsavel = models.CharField(max_length=150, blank=True)
     observacoes = models.TextField(blank=True)
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
@@ -67,8 +67,8 @@ class TipoCategoria(models.TextChoices):
 
 
 class Categoria(BaseModel):
-    nome = models.CharField(max_length=100)
-    tipo = models.CharField(max_length=10, choices=TipoCategoria.choices)
+    nome = models.CharField(max_length=100, blank=True)
+    tipo = models.CharField(max_length=10, choices=TipoCategoria.choices, blank=True)
 
     class Meta:
         ordering = ['nome']
@@ -95,8 +95,8 @@ class StatusReceita(models.TextChoices):
 
 
 class Receita(BaseModel):
-    tipo = models.CharField(max_length=20, choices=TipoReceita.choices)
-    descricao = models.CharField(max_length=255)
+    tipo = models.CharField(max_length=20, choices=TipoReceita.choices, blank=True)
+    descricao = models.CharField(max_length=255, blank=True)
     cliente = models.ForeignKey(
         'clientes.Cliente', null=True, blank=True,
         on_delete=models.PROTECT, related_name='receitas',
@@ -106,11 +106,11 @@ class Receita(BaseModel):
         on_delete=models.SET_NULL, related_name='receitas',
         limit_choices_to={'tipo': 'ENTRADA', 'is_active': True},
     )
-    valor_bruto = models.DecimalField(max_digits=12, decimal_places=2)
+    valor_bruto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     desconto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    valor_liquido = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    valor_liquido = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
     conta = models.ForeignKey(Conta, on_delete=models.PROTECT, related_name='receitas')
-    vencimento = models.DateField()
+    vencimento = models.DateField(null=True, blank=True)
     recebimento = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=StatusReceita.choices, default='PENDENTE')
     referencia_mes = models.DateField(null=True, blank=True)
@@ -158,19 +158,19 @@ class FormaPagamento(models.TextChoices):
 
 
 class Despesa(BaseModel):
-    tipo = models.CharField(max_length=20, choices=TipoDespesa.choices)
-    descricao = models.CharField(max_length=255)
+    tipo = models.CharField(max_length=20, choices=TipoDespesa.choices, blank=True)
+    descricao = models.CharField(max_length=255, blank=True)
     fornecedor = models.CharField(max_length=150, blank=True)
-    valor_bruto = models.DecimalField(max_digits=12, decimal_places=2)
+    valor_bruto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     desconto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    valor_liquido = models.DecimalField(max_digits=12, decimal_places=2, editable=False)
+    valor_liquido = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
     conta = models.ForeignKey(Conta, on_delete=models.PROTECT, related_name='despesas')
     categoria = models.ForeignKey(
         'Categoria', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='despesas',
         limit_choices_to={'tipo': 'SAIDA', 'is_active': True},
     )
-    vencimento = models.DateField()
+    vencimento = models.DateField(null=True, blank=True)
     pagamento = models.DateField(null=True, blank=True)
     forma_pagamento = models.CharField(
         max_length=20, choices=FormaPagamento.choices, blank=True,

@@ -15,7 +15,8 @@ class NomeMetodoPagamento(models.TextChoices):
 
 class MetodoPagamento(BaseModel):
     nome = models.CharField(
-        max_length=20, choices=NomeMetodoPagamento.choices, unique=True,
+        max_length=20, choices=NomeMetodoPagamento.choices,
+        unique=True, null=True, blank=True,
     )
     ativo = models.BooleanField(default=True)
 
@@ -36,11 +37,12 @@ class StatusCobranca(models.TextChoices):
 
 class Cobranca(BaseModel):
     cliente        = models.ForeignKey(
-        'clientes.Cliente', on_delete=models.PROTECT, related_name='cobrancas',
+        'clientes.Cliente', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='cobrancas',
     )
-    descricao      = models.CharField(max_length=255)
-    valor          = models.DecimalField(max_digits=12, decimal_places=2)
-    vencimento     = models.DateField()
+    descricao      = models.CharField(max_length=255, blank=True)
+    valor          = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    vencimento     = models.DateField(null=True, blank=True)
     status         = models.CharField(
         max_length=10, choices=StatusCobranca.choices, default='PENDENTE',
     )
@@ -71,10 +73,12 @@ class StatusParcela(models.TextChoices):
 
 
 class Parcela(BaseModel):
-    cobranca       = models.ForeignKey(Cobranca, on_delete=models.CASCADE, related_name='parcelas')
-    numero         = models.IntegerField()
-    valor          = models.DecimalField(max_digits=12, decimal_places=2)
-    vencimento     = models.DateField()
+    cobranca       = models.ForeignKey(
+        Cobranca, null=True, blank=True, on_delete=models.CASCADE, related_name='parcelas',
+    )
+    numero         = models.IntegerField(default=1)
+    valor          = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    vencimento     = models.DateField(null=True, blank=True)
     status         = models.CharField(
         max_length=10, choices=StatusParcela.choices, default='PENDENTE',
     )

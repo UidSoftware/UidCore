@@ -38,7 +38,7 @@ class PessoaBase(BaseModel):
         validators=[validar_documento],
         help_text='Apenas dígitos (sem máscara)',
     )
-    nome_razao_social = models.CharField('nome / razão social', max_length=255)
+    nome_razao_social = models.CharField('nome / razão social', max_length=255, blank=True)
     telefone = models.CharField('telefone', max_length=20, blank=True)
     email = models.EmailField('e-mail', blank=True)
     endereco = models.CharField('endereço', max_length=255, blank=True)

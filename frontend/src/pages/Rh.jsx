@@ -69,13 +69,13 @@ export default function Rh() {
             { key: 'data_admissao', label: 'Admissão', date: true },
           ]}
           fields={[
-            { name: 'nome', label: 'Nome', type: 'text', required: true },
-            { name: 'cpf', label: 'CPF', type: 'text', required: true, placeholder: 'somente números' },
+            { name: 'nome', label: 'Nome', type: 'text' },
+            { name: 'cpf', label: 'CPF', type: 'text', placeholder: 'somente números' },
             { name: 'email', label: 'E-mail', type: 'email' },
-            { name: 'cargo', label: 'Cargo', type: 'select-remote', endpoint: 'rh/cargos', labelField: 'nome', required: true },
+            { name: 'cargo', label: 'Cargo', type: 'select-remote', endpoint: 'rh/cargos', labelField: 'nome' },
             { name: 'regime', label: 'Regime', type: 'select', options: REGIME },
-            { name: 'salario_atual', label: 'Salário Atual (R$)', type: 'number', step: '0.01', min: '0', required: true },
-            { name: 'data_admissao', label: 'Data de Admissão', type: 'date', required: true },
+            { name: 'salario_atual', label: 'Salário Atual (R$)', type: 'number', step: '0.01', min: '0' },
+            { name: 'data_admissao', label: 'Data de Admissão', type: 'date' },
             { name: 'data_demissao', label: 'Data de Demissão', type: 'date' },
             { name: 'observacoes', label: 'Observações', type: 'textarea' },
           ]}
@@ -96,7 +96,7 @@ export default function Rh() {
             { key: 'salario_base', label: 'Salário Base', money: true },
           ]}
           fields={[
-            { name: 'nome', label: 'Nome', type: 'text', required: true },
+            { name: 'nome', label: 'Nome', type: 'text' },
             { name: 'salario_base', label: 'Salário Base (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'descricao', label: 'Descrição', type: 'textarea' },
           ]}
@@ -120,9 +120,9 @@ export default function Rh() {
             { key: 'status_label', label: 'Status', badge: true },
           ]}
           fields={[
-            { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome', required: true },
-            { name: 'mes_referencia', label: 'Mês de Referência', type: 'date', required: true },
-            { name: 'salario_bruto', label: 'Salário Bruto (R$)', type: 'number', step: '0.01', min: '0', required: true },
+            { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome' },
+            { name: 'mes_referencia', label: 'Mês de Referência', type: 'date' },
+            { name: 'salario_bruto', label: 'Salário Bruto (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'descontos', label: 'Descontos (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_FOLHA },
             { name: 'observacoes', label: 'Observações', type: 'textarea' },
@@ -147,9 +147,9 @@ export default function Rh() {
             { key: 'status_label', label: 'Status', badge: true },
           ]}
           fields={[
-            { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome', required: true },
-            { name: 'data_inicio', label: 'Data de Início', type: 'date', required: true },
-            { name: 'data_fim', label: 'Data de Fim', type: 'date', required: true },
+            { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome' },
+            { name: 'data_inicio', label: 'Data de Início', type: 'date' },
+            { name: 'data_fim', label: 'Data de Fim', type: 'date' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_FERIAS },
           ]}
           emptyForm={{ funcionario: '', data_inicio: '', data_fim: '', status: 'AGENDADO' }}
