@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client.js'
-import { extractErrorMessage } from '../utils/errors.js'
+import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
@@ -154,11 +154,12 @@ export default function Clientes() {
     e.preventDefault()
     setSaving(true)
     try {
+      const payload = stripEmptyStrings(form)
       if (editingId) {
-        await api.patch(`/clientes/${editingId}/`, form)
+        await api.patch(`/clientes/${editingId}/`, payload)
         showToast('Cliente atualizado com sucesso.')
       } else {
-        await api.post('/clientes/', form)
+        await api.post('/clientes/', payload)
         showToast('Cliente cadastrado com sucesso.')
       }
       closeModal()

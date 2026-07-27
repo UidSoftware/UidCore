@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client.js'
-import { extractErrorMessage } from '../utils/errors.js'
+import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
@@ -307,9 +307,7 @@ function ReceitasTab({ showToast, contasOptions }) {
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true)
     try {
-      const payload = { ...form }
-      if (!payload.cliente) delete payload.cliente
-      if (!payload.categoria) delete payload.categoria
+      const payload = stripEmptyStrings(form)
       if (editingId) {
         await api.patch(`/financeiro/receitas/${editingId}/`, payload)
         showToast('Receita atualizada.')
@@ -510,8 +508,7 @@ function DespesasTab({ showToast, contasOptions }) {
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true)
     try {
-      const payload = { ...form }
-      if (!payload.categoria) delete payload.categoria
+      const payload = stripEmptyStrings(form)
       if (editingId) {
         await api.patch(`/financeiro/despesas/${editingId}/`, payload)
         showToast('Despesa atualizada.')
@@ -711,11 +708,12 @@ function ContasTab({ showToast }) {
   const handleSubmit = async (e) => {
     e.preventDefault(); setSaving(true)
     try {
+      const payload = stripEmptyStrings(form)
       if (editingId) {
-        await api.patch(`/financeiro/contas/${editingId}/`, form)
+        await api.patch(`/financeiro/contas/${editingId}/`, payload)
         showToast('Conta atualizada.')
       } else {
-        await api.post('/financeiro/contas/', form)
+        await api.post('/financeiro/contas/', payload)
         showToast('Conta cadastrada.')
       }
       closeModal(); fetch()

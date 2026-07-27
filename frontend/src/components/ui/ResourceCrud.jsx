@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../../api/client.js'
-import { extractErrorMessage } from '../../utils/errors.js'
+import { extractErrorMessage, stripEmptyStrings } from '../../utils/errors.js'
 import Card from './Card.jsx'
 import Button from './Button.jsx'
 import Input from './Input.jsx'
@@ -115,7 +115,7 @@ export default function ResourceCrud({
   }
 
   const buildPayload = () => {
-    if (!hasFileField) return form
+    if (!hasFileField) return stripEmptyStrings(form)
     const data = new FormData()
     Object.entries(form).forEach(([key, value]) => {
       if (value !== null && value !== undefined && value !== '') data.append(key, value)

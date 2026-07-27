@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import api from '../api/client.js'
-import { extractErrorMessage } from '../utils/errors.js'
+import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
@@ -156,11 +156,12 @@ export default function Fornecedores() {
     e.preventDefault()
     setSaving(true)
     try {
+      const payload = stripEmptyStrings(form)
       if (editingId) {
-        await api.patch(`/fornecedores/${editingId}/`, form)
+        await api.patch(`/fornecedores/${editingId}/`, payload)
         showToast('Fornecedor atualizado com sucesso.')
       } else {
-        await api.post('/fornecedores/', form)
+        await api.post('/fornecedores/', payload)
         showToast('Fornecedor cadastrado com sucesso.')
       }
       closeModal()
