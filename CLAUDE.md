@@ -115,3 +115,33 @@ de `BaseModel`, e os ViewSets já filtram `is_active=True` por padrão — a
 base está pronta, só falta usar certo desde o primeiro cliente que tiver
 cartão de crédito no fluxo (não esperar acumular lançamento genérico
 errado pra corrigir depois).
+
+---
+
+## Complemento: cartão com garantia (CDB/aplicação) — cadeia de 3 contas
+
+Refina o padrão de cartão de crédito documentado acima. Quando o cartão do
+cliente tem limite por garantia (comum em cartão de banco digital tipo C6
+Business — dinheiro aplicado em CDB destrava o limite), usar **3 `Conta`
+encadeadas**, nunca só banco+cartão:
+
+```
+Banco (Conta Corrente)  →  Aplicação/Garantia (Conta Poupança)  →  Cartão (Carteira Digital)
+```
+
+Cada perna é uma **transferência entre contas** (endpoint dedicado, nunca
+`Despesa`) — aplicar em CDB não é gasto nem sai do patrimônio do cliente,
+é só troca de forma; usar o CDB pra quitar fatura é transferência
+Aplicação→Cartão, não um pagamento novo. Sem a conta intermediária, o
+dinheiro aplicado como garantia "some" do sistema — nenhuma tela mostra
+quanto está garantindo o limite. Regra completa (e o porquê, com caso real
+resolvido) em `/home/notuidsoftware/.claude/CLAUDE.md`, Módulo Financeiro.
+
+**Cuidado técnico ao portar o endpoint de transferência pro UidCore:** se
+a implementação calcular `saldo_anterior`/`saldo_atual` lendo o ÚLTIMO
+lançamento por data (em vez de recalcular por soma agregada), qualquer
+transferência com data retroativa deixa o saldo gravado temporariamente
+errado — precisa de um comando tipo `reconstruir_saldo_livro_caixa`
+(existe no SystemD) rodado depois de qualquer lançamento fora de ordem
+cronológica. Vale conferir se esse mesmo padrão de cálculo foi copiado pro
+UidCore e, se sim, portar o comando de reconstrução junto.
