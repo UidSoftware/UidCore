@@ -137,9 +137,28 @@ não só SystemD/UidCore). Resumo já adaptado pra nomenclatura do UidCore
 - **Cartão de crédito é uma `Conta` própria** (`tipo=CARTEIRA`, já existe em
   `TipoConta.choices`), nunca lançamento genérico direto no banco. Compra
   categorizada entra nela (Ferramentas, Impostos/IOF etc.). O pagamento da
-  fatura no banco real é o MESMO gasto "por fora" — a despesa genérica que
-  representa esse pagamento precisa `is_active=False` (mesmo padrão de
-  transferência entre bolsos abaixo), senão conta duas vezes no DRE.
+  fatura no banco real TEM que creditar a conta do cartão — usar
+  "Transferir entre contas" banco→cartão pelo valor pago, nunca só uma
+  Despesa genérica marcada `is_active=False` no banco. `is_active=False`
+  sozinho corrige o DRE mas deixa a conta do cartão sem saber que foi
+  paga, inflando a "dívida" artificialmente (bug real encontrado e
+  corrigido no SystemD em 29/07/2026 — 4 pagamentos históricos lançados
+  assim deixaram o cartão R$400+ mais negativo do que a realidade).
+- **CDB/aplicação rende sozinho** — a Conta de Aplicação/Garantia não
+  fica parada no valor investido, o banco credita rendimento com o
+  tempo. Conferir periodicamente o saldo bruto real no app do banco
+  contra o saldo calculado no sistema; a diferença é rendimento não
+  lançado — registrar como Receita (`tipo=RECEITA_FINANCEIRA`,
+  `categoria=Investimento`, `is_active=True` — ENTRA no DRE, diferente
+  de aporte/transferência) na própria Conta de Aplicação.
+- **Fluxo de Caixa/Livro Caixa/Contas Bancárias vs Resultado (DRE) vs
+  DFC** — três coisas diferentes: Fluxo de Caixa, Livro Caixa e saldo de
+  Contas Bancárias TÊM que bater com o extrato real do banco sempre
+  (incluindo transferência entre contas próprias e aplicação/resgate).
+  Resultado do mês/DRE é operacional — soma só Receita/Despesa com
+  `is_active=True`, nunca soma LivroCaixa bruto; aporte e transferência
+  nunca entram aí. DFC (se vier a existir) é analítico, não precisa
+  bater linha a linha com o banco.
 - **Transferência entre bolsos do mesmo banco** (conta corrente ↔
   aplicação/CDB/conta remunerada, liquidez D+0/D+1) não é despesa nem
   receita — `is_active=False` na Despesa/Receita, mas o `LivroCaixa`
