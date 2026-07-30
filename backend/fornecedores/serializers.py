@@ -4,6 +4,7 @@ from .models import Fornecedor
 
 
 class FornecedorSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
     categoria_display = serializers.CharField(source='get_categoria_display', read_only=True)
     tipo_pessoa_display = serializers.CharField(source='get_tipo_pessoa_display', read_only=True)
 
@@ -18,7 +19,7 @@ class FornecedorSerializer(serializers.ModelSerializer):
             'inscricao_estadual', 'observacoes',
             'is_active', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
 
     def validate_documento(self, value):
         if value == '':

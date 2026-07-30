@@ -5,7 +5,7 @@ from .models import Cliente, HistoricoCliente
 class HistoricoInline(admin.TabularInline):
     model = HistoricoCliente
     extra = 0
-    readonly_fields = ['data']
+    readonly_fields = ['created_at']
 
 
 @admin.register(Cliente)

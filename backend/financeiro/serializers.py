@@ -6,23 +6,28 @@ from .models import Aporte, Categoria, Conta, Despesa, LivroCaixa, Receita
 
 
 class CategoriaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
+
     class Meta:
         model = Categoria
         fields = ['id', 'nome', 'tipo', 'is_active', 'created_at']
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['created_at']
 
 
 class ContaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
+
     class Meta:
         model = Conta
         fields = [
             'id', 'nome', 'tipo', 'banco', 'agencia', 'numero',
             'saldo_inicial', 'is_active', 'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['created_at']
 
 
 class AporteSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
 
     class Meta:
@@ -31,10 +36,11 @@ class AporteSerializer(serializers.ModelSerializer):
             'id', 'tipo', 'descricao', 'valor', 'conta', 'conta_nome',
             'data', 'responsavel', 'observacoes', 'is_active', 'created_at',
         ]
-        read_only_fields = ['id', 'created_at']
+        read_only_fields = ['created_at']
 
 
 class ReceitaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
     cliente_nome = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
@@ -50,7 +56,7 @@ class ReceitaSerializer(serializers.ModelSerializer):
             'vencimento', 'recebimento', 'status',
             'referencia_mes', 'observacoes', 'is_active', 'created_at',
         ]
-        read_only_fields = ['id', 'valor_liquido', 'created_at']
+        read_only_fields = ['valor_liquido', 'created_at']
 
     def validate(self, data):
         bruto = data.get('valor_bruto', getattr(self.instance, 'valor_bruto', Decimal('0')))
@@ -61,6 +67,7 @@ class ReceitaSerializer(serializers.ModelSerializer):
 
 
 class DespesaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
 
@@ -77,7 +84,7 @@ class DespesaSerializer(serializers.ModelSerializer):
             'estornado', 'data_estorno', 'motivo_estorno',
             'is_active', 'created_at',
         ]
-        read_only_fields = ['id', 'valor_liquido', 'estornado', 'data_estorno', 'motivo_estorno', 'created_at']
+        read_only_fields = ['valor_liquido', 'estornado', 'data_estorno', 'motivo_estorno', 'created_at']
 
     def validate(self, data):
         bruto = data.get('valor_bruto', getattr(self.instance, 'valor_bruto', Decimal('0')))
@@ -88,6 +95,7 @@ class DespesaSerializer(serializers.ModelSerializer):
 
 
 class LivroCaixaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     tipo_label = serializers.CharField(source='get_tipo_display', read_only=True)
     origem_label = serializers.CharField(source='get_origem_display', read_only=True)
@@ -102,7 +110,7 @@ class LivroCaixaSerializer(serializers.ModelSerializer):
             'criado_em', 'estornado', 'estorno_de',
         ]
         read_only_fields = [
-            'id', 'criado_em', 'saldo_anterior', 'saldo_atual', 'estornado', 'estorno_de',
+            'criado_em', 'saldo_anterior', 'saldo_atual', 'estornado', 'estorno_de',
         ]
 
 
@@ -139,8 +147,9 @@ class ItemConciliacaoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'conciliacao', 'data_banco', 'descricao_banco',
             'valor', 'tipo', 'tipo_label', 'status', 'status_label',
-            'lancamento_lc', 'confirmado',
+            'lancamento_lc', 'confirmado', 'is_active', 'created_at',
         ]
+        read_only_fields = ['created_at']
 
 
 class PadraoSeguroConciliacaoSerializer(serializers.ModelSerializer):
@@ -152,5 +161,6 @@ class PadraoSeguroConciliacaoSerializer(serializers.ModelSerializer):
         model = PadraoSeguroConciliacao
         fields = [
             'id', 'descricao_padrao', 'tipo', 'tipo_label',
-            'natureza', 'natureza_label', 'ativo', 'criado_em',
+            'natureza', 'natureza_label', 'is_active', 'created_at',
         ]
+        read_only_fields = ['created_at']

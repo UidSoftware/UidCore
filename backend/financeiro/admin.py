@@ -68,6 +68,6 @@ class ItemConciliacaoAdmin(admin.ModelAdmin):
 
 @admin.register(PadraoSeguroConciliacao)
 class PadraoSeguroConciliacaoAdmin(admin.ModelAdmin):
-    list_display = ['descricao_padrao', 'tipo', 'natureza', 'ativo', 'criado_em']
-    list_filter = ['tipo', 'natureza', 'ativo']
+    list_display = ['descricao_padrao', 'tipo', 'natureza', 'is_active', 'created_at']
+    list_filter = ['tipo', 'natureza', 'is_active']
     search_fields = ['descricao_padrao']

@@ -12,6 +12,6 @@ class AcessoPortalClienteSerializer(serializers.ModelSerializer):
         model = AcessoPortalCliente
         fields = [
             'id', 'usuario', 'usuario_email', 'cliente', 'cliente_nome',
-            'ativo', 'ultimo_acesso', 'criado_em',
+            'is_active', 'ultimo_acesso', 'created_at',
         ]
-        read_only_fields = ['id', 'usuario_email', 'cliente_nome', 'ultimo_acesso', 'criado_em']
+        read_only_fields = ['usuario_email', 'cliente_nome', 'ultimo_acesso', 'created_at']

@@ -18,7 +18,6 @@ class MetodoPagamento(BaseModel):
         max_length=20, choices=NomeMetodoPagamento.choices,
         unique=True, null=True, blank=True,
     )
-    ativo = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'pag_metodo_pagamento'

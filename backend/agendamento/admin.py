@@ -5,8 +5,8 @@ from .models import Agenda, Compromisso
 
 @admin.register(Agenda)
 class AgendaAdmin(admin.ModelAdmin):
-    list_display = ['nome', 'cor', 'ativo', 'is_active']
-    list_filter = ['ativo', 'is_active']
+    list_display = ['nome', 'cor', 'is_active']
+    list_filter = ['is_active']
     search_fields = ['nome']
 
 

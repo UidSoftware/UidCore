@@ -4,13 +4,16 @@ from .models import Cliente, HistoricoCliente
 
 
 class HistoricoClienteSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
+
     class Meta:
         model = HistoricoCliente
-        fields = ['id', 'descricao', 'data']
-        read_only_fields = ['id', 'data']
+        fields = ['id', 'descricao', 'created_at']
+        read_only_fields = ['created_at']
 
 
 class ClienteSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
     historico = HistoricoClienteSerializer(many=True, read_only=True)
     segmento_display = serializers.CharField(source='get_segmento_display', read_only=True)
     tipo_pessoa_display = serializers.CharField(source='get_tipo_pessoa_display', read_only=True)
@@ -26,7 +29,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             'is_active', 'created_at', 'updated_at',
             'historico',
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
 
     def validate_documento(self, value):
         if value == '':

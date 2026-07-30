@@ -1,5 +1,5 @@
 from django.db import models
-from common.models import PessoaBase
+from common.models import BaseModel, PessoaBase
 
 
 class SegmentoCliente(models.TextChoices):
@@ -35,16 +35,15 @@ class Cliente(PessoaBase):
         return self.nome_razao_social
 
 
-class HistoricoCliente(models.Model):
+class HistoricoCliente(BaseModel):
     cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='historico')
     descricao = models.TextField('descrição')
-    data = models.DateTimeField('data', auto_now_add=True)
 
     class Meta:
         db_table = 'clientes_historico'
-        ordering = ['-data']
+        ordering = ['-created_at']
         verbose_name = 'Histórico'
         verbose_name_plural = 'Históricos'
 
     def __str__(self):
-        return f'{self.cliente} — {self.data:%d/%m/%Y}'
+        return f'{self.cliente} — {self.created_at:%d/%m/%Y}'

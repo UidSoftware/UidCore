@@ -9,7 +9,7 @@ class MetodoPagamentoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MetodoPagamento
-        fields = ['id', 'nome', 'nome_display', 'ativo', 'is_active', 'created_at']
+        fields = ['id', 'nome', 'nome_display', 'is_active', 'created_at']
         read_only_fields = ['id', 'nome_display', 'created_at']
 
 

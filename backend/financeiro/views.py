@@ -727,10 +727,10 @@ class ConciliacaoViewSet(ReadOnlyModelViewSet):
 
 
 class PadraoSeguroConciliacaoViewSet(ModelViewSet):
-    queryset = PadraoSeguroConciliacao.objects.filter(ativo=True)
+    queryset = PadraoSeguroConciliacao.objects.filter(is_active=True)
     serializer_class = PadraoSeguroConciliacaoSerializer
     permission_classes = [IsAuthenticated]
 
     def perform_destroy(self, instance):
-        instance.ativo = False
-        instance.save(update_fields=['ativo'])
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])

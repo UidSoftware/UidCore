@@ -283,7 +283,7 @@ class StatusItemConciliacao(models.TextChoices):
     FALTANDO_BANCO   = 'FALTANDO_BANCO',   'Faltando no Banco'
 
 
-class ItemConciliacao(models.Model):
+class ItemConciliacao(BaseModel):
     conciliacao     = models.ForeignKey(
         ConciliacaoExtrato, on_delete=models.CASCADE, related_name='itens',
     )
@@ -311,7 +311,7 @@ class NaturezaPadraoConciliacao(models.TextChoices):
     RECEITA_FINANCEIRA = 'RECEITA_FINANCEIRA', 'Receita Financeira (rendimento)'
 
 
-class PadraoSeguroConciliacao(models.Model):
+class PadraoSeguroConciliacao(BaseModel):
     descricao_padrao = models.CharField(max_length=300)
     tipo             = models.CharField(max_length=10, choices=TipoLancamento.choices)
     natureza         = models.CharField(
@@ -320,8 +320,6 @@ class PadraoSeguroConciliacao(models.Model):
         default='APORTE',
         help_text='Apenas para tipo=ENTRADA: APORTE vai para PL; RECEITA_FINANCEIRA entra no DRE.',
     )
-    ativo            = models.BooleanField(default=True)
-    criado_em        = models.DateTimeField(auto_now_add=True)
     criado_por       = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+',

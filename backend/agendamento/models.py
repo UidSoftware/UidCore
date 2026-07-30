@@ -8,7 +8,6 @@ class Agenda(BaseModel):
     nome      = models.CharField(max_length=100, blank=True)
     descricao = models.TextField(blank=True)
     cor       = models.CharField(max_length=7, default='#3B82F6')
-    ativo     = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'age_agenda'

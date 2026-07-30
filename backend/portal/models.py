@@ -1,8 +1,10 @@
 from django.conf import settings
 from django.db import models
 
+from common.models import BaseModel
 
-class AcessoPortalCliente(models.Model):
+
+class AcessoPortalCliente(BaseModel):
     usuario       = models.OneToOneField(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.CASCADE, related_name='acesso_portal',
@@ -11,9 +13,7 @@ class AcessoPortalCliente(models.Model):
         'clientes.Cliente', null=True, blank=True,
         on_delete=models.PROTECT, related_name='acessos_portal',
     )
-    ativo         = models.BooleanField(default=True)
     ultimo_acesso = models.DateTimeField(null=True, blank=True)
-    criado_em     = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'portal_acesso_cliente'

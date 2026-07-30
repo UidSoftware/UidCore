@@ -5,8 +5,8 @@ from .models import Cobranca, MetodoPagamento, Parcela
 
 @admin.register(MetodoPagamento)
 class MetodoPagamentoAdmin(admin.ModelAdmin):
-    list_display = ['nome', 'ativo', 'is_active']
-    list_filter = ['ativo', 'is_active']
+    list_display = ['nome', 'is_active']
+    list_filter = ['is_active']
 
 
 @admin.register(Cobranca)

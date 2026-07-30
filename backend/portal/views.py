@@ -5,9 +5,9 @@ from .serializers import AcessoPortalClienteSerializer
 
 
 class AcessoPortalClienteViewSet(ModelViewSet):
-    queryset = AcessoPortalCliente.objects.filter(ativo=True).select_related('usuario', 'cliente')
+    queryset = AcessoPortalCliente.objects.filter(is_active=True).select_related('usuario', 'cliente')
     serializer_class = AcessoPortalClienteSerializer
 
     def perform_destroy(self, instance):
-        instance.ativo = False
-        instance.save(update_fields=['ativo'])
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
