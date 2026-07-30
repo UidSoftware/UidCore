@@ -1,503 +1,250 @@
-# Especificacao_Hotfix — Manutencao #9 — UidCore
-**Data:** 2026-07-29
-**Sistema:** UidCore — Template Financeiro Multi-Nicho
-**Origem:** Divergencias encontradas na Manutencao #8 (Fluxo 1 retroativo)
+# Especificacao_Hotfix — Manutencao #10 — UidCore
+**Data:** 2026-07-30
+**Sistema:** UidCore (OS #7) — Template Financeiro Multi-Nicho
+**Origem:** Solicitacao direta — paridade de tela com o SystemD
 **Agente produtor:** Analista
+**Tipo:** `feature_pequena` (gap 100% frontend — backend ja implementado e em producao)
+**Requer aprovacao comercial:** nao (dentro do escopo do contrato UidCore/financeiro)
 
 ---
 
-## Escopo desta manutencao
+## 1. Classificacao
+
+| Campo | Valor |
+|---|---|
+| Sistema | UidCore |
+| Caminho do projeto | `/var/www/uidcore` |
+| Tipo | `feature_pequena` |
+| Caminho afetado | `frontend/src/pages/`, `frontend/src/routes/`, `frontend/src/components/layout/Sidebar.jsx` |
+| Complexidade | baixa — sem mudanca de contrato de API, sem migration, sem model novo |
+| Backend | ja existe e ja esta em producao (ver secao 3) — **nao mexer** |
+
+---
+
+## 2. Escopo desta manutencao
 
 ### Incluido
-- DIV01: app `conciliacao` fantasma — verificado, nao existe no disco nem em INSTALLED_APPS; nenhuma acao necessaria
-- DIV02: integrar Dashboard.jsx com endpoint real `GET /api/v1/financeiro/dashboard/`
-- DIV04: padronizar `AcessoPortalCliente`, `Agenda` e `PadraoSeguroConciliacao` para herdar `BaseModel`
-- DIV05: remover campo `ativo` duplicado de `MetodoPagamento` (ja herda `BaseModel`)
-- DIV07: padronizar todos os serializers com `id = serializers.IntegerField(source='pk', read_only=True)`
-- DIV08: padronizar `HistoricoCliente` e `ItemConciliacao` para herdar `BaseModel`
-- DIV-UI01: adicionar fontes Plus Jakarta Sans e DM Sans ao projeto React
-- DIV-UI02: remover `overflow-hidden` do div root do `AppLayout`
-- DIV-UI04: lucide-react ja presente no package.json — verificado, nenhuma acao
+- **RF-F01** — Pagina `Conciliacao.jsx` com listagem de historico de conciliacoes
+- **RF-F02** — Modal de upload de novo extrato (arquivo PDF + conta + periodo + senha opcional + auto)
+- **RF-F03** — Tela de detalhe de uma conciliacao com lista de itens
+- **RF-F04** — Acao de confirmar item divergente (`FALTANDO_SISTEMA` + `confirmado=false`)
+- **RF-F05** — Aba de Padroes Seguros de Conciliacao (listagem + CRUD)
+- **RF-F06** — Rota `/conciliacao` registrada no router
+- **RF-F07** — Item de menu "Conciliacao" na Sidebar
 
-### Suspenso (NAO implementar)
-- DIV03: Portal sem telas para perfil CLIENTE — feature nova, fora do escopo
-- DIV10: Endpoint de listagem de usuarios ausente — feature nova, fora do escopo
-- DIV-UI03: Emojis na Sidebar — padrao intencional, nao alterar
-
----
-
-## Requisitos Funcionais — Backend
-
-### RF-B01 — Verificar e registrar DIV01
-**Status verificado:** pasta `/var/www/uidcore/backend/conciliacao/` nao existe no disco.
-`'conciliacao'` nao aparece em `INSTALLED_APPS` em `core/settings.py`.
-**Acao:** nenhuma alteracao de codigo. DIV01 resolvida de fato. Registrar no relatorio Sentinel.
+### Fora do escopo (nao implementar nesta manutencao)
+- Qualquer alteracao em `views.py`, `parsers.py`, `conciliacao_service.py`, `serializers.py`, `models.py` do app `financeiro`
+- `destroy`/`delete` em `ConciliacaoViewSet` — ele e `ReadOnlyModelViewSet` de proposito (extrato processado e imutavel; se um dia for pedido soft-delete, e mudanca de backend fora desta manutencao — **nao pedido agora**)
+- Sistema de perfis/roles no `User` — usar `IsAuthenticated` como o resto do UidCore
+- Re-processamento/replay de um extrato ja enviado (nao existe endpoint para isso)
 
 ---
 
-### RF-B02 — Padronizar AcessoPortalCliente para herdar BaseModel
-**App:** `portal`
-**Arquivo:** `backend/portal/models.py`
+## 3. Backend — JA EXISTE (somente leitura/consumo, nao alterar)
 
-Estado atual:
-```python
-class AcessoPortalCliente(models.Model):
-    ativo         = models.BooleanField(default=True)
-    ultimo_acesso = models.DateTimeField(null=True, blank=True)
-    criado_em     = models.DateTimeField(auto_now_add=True)
+Confirmado em `backend/financeiro/views.py`, `urls.py`, `serializers.py`, `models.py`.
+
+### 3.1 Endpoints
+
+| Metodo | Path | Descricao |
+|---|---|---|
+| `POST` | `/api/v1/financeiro/conciliacoes/upload/` | multipart: `arquivo` (PDF), `conta_id`, `periodo` (`YYYY-MM`), `senha` (opcional), `auto` (opcional, boolean-like string) |
+| `GET` | `/api/v1/financeiro/conciliacoes/` | lista historico (paginado — `response.data.results`) |
+| `GET` | `/api/v1/financeiro/conciliacoes/{id}/itens/` | lista itens de uma conciliacao |
+| `POST` | `/api/v1/financeiro/conciliacoes/{id}/confirmar-item/` | body `{ item_id }` — marca `confirmado=true`, recalcula `divergencias`/`status` da conciliacao |
+| `GET/POST/PUT/PATCH/DELETE` | `/api/v1/financeiro/padroes-conciliacao/` | CRUD completo (`ModelViewSet`) — `DELETE` faz soft delete (`is_active=False`) |
+| `GET` | `/api/v1/financeiro/contas/` | lista contas (ja usado em `Financeiro.jsx` — reaproveitar mesmo padrao) |
+
+`ConciliacaoViewSet` e `ReadOnlyModelViewSet` — so tem `list`, `retrieve` + as 2 actions acima. **Nao ha e nao deve ser criado** `create`/`update`/`destroy` padrao nele.
+
+### 3.2 Campos retornados — `ConciliacaoExtratoSerializer`
+
+```
+id, conta, conta_nome, arquivo_nome, periodo,
+processado_em, status, status_label,
+total_banco, total_sistema, divergencias
+```
+Todos os campos exceto `conta` (write) sao `read_only` — a tela so exibe, nunca edita a conciliacao em si.
+
+**Status possiveis** (`StatusConciliacao`): `PROCESSADO` | `COM_DIVERGENCIAS` | `PENDENTE`
+
+Cores sugeridas (reaproveitar padrao `STATUS_BADGES` de `Financeiro.jsx`):
+```
+PROCESSADO        -> verde  (bg-green-100 text-green-800)
+COM_DIVERGENCIAS  -> vermelho (bg-red-100 text-red-800)
+PENDENTE          -> amarelo (bg-yellow-100 text-yellow-800)
 ```
 
-Estado desejado:
-```python
-from common.models import BaseModel
+### 3.3 Campos retornados — `ItemConciliacaoSerializer`
 
-class AcessoPortalCliente(BaseModel):
-    ultimo_acesso = models.DateTimeField(null=True, blank=True)
-    # remover: ativo (substituido por is_active do BaseModel)
-    # remover: criado_em (substituido por created_at do BaseModel)
+```
+id, conciliacao, data_banco, descricao_banco,
+valor, tipo, tipo_label, status, status_label,
+lancamento_lc, confirmado, is_active, created_at
 ```
 
-**Migration:** `portal/migrations/0003_portal_basemodel.py`
+**Tipo** (`TipoLancamento`): `ENTRADA` | `SAIDA`
+**Status do item** (`StatusItemConciliacao`): `CONCILIADO` | `FALTANDO_SISTEMA` | `FALTANDO_BANCO`
 
-Regras de negocio:
-- RN-B01: dados de `ativo` migrados para `is_active` via RunPython antes de remover a coluna
-- RN-B02: dados de `criado_em` migrados para `created_at` via RunPython antes de remover a coluna
+**Regra de exibicao do botao "Confirmar":** so aparece quando `status === 'FALTANDO_SISTEMA' && confirmado === false`. Os outros dois status (`CONCILIADO`, `FALTANDO_BANCO`) sao so informativos nesta tela — `FALTANDO_BANCO` significa que o sistema tem um lancamento que nao apareceu no extrato do banco, e a resolucao disso e manual, fora do escopo desta tela (fica so como alerta visual).
+
+### 3.4 Campos retornados — `PadraoSeguroConciliacaoSerializer`
+
+```
+id, descricao_padrao, tipo, tipo_label,
+natureza, natureza_label, is_active, created_at
+```
+
+**IMPORTANTE — correcao em relacao ao pedido original:** o pedido descreveu o CRUD como "descricao, tipo ENTRADA|SAIDA", mas o model real (`PadraoSeguroConciliacao`) tem **3 campos editaveis**, nao 2:
+
+- `descricao_padrao` (texto — trecho do extrato que casa com esse padrao)
+- `tipo`: `ENTRADA` | `SAIDA` (mesmo `TipoLancamento` do item de conciliacao)
+- `natureza`: `APORTE` | `RECEITA_FINANCEIRA` — **so faz sentido quando `tipo=ENTRADA`** (help_text do model: "Apenas para tipo=ENTRADA: APORTE vai para PL; RECEITA_FINANCEIRA entra no DRE"). Default `APORTE`.
+
+**RN-01:** o formulario de Padrao Seguro deve esconder/desabilitar o campo `natureza` quando `tipo=SAIDA` (nao faz sentido semantico e o backend nao valida isso — a UI e a unica barreira).
 
 ---
 
-### RF-B03 — Remover campo ativo duplicado de Agenda
-**App:** `agendamento`
-**Arquivo:** `backend/agendamento/models.py`
+## 4. Requisitos Funcionais — Frontend (o que sera criado)
 
-Estado atual:
-```python
-class Agenda(BaseModel):        # ja herda BaseModel
-    ...
-    ativo = models.BooleanField(default=True)  # DUPLICADO
-```
+### RF-F01 — Listagem de historico
+- Tabela (padrao desktop) / cards (padrao mobile) igual ao estilo de `LivroCaixaTab` em `Financeiro.jsx`
+- Colunas: Periodo (formatado `MM/YYYY`), Conta, Status (badge), Total Banco, Total Sistema, Divergencias, Processado em
+- Clique na linha/card abre o detalhe (RF-F03)
+- `GET /financeiro/conciliacoes/` — usar `response.data.results` (PageNumberPagination), com `Pagination` component existente
 
-Estado desejado:
-```python
-class Agenda(BaseModel):
-    ...
-    # ativo removido — usar is_active herdado
-```
+### RF-F02 — Modal "Nova Conciliacao"
+- Botao no topo da pagina, ao lado do titulo (mesmo padrao de `+ Nova Receita` em `Financeiro.jsx`)
+- Campos:
+  - `arquivo`: `<input type="file" accept="application/pdf">` — obrigatorio
+  - `conta_id`: `Select` populado via `GET /financeiro/contas/` (mesmo padrao do `useEffect` em `Financeiro.jsx` linha 102-109) — obrigatorio
+  - `periodo`: `<input type="month">` (nativo do HTML, gera `YYYY-MM` direto) — obrigatorio
+  - `senha`: `Input` type password, opcional (label "Senha do PDF (se protegido)")
+  - `auto`: checkbox, opcional (label "Conciliar automaticamente por padroes seguros")
+- Submit: `FormData` + `POST /financeiro/conciliacoes/upload/` com header `multipart/form-data` (o `client.js` axios default e `application/json` — sobrescrever `Content-Type` nesta chamada especifica, igual qualquer upload de arquivo)
+- Erro de validacao (400: "arquivo, conta_id e periodo sao obrigatorios" ou "Conta nao encontrada" ou "Formato de periodo invalido") -> `extractErrorMessage()` + toast, igual ao resto da pagina Financeiro
+- Sucesso: fecha modal, mostra toast, recarrega a listagem (RF-F01) — se o backend retornar o objeto criado no payload de resposta, abrir o detalhe direto e opcional ("nice to have"); senao, so recarregar a lista e o usuario clica
 
-**Migration:** `agendamento/migrations/0003_agenda_remove_ativo.py`
+### RF-F03 — Detalhe da conciliacao
+- Acessado clicando numa linha da listagem (estado local `selecionada` na pagina, sem rota propria — decisao de implementacao do Loom entre aba interna ou `Modal` maxW="max-w-4xl", ambos atendem o RF)
+- Header do detalhe: conta, periodo, status (badge), total banco, total sistema, divergencias
+- `GET /financeiro/conciliacoes/{id}/itens/` — lista de itens
+- Tabela: Data, Descricao (do banco), Valor, Tipo (ENTRADA/SAIDA com cor verde/vermelho igual `LivroCaixaTab`), Status (badge), Acao
+- Linha com `status=CONCILIADO` -> visual neutro, sem acao
+- Linha com `status=FALTANDO_BANCO` -> visual de alerta (amarelo/laranja), sem acao (fora do escopo resolver aqui)
+- Linha com `status=FALTANDO_SISTEMA && confirmado=false` -> visual de alerta (vermelho) + botao "Confirmar"
+- Linha com `status=FALTANDO_SISTEMA && confirmado=true` -> visual neutro (ja resolvido), sem acao
 
-Regras de negocio:
-- RN-B03: dados de `ativo` migrados para `is_active` via RunPython antes de remover
-- RN-B04: filtros em views/serializers que usavam `.filter(ativo=True)` atualizados para `.filter(is_active=True)`
+### RF-F04 — Confirmar item
+- Botao "Confirmar" -> `POST /financeiro/conciliacoes/{id}/confirmar-item/` com body `{ item_id }`
+- Resposta: `{ ok: true, divergencias_restantes: N }`
+- Apos sucesso: atualizar o item na lista local para `confirmado=true` (ou re-fetch dos itens) + atualizar contador de divergencias no header do detalhe + toast de sucesso
+- Erro: toast com `extractErrorMessage()`
 
----
+### RF-F05 — Aba "Padroes Seguros"
+- Segunda aba/secao dentro da mesma pagina `Conciliacao.jsx` (padrao de abas igual `TABS` em `Financeiro.jsx`: `[{key:'historico', label:'Historico'}, {key:'padroes', label:'Padroes Seguros'}]`)
+- Listagem: Descricao, Tipo (badge ENTRADA/SAIDA), Natureza (so exibe quando tipo=ENTRADA)
+- Botao "+ Novo Padrao" -> abre modal com `descricao_padrao` (Input), `tipo` (Select ENTRADA/SAIDA), `natureza` (Select APORTE/RECEITA_FINANCEIRA, visivel/habilitado somente quando `tipo=ENTRADA` — RN-01)
+- Editar (abre mesmo modal preenchido) e Excluir (confirm + `DELETE`, soft delete no backend) — mesmo padrao de `ContasTab`/`ReceitasTab` em `Financeiro.jsx`
+- Considerar usar o componente `ResourceCrud.jsx` existente se ele cobrir esse CRUD simples (verificar antes de recriar do zero — instrucao do CLAUDE.md do projeto: "usar componentes UI existentes em vez de recriar estilo")
 
-### RF-B04 — Padronizar PadraoSeguroConciliacao para herdar BaseModel
-**App:** `financeiro`
-**Arquivo:** `backend/financeiro/models.py` (linha 314)
+### RF-F06 — Rota
+- `frontend/src/routes/index.jsx`: importar `Conciliacao` de `../pages/Conciliacao.jsx` e adicionar `<Route path="/conciliacao" element={<Conciliacao />} />` dentro do bloco `ProtectedRoute` (mesmo nivel de `/financeiro`)
 
-Estado atual:
-```python
-class PadraoSeguroConciliacao(models.Model):
-    ...
-    ativo     = models.BooleanField(default=True)
-    criado_em = models.DateTimeField(auto_now_add=True)
-    criado_por = models.ForeignKey(...)
-```
-
-Estado desejado:
-```python
-class PadraoSeguroConciliacao(BaseModel):
-    ...
-    # remover: ativo (substituido por is_active)
-    # remover: criado_em (substituido por created_at)
-    # manter: criado_por (especifico, nao existe em BaseModel)
-```
-
-**Migration:** `financeiro/migrations/0004_financeiro_basemodel.py` (cobre tambem RF-B07)
-
-Regras de negocio:
-- RN-B05: dados de `ativo` migrados para `is_active`; dados de `criado_em` migrados para `created_at`
-- RN-B06: `PadraoSeguroConciliacaoSerializer` atualizado — remover `ativo` e `criado_em`, substituir por `is_active` e `created_at`
-
----
-
-### RF-B05 — Remover campo ativo duplicado de MetodoPagamento
-**App:** `pagamentos`
-**Arquivo:** `backend/pagamentos/models.py` (linha 16-21)
-
-Estado atual:
-```python
-class MetodoPagamento(BaseModel):  # ja herda BaseModel
-    nome = models.CharField(...)
-    ativo = models.BooleanField(default=True)  # DUPLICADO
-```
-
-Estado desejado:
-```python
-class MetodoPagamento(BaseModel):
-    nome = models.CharField(...)
-    # ativo removido — usar is_active herdado
-```
-
-**Migration:** `pagamentos/migrations/0003_metodo_pagamento_remove_ativo.py`
-
-Regras de negocio:
-- RN-B07: dados de `ativo` migrados para `is_active` antes de remover
-- RN-B08: `MetodoPagamentoSerializer` atualizado — remover `ativo` se presente, confirmar `is_active` exposto
+### RF-F07 — Menu lateral
+- `frontend/src/components/layout/Sidebar.jsx`: adicionar em `navItems`, logo apos o item `financeiro` (ordem sugerida por ser sub-modulo do financeiro):
+  ```js
+  { to: '/conciliacao', label: 'Conciliação', icon: '🔄' }
+  ```
+  **Atencao:** o restante da Sidebar hoje usa emoji puro (`📊`, `👥` etc. — mesmo com `lucide-react` disponivel no `package.json`). Essa e uma divergencia ja identificada e suspensa na Manutencao #9 (DIV-UI03: "padrao intencional, nao alterar"). Ou seja: **manter emoji `🔄` para consistencia com o padrao atual da Sidebar**, nao migrar so este item para Lucide.
 
 ---
 
-### RF-B06 — Padronizar HistoricoCliente para herdar BaseModel
-**App:** `clientes`
-**Arquivo:** `backend/clientes/models.py` (linha 38)
+## 5. Requisitos Nao Funcionais
 
-Estado atual:
-```python
-class HistoricoCliente(models.Model):
-    cliente   = models.ForeignKey(Cliente, ...)
-    descricao = models.TextField()
-    data      = models.DateTimeField(auto_now_add=True)  # sem is_active, sem updated_at
-```
-
-Estado desejado:
-```python
-class HistoricoCliente(BaseModel):
-    cliente   = models.ForeignKey(Cliente, ...)
-    descricao = models.TextField()
-    # remover: data (substituido por created_at herdado)
-```
-
-**Migration:** `clientes/migrations/0003_historico_cliente_basemodel.py`
-
-Regras de negocio:
-- RN-B09: dados de `data` migrados para `created_at` via RunPython
-- RN-B10: `HistoricoClienteSerializer` atualizado — trocar `data` por `created_at`; adicionar `id = IntegerField(source='pk', read_only=True)` como primeiro campo
-- RN-B11: `ordering` do model atualizado de `-data` para `-created_at`
+- **RNF-01** — Upload de PDF deve mostrar estado de loading/disabled no botao de submit durante o processamento (arquivo pode levar alguns segundos para o parser processar)
+- **RNF-02** — Fontes: Plus Jakarta Sans + DM Sans (ja configuradas globalmente desde a Manutencao #9 — nao precisa reconfigurar, so nao usar classe/estilo que quebre isso)
+- **RNF-03** — Responsivo: padrao mobile (cards) / desktop (tabela) igual ao resto do Financeiro
+- **RNF-04** — Nenhuma chamada de API sem tratamento de erro (toda promise com `.catch` + `extractErrorMessage`)
+- **RNF-05** — `vite build` deve terminar sem warnings novos (nem sobre imports nao usados, nem sobre chunks)
 
 ---
 
-### RF-B07 — Padronizar ItemConciliacao para herdar BaseModel
-**App:** `financeiro`
-**Arquivo:** `backend/financeiro/models.py` (linha 286)
+## 6. Regras de Negocio
 
-Estado atual:
-```python
-class ItemConciliacao(models.Model):   # sem is_active, created_at, updated_at
-    conciliacao = models.ForeignKey(ConciliacaoExtrato, ...)
-    data_banco  = models.DateField()
-    ...
-    confirmado  = models.BooleanField(default=False)
-```
-
-Estado desejado:
-```python
-class ItemConciliacao(BaseModel):      # is_active, created_at, updated_at herdados
-    conciliacao = models.ForeignKey(ConciliacaoExtrato, ...)
-    data_banco  = models.DateField()
-    ...
-    confirmado  = models.BooleanField(default=False)
-```
-
-**Migration:** parte de `financeiro/migrations/0004_financeiro_basemodel.py` (mesmo arquivo do RF-B04)
-
-Regras de negocio:
-- RN-B12: `ItemConciliacaoSerializer` atualizado — adicionar `is_active` e `created_at` nos fields para consistencia
+- **RN-01** — Campo `natureza` do Padrao Seguro so e relevante/editavel quando `tipo=ENTRADA` (ver secao 3.4)
+- **RN-02** — Botao "Confirmar" so aparece para item com `status=FALTANDO_SISTEMA` e `confirmado=false` — nunca para `CONCILIADO` ou `FALTANDO_BANCO` (esses dois nao tem acao disponivel nesta tela)
+- **RN-03** — `ConciliacaoViewSet` nao tem `create` nem `destroy` — a tela nunca deve tentar `DELETE` ou `POST` direto em `/conciliacoes/{id}/`, so nas actions `upload/`, `itens/` e `confirmar-item/`
 
 ---
 
-### RF-B08 — Padronizar serializers com IntegerField(source='pk')
-**Regra Uid obrigatoria:**
-```python
-class MinhaSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='pk', read_only=True)  # PRIMEIRO campo
-    ...
-    class Meta:
-        read_only_fields = ['created_at', ...]  # id NAO entra aqui
+## 7. Telas (resumo visual)
+
+```
+/conciliacao
+├── [Aba: Historico] (default)
+│   ├── Header: "Conciliação Bancária" + botao "+ Nova Conciliação"
+│   ├── Lista/tabela de conciliacoes (RF-F01)
+│   │   └── clique -> abre Detalhe (RF-F03) com itens + acao confirmar (RF-F04)
+│   └── Modal "Nova Conciliação" (RF-F02)
+│
+└── [Aba: Padrões Seguros]
+    ├── Header: "Padrões Seguros" + botao "+ Novo Padrão"
+    ├── Lista de padroes (RF-F05)
+    └── Modal criar/editar padrao
 ```
 
-**Serializers afetados — identificados por auditoria (ausencia de IntegerField):**
+---
 
-| Arquivo | Serializer |
+## 8. Especificacao Frontend — arquivos a criar/alterar
+
+| Arquivo | Acao |
 |---|---|
-| `clientes/serializers.py` | `HistoricoClienteSerializer` |
-| `clientes/serializers.py` | `ClienteSerializer` |
-| `financeiro/serializers.py` | `CategoriaSerializer` |
-| `financeiro/serializers.py` | `ContaSerializer` |
-| `financeiro/serializers.py` | `AporteSerializer` |
-| `financeiro/serializers.py` | `ReceitaSerializer` |
-| `financeiro/serializers.py` | `DespesaSerializer` |
-| `financeiro/serializers.py` | `LivroCaixaSerializer` |
-| `fornecedores/serializers.py` | `FornecedorSerializer` |
+| `frontend/src/pages/Conciliacao.jsx` | **criar** — pagina completa (RF-F01 a RF-F05) |
+| `frontend/src/routes/index.jsx` | **editar** — import + rota `/conciliacao` (RF-F06) |
+| `frontend/src/components/layout/Sidebar.jsx` | **editar** — item de menu (RF-F07) |
 
-**Ja conformes (nao alterar):**
-`administrativo`, `agendamento`, `pagamentos`, `rh`, `vendas`, `portal`,
-`financeiro` (ConciliacaoExtratoSerializer, ItemConciliacaoSerializer, PadraoSeguroConciliacaoSerializer)
+Componentes UI a reaproveitar (nao recriar): `Card`, `Button`, `Input`, `Select`, `Modal`, `Pagination` (todos em `frontend/src/components/ui/`), `extractErrorMessage`/`stripEmptyStrings` (`frontend/src/utils/errors.js`), `api` client (`frontend/src/api/client.js`).
 
-Regras de negocio:
-- RN-B13: `id = IntegerField(source='pk', read_only=True)` como PRIMEIRO campo declarado na classe
-- RN-B14: `id` NAO aparece em `read_only_fields` quando ja declarado explicitamente
-- RN-B15: nenhuma migration necessaria — alteracao apenas de serializer
+Padrao de referencia direta para a estrutura da pagina: `frontend/src/pages/Financeiro.jsx` (abas via `useState` + array `TABS`, toast local, `contasOptions` via `useEffect` + `GET /financeiro/contas/`, tabelas desktop/cards mobile, badges de status).
 
 ---
 
-## Contrato JSON — Endpoint Dashboard
+## 9. Criterios de Aceite (para o Sentinel)
 
-**Endpoint:** `GET /api/v1/financeiro/dashboard/`
-**Autenticacao:** JWT Bearer (IsAuthenticated)
-**Parametros:** nenhum
-
-**Response 200 OK (campos e tipos):**
-```json
-{
-  "receita_mes": "5000.00",
-  "despesa_mes": "2300.00",
-  "resultado_mes": "2700.00",
-  "saldo_total_contas": "12450.00",
-  "mrr": "3500.00",
-  "receitas_vencer": [
-    {
-      "id": 42,
-      "descricao": "Mensalidade Studio Fluir",
-      "valor_liquido": "1200.00",
-      "vencimento": "2026-08-05",
-      "cliente__nome_razao_social": "Studio Fluir Ltda"
-    }
-  ],
-  "despesas_vencer": [
-    {
-      "id": 17,
-      "descricao": "Aluguel sala",
-      "valor_liquido": "800.00",
-      "vencimento": "2026-08-10",
-      "fornecedor": "Imobiliaria ABC"
-    }
-  ],
-  "grafico_6_meses": [
-    {
-      "mes": "2026-02",
-      "label": "Fev",
-      "receita": "4200.00",
-      "despesa": "1900.00",
-      "resultado": "2300.00"
-    }
-  ],
-  "receitas_atrasadas": 3,
-  "despesas_atrasadas": 1,
-  "indicadores": {},
-  "balanco_resumo": {
-    "pl_total": "9000.00",
-    "ativo_total": "15000.00",
-    "passivo_total": "6000.00"
-  }
-}
-```
-
-**Notas para o Loom:**
-- Valores monetarios chegam como string decimal — usar `parseFloat()` antes de formatar
-- `receitas_vencer` / `despesas_vencer`: ate 8 itens, ordenados por `vencimento` ASC
-- `grafico_6_meses`: 6 objetos, indice 0 = 5 meses atras, indice 5 = mes atual
-- `indicadores`: pode vir vazio `{}` — renderizar gracefully
-- `receitas_atrasadas` e `despesas_atrasadas`: inteiros (count)
-- Endpoint sem dados retorna campos zerados, nao 404
+- CA-01 — `GET /conciliacoes/` exibido em lista paginada, badge de status correta para os 3 valores
+- CA-02 — Upload real de um PDF (ambiente `docker compose -p uidcore-test`) cria uma nova conciliacao e ela aparece na listagem
+- CA-03 — Upload com campos obrigatorios faltando mostra erro legivel (nao generico) vindo do backend
+- CA-04 — Detalhe de uma conciliacao lista os itens com tipo/status corretos
+- CA-05 — Confirmar um item `FALTANDO_SISTEMA` chama `confirmar-item/`, o item muda de estado na tela sem reload manual, e o contador de divergencias atualiza
+- CA-06 — Botao "Confirmar" **nao aparece** para itens `CONCILIADO` ou `FALTANDO_BANCO`
+- CA-07 — CRUD de Padroes Seguros funcional (criar, editar, listar, excluir) com os 3 campos (`descricao_padrao`, `tipo`, `natureza`)
+- CA-08 — Campo `natureza` escondido/desabilitado quando `tipo=SAIDA` no formulario de Padrao Seguro
+- CA-09 — Rota `/conciliacao` acessivel via Sidebar, protegida por `ProtectedRoute` (redireciona pra `/login` se nao autenticado)
+- CA-10 — `vite build` sem warnings novos
+- CA-11 — Nenhuma chamada `DELETE`/`POST create` direta em `/conciliacoes/{id}/` (so as actions documentadas)
 
 ---
 
-## Requisitos Funcionais — Frontend
+## 10. Validacao obrigatoria (antes do Sentinel aprovar)
 
-### RF-F01 — Adicionar fontes Uid ao projeto React
-**Arquivos:** `frontend/index.html`, `frontend/tailwind.config.js`, `frontend/src/index.css`
-
-Em `frontend/index.html` (dentro de `<head>`, antes de `</head>`):
-```html
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,200..800;1,200..800&family=DM+Sans:ital,opsz,wght@0,9..40,100..1000;1,9..40,100..1000&display=swap" rel="stylesheet">
-```
-
-Em `frontend/tailwind.config.js` (dentro de `theme.extend`):
-```js
-fontFamily: {
-  sans: ['Plus Jakarta Sans', 'sans-serif'],
-  body: ['DM Sans', 'sans-serif'],
-},
-```
-
-Em `frontend/src/index.css` (apos as diretivas `@tailwind`):
-```css
-body {
-  font-family: 'Plus Jakarta Sans', sans-serif;
-}
-```
-
-Regras de negocio:
-- RN-F01: Plus Jakarta Sans = fonte primaria = `font-sans` no Tailwind = padrao do body
-- RN-F02: DM Sans = fonte secundaria = `font-body` no Tailwind = textos de apoio/labels
-- RN-F03: `display=swap` obrigatorio no link do Google Fonts
-- RN-F04: `preconnect` para `fonts.googleapis.com` e `fonts.gstatic.com` obrigatorio
+- Testar upload real com PDF em ambiente de teste (`docker compose -p uidcore-test`)
+- `vite build` limpo, sem warnings novos
+- Confirmar item `FALTANDO_SISTEMA` e ver o lancamento (`LivroCaixa` referenciado via `lancamento_lc`) refletido corretamente na tela — ou ao menos o item saindo do estado pendente
 
 ---
 
-### RF-F02 — Remover overflow-hidden do root do AppLayout
-**Arquivo:** `frontend/src/components/layout/AppLayout.jsx`
+## 11. Passagem de bastao
 
-Linha 11 — estado atual:
-```jsx
-<div className="flex h-screen bg-gray-50 overflow-hidden">
 ```
-
-Linha 11 — estado desejado:
-```jsx
-<div className="flex h-screen bg-gray-50">
+✅ Solicitacao classificada — UidCore (OS #7)
+   tipo: feature_pequena
+   descricao_tecnica: Tela de Conciliacao Bancaria no frontend (paridade SystemD) —
+     backend 100% pronto, gap e so frontend (pagina + rota + menu)
+   caminho_afetado: frontend/src/pages/Conciliacao.jsx (novo),
+     frontend/src/routes/index.jsx, frontend/src/components/layout/Sidebar.jsx
+   requer_aprovacao_comercial: false
+➡️  Planner: rotear para Pipeline C (feature_pequena) — Loom implementa,
+   Forge nao tem trabalho nesta manutencao (backend ja pronto e nao deve ser tocado),
+   Sentinel valida os 11 CAs acima, Pilot so libera com Sentinel = APROVADO explicito.
 ```
-
-Regra global Uid violada: `Overflow-hidden NUNCA no SistemaLayout root`
-
-Regras de negocio:
-- RN-F05: remover apenas `overflow-hidden` do div root — nenhuma outra alteracao no componente
-- RN-F06: `<main className="flex-1 overflow-y-auto p-6">` (linha 34) DEVE ser mantido intocado
-- RN-F07: validar sem regressao visual em modais e dropdowns apos remocao
-
----
-
-### RF-F03 — Integrar Dashboard.jsx com endpoint real
-**Arquivo:** `frontend/src/pages/Dashboard.jsx`
-
-Estado atual: 4 cards hard-coded com `'R$ -'`.
-Estado desejado: busca dados de `GET /api/v1/financeiro/dashboard/` na montagem.
-
-**Cards — 4 metricas principais:**
-
-| Card | Campo da API | Label |
-|---|---|---|
-| Receitas do Mes | `receita_mes` | formatCurrency |
-| Despesas do Mes | `despesa_mes` | formatCurrency |
-| Saldo Atual | `saldo_total_contas` | formatCurrency |
-| MRR | `mrr` | formatCurrency (substitui "Agendamentos Hoje" do mock) |
-
-Funcao de formatacao:
-```js
-function formatCurrency(value) {
-  return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-}
-```
-
-**Alertas (exibir se valor > 0):**
-- `receitas_atrasadas`: badge "X receita(s) atrasada(s)"
-- `despesas_atrasadas`: badge "X despesa(s) atrasada(s)"
-
-**Grafico 6 meses (sem biblioteca externa):**
-- Tabela/lista com 6 linhas: label do mes, receita, despesa, resultado
-- Resultado positivo: texto verde; negativo: texto vermelho
-
-**Cards de listas (substituem os dois cards de mock):**
-- "Receitas a Vencer (30 dias)": lista de `receitas_vencer` — descricao, valor, vencimento, cliente
-- "Despesas a Vencer (30 dias)": lista de `despesas_vencer` — descricao, valor, vencimento, fornecedor
-- Se array vazio: "Nenhum item nos proximos 30 dias"
-
-Regras de negocio:
-- RN-F08: usar cliente axios existente no projeto, nao criar nova instancia
-- RN-F09: JWT via interceptor/cliente ja configurado no projeto
-- RN-F10: sem bibliotecas de grafico externas (recharts, chart.js etc. nao estao no projeto)
-- RN-F11: estado de loading visivel (nao mostrar '0' ou null enquanto carrega)
-- RN-F12: erro de fetch: mensagem amigavel, sem crash
-
----
-
-### RF-F04 — Verificar lucide-react (DIV-UI04)
-`"lucide-react": "^1.27.0"` confirmado em `dependencies` do `package.json`.
-Nenhuma acao necessaria. Registrar como verificado.
-
----
-
-## Resumo de migrations
-
-| App | Arquivo | Motivo |
-|---|---|---|
-| `portal` | `0003_portal_basemodel.py` | AcessoPortalCliente para BaseModel; remover ativo, criado_em |
-| `agendamento` | `0003_agenda_remove_ativo.py` | Agenda: remover campo ativo duplicado |
-| `financeiro` | `0004_financeiro_basemodel.py` | PadraoSeguroConciliacao + ItemConciliacao para BaseModel |
-| `clientes` | `0003_historico_cliente_basemodel.py` | HistoricoCliente para BaseModel; remover campo data |
-| `pagamentos` | `0003_metodo_pagamento_remove_ativo.py` | MetodoPagamento: remover campo ativo duplicado |
-
-Total: 5 migrations.
-
-Padrao obrigatorio para migrations com remocao de coluna com dados:
-```python
-def migrar_ativo_para_is_active(apps, schema_editor):
-    Model = apps.get_model('app_name', 'ModelName')
-    Model.objects.filter(ativo=True).update(is_active=True)
-    Model.objects.filter(ativo=False).update(is_active=False)
-
-operations = [
-    migrations.RunPython(migrar_ativo_para_is_active, migrations.RunPython.noop),
-    migrations.RemoveField(model_name='modelname', name='ativo'),
-]
-```
-
----
-
-## Criterios de Aceite
-
-### Backend
-- [ ] CA-B01: `AcessoPortalCliente` herda `BaseModel`; `ativo` e `criado_em` removidos; dados migrados
-- [ ] CA-B02: `Agenda` sem campo `ativo` proprio; filtros usam `is_active`
-- [ ] CA-B03: `PadraoSeguroConciliacao` herda `BaseModel`; `ativo` e `criado_em` removidos; dados migrados
-- [ ] CA-B04: `MetodoPagamento` sem campo `ativo` proprio; `is_active` herdado assume
-- [ ] CA-B05: `HistoricoCliente` herda `BaseModel`; campo `data` removido; dados em `created_at`
-- [ ] CA-B06: `ItemConciliacao` herda `BaseModel`; `created_at`, `updated_at`, `is_active` no schema
-- [ ] CA-B07: 9 serializers com `id = IntegerField(source='pk', read_only=True)` como primeiro campo
-- [ ] CA-B08: `id` ausente de `read_only_fields` nos serializers corrigidos
-- [ ] CA-B09: `python manage.py makemigrations --check` sem novas migrations apos as 5 aplicadas
-- [ ] CA-B10: `python manage.py migrate` sem erro em banco limpo e com dados
-- [ ] CA-B11: `GET /api/v1/financeiro/dashboard/` retorna 200 com todos os campos do contrato (sem alteracao de backend necessaria)
-- [ ] CA-B12: DIV01 confirmada — `conciliacao` ausente de INSTALLED_APPS e do disco
-
-### Frontend
-- [ ] CA-F01: Plus Jakarta Sans aplicada no body (verificavel em DevTools > Computed)
-- [ ] CA-F02: DM Sans disponivel via `font-body` no Tailwind
-- [ ] CA-F03: `AppLayout.jsx` div root sem `overflow-hidden`
-- [ ] CA-F04: scroll de pagina funciona normalmente; `overflow-y-auto` em `<main>` mantido
-- [ ] CA-F05: Dashboard exibe valores reais apos autenticacao
-- [ ] CA-F06: Dashboard com loading visivel durante fetch
-- [ ] CA-F07: Dashboard com mensagem de erro graceful
-- [ ] CA-F08: cards "Receitas a Vencer" e "Despesas a Vencer" substituem cards de mock
-- [ ] CA-F09: grafico 6 meses com 6 linhas, resultado colorido
-- [ ] CA-F10: alertas de atrasados aparecem quando > 0
-- [ ] CA-F11: lucide-react confirmado — nenhuma acao necessaria
-
----
-
-## Ordem de execucao recomendada
-
-**Forge:**
-1. RF-B02, RF-B03, RF-B04, RF-B05 em paralelo (migrations por app, sem dependencias cruzadas)
-2. RF-B06, RF-B07 em paralelo
-3. RF-B08 (serializers, sem migration, pode rodar em paralelo com migrations)
-4. RF-B01 (apenas registrar verificacao)
-
-**Loom:**
-1. RF-F01 (fontes — independente)
-2. RF-F02 (overflow-hidden — 1 linha, independente)
-3. RF-F03 (Dashboard — depende do contrato JSON, nao das migrations)
-4. RF-F04 (registrar verificacao)
-
----
-
-## Notas tecnicas
-
-**HistoricoClienteSerializer pos-RF-B06:**
-```python
-class HistoricoClienteSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='pk', read_only=True)
-
-    class Meta:
-        model = HistoricoCliente
-        fields = ['id', 'descricao', 'created_at']
-        read_only_fields = ['created_at']
-```
-
-**AppLayout pos-RF-F02:**
-O `h-screen` no root deve ser mantido. O `overflow-y-auto` no `<main>` cuida do scroll da area de conteudo. A remocao do `overflow-hidden` do root nao causa scroll duplo.
-
-**Dashboard fetch (RF-F03):**
-Verificar instancia axios em `src/api/` ou `src/services/` antes de criar nova. Usar instancia existente com interceptor JWT ja configurado.

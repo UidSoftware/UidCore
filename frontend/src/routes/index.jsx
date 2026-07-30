@@ -6,6 +6,7 @@ import Dashboard from '../pages/Dashboard.jsx'
 import Clientes from '../pages/Clientes.jsx'
 import Fornecedores from '../pages/Fornecedores.jsx'
 import Financeiro from '../pages/Financeiro.jsx'
+import Conciliacao from '../pages/Conciliacao.jsx'
 import Vendas from '../pages/Vendas.jsx'
 import Pagamentos from '../pages/Pagamentos.jsx'
 import Administrativo from '../pages/Administrativo.jsx'
@@ -38,6 +39,7 @@ export default function AppRoutes() {
         <Route path="/vendas" element={<Vendas />} />
         <Route path="/pagamentos" element={<Pagamentos />} />
         <Route path="/financeiro" element={<Financeiro />} />
+        <Route path="/conciliacao" element={<Conciliacao />} />
         <Route path="/administrativo" element={<Administrativo />} />
         <Route path="/rh" element={<Rh />} />
         <Route path="/agendamento" element={<Agendamento />} />

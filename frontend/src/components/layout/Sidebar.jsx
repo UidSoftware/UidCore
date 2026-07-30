@@ -7,6 +7,7 @@ const navItems = [
   { to: '/vendas', label: 'Vendas', icon: '🛒' },
   { to: '/pagamentos', label: 'Pagamentos', icon: '💳' },
   { to: '/financeiro', label: 'Financeiro', icon: '💰' },
+  { to: '/conciliacao', label: 'Conciliação', icon: '🔄' },
   { to: '/administrativo', label: 'Administrativo', icon: '📁' },
   { to: '/rh', label: 'RH', icon: '👔' },
   { to: '/agendamento', label: 'Agendamento', icon: '📅' },
