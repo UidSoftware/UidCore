@@ -304,11 +304,11 @@ def auto_processar(faltando, conta, conc, log=None):
 
     # Passo 2: Criar por padrao seguro
     padroes_entrada = list(
-        PadraoSeguroConciliacao.objects.filter(tipo='ENTRADA', ativo=True)
+        PadraoSeguroConciliacao.objects.filter(tipo='ENTRADA', is_active=True)
         .values_list('descricao_padrao', 'natureza')
     )
     padroes_saida = list(
-        PadraoSeguroConciliacao.objects.filter(tipo='SAIDA', ativo=True)
+        PadraoSeguroConciliacao.objects.filter(tipo='SAIDA', is_active=True)
         .values_list('descricao_padrao', flat=True)
     )
     categoria_investimento = Categoria.objects.filter(

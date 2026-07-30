@@ -458,9 +458,9 @@ class PadraoSeguroConciliacaoAPITest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
         padrao = PadraoSeguroConciliacao.objects.get(pk=padrao_id)
-        self.assertFalse(padrao.ativo)  # soft delete via campo proprio (nao herda BaseModel)
+        self.assertFalse(padrao.is_active)  # soft delete via is_active (herda BaseModel)
 
-        # Apos "destroy" o padrao nao aparece mais na listagem (queryset filtra ativo=True)
+        # Apos "destroy" o padrao nao aparece mais na listagem (queryset filtra is_active=True)
         resp = self.client.get(url)
         self.assertEqual(len(resp.data['results']), 0)
 

@@ -29,7 +29,7 @@ class AcessoPortalClienteModelTest(TestCase):
 
     def test_criar_acesso_rf_po01(self):
         acesso = AcessoPortalCliente.objects.create(usuario=self.usuario, cliente=self.cliente)
-        self.assertTrue(acesso.ativo)
+        self.assertTrue(acesso.is_active)
 
     def test_usuario_e_onetoone_rn_po01(self):
         AcessoPortalCliente.objects.create(usuario=self.usuario, cliente=self.cliente)
@@ -37,11 +37,11 @@ class AcessoPortalClienteModelTest(TestCase):
         with self.assertRaises(Exception):
             AcessoPortalCliente.objects.create(usuario=self.usuario, cliente=outro_cliente)
 
-    def test_nao_herda_base_model_usa_campo_proprio_ativo_rn_po03(self):
+    def test_herda_base_model_tem_is_active_e_created_at_rn_po03(self):
         acesso = AcessoPortalCliente.objects.create(usuario=self.usuario, cliente=self.cliente)
-        self.assertFalse(hasattr(acesso, 'created_at'))
-        self.assertTrue(hasattr(acesso, 'criado_em'))
-        self.assertTrue(hasattr(acesso, 'ativo'))
+        self.assertTrue(hasattr(acesso, 'is_active'))
+        self.assertTrue(hasattr(acesso, 'created_at'))
+        self.assertTrue(acesso.is_active)
 
 
 class AcessoPortalClienteAPITest(APITestCase):
@@ -65,7 +65,7 @@ class AcessoPortalClienteAPITest(APITestCase):
         resp = self.client.delete(f'/api/v1/portal/acessos/{acesso.id}/')
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         acesso.refresh_from_db()
-        self.assertFalse(acesso.ativo)
+        self.assertFalse(acesso.is_active)
 
     def test_listar_sem_autenticacao_401(self):
         self.client.force_authenticate(user=None)
