@@ -8,7 +8,7 @@ export default function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <div className="flex h-screen bg-gray-50 overflow-hidden">
+    <div className="flex h-screen bg-gray-50">
       {mobileOpen && (
         <div
           className="fixed inset-0 z-20 bg-black/50 md:hidden"
