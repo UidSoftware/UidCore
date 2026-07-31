@@ -38,11 +38,16 @@ const BRL = (v) =>
 const EMPTY_ITEM = { produto: null, produto_nome: '', descricao: '', quantidade: 1, valor_unitario: '', valor_total: 0 }
 
 // --- Autocomplete de produto ---
-function ProdutoAutocomplete({ value, onChange, onSelect }) {
+// onInvalidate: chamado quando o usuario edita o texto apos ja ter selecionado
+// um produto — sinaliza para o pai limpar produto_id e valor_unitario
+function ProdutoAutocomplete({ value, onChange, onSelect, onInvalidate }) {
   const [query, setQuery] = useState(value || '')
   const [opcoes, setOpcoes] = useState([])
   const [aberto, setAberto] = useState(false)
+  const [erroBusca, setErroBusca] = useState(null)
   const debounceRef = useRef(null)
+  const abortRef = useRef(null)   // Fix 1: AbortController para cancelar requests anteriores
+  const selecionadoRef = useRef(false) // Fix 3: rastreia se ha produto selecionado vinculado
   const wrapRef = useRef(null)
 
   useEffect(() => {
@@ -54,29 +59,49 @@ function ProdutoAutocomplete({ value, onChange, onSelect }) {
     if (!termo || termo.length < 2) {
       setOpcoes([])
       setAberto(false)
+      setErroBusca(null)
       return
     }
-    debounceRef.current = setTimeout(async () => {
-      try {
-        const r = await api.get('/produtos/', { params: { search: termo, page_size: 10 } })
-        setOpcoes(r.data.results || r.data || [])
-        setAberto(true)
-      } catch {
-        setOpcoes([])
-      }
+    debounceRef.current = setTimeout(() => {
+      // Fix 1: cancelar request anterior antes de disparar novo
+      if (abortRef.current) abortRef.current.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      setErroBusca(null)
+      api.get('/produtos/', { params: { search: termo, page_size: 10 }, signal: controller.signal })
+        .then((r) => {
+          setOpcoes(r.data.results || r.data || [])
+          setAberto(true)
+        })
+        .catch((err) => {
+          // Fix 2: ignorar CanceledError (abort intencional); mostrar erro real
+          if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') return
+          setOpcoes([])
+          setAberto(false)
+          setErroBusca('Erro ao buscar produtos. Tente novamente.')
+        })
     }, 300)
   }
 
   const handleInput = (e) => {
     const v = e.target.value
     setQuery(v)
+    // Fix 3: se havia produto selecionado e o usuario editou o texto manualmente,
+    // invalidar o vinculo para evitar envio com produto_id desatualizado
+    if (selecionadoRef.current) {
+      selecionadoRef.current = false
+      if (onInvalidate) onInvalidate()
+    }
     onChange(v)
     buscar(v)
   }
 
   const handleSelect = (produto) => {
+    selecionadoRef.current = true
     setQuery(produto.nome)
     setAberto(false)
+    setErroBusca(null)
     onSelect(produto)
   }
 
@@ -101,6 +126,10 @@ function ProdutoAutocomplete({ value, onChange, onSelect }) {
         placeholder="Buscar produto..."
         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
       />
+      {/* Fix 2: mensagem de erro visivel ao usuario */}
+      {erroBusca && (
+        <p className="text-xs text-red-600 mt-1">{erroBusca}</p>
+      )}
       {aberto && opcoes.length > 0 && (
         <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
           {opcoes.map((p) => (
@@ -164,6 +193,22 @@ function SecaoItens({ itens, setItens }) {
     )
   }
 
+  // Fix 3: chamado quando usuario edita o texto apos selecionar produto
+  // limpa produto_id e valor_unitario para evitar envio com dados inconsistentes
+  const handleInvalidateProduto = (idx) => {
+    setItens((prev) =>
+      prev.map((it, i) => {
+        if (i !== idx) return it
+        return {
+          ...it,
+          produto: null,
+          valor_unitario: '',
+          valor_total: 0,
+        }
+      })
+    )
+  }
+
   return (
     <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
       <div className="flex items-center justify-between mb-3">
@@ -197,6 +242,7 @@ function SecaoItens({ itens, setItens }) {
               value={it.produto_nome}
               onChange={(v) => updateItem(idx, 'produto_nome', v)}
               onSelect={(p) => handleSelectProduto(idx, p)}
+              onInvalidate={() => handleInvalidateProduto(idx)}
             />
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700">Descricao</label>
