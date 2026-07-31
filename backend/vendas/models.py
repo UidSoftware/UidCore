@@ -114,12 +114,43 @@ class Pedido(BaseModel):
         return f'{self.numero} — {self.cliente}'
 
 
+class ItemOrcamento(BaseModel):
+    orcamento      = models.ForeignKey(
+        Orcamento, on_delete=models.CASCADE, related_name='itens',
+    )
+    produto        = models.ForeignKey(
+        'produtos.Produto', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='itens_orcamento',
+    )
+    descricao      = models.CharField(max_length=500, blank=True)
+    quantidade     = models.DecimalField(max_digits=12, decimal_places=3, default=1)
+    valor_unitario = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    valor_total    = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
+
+    class Meta:
+        db_table = 'vnd_item_orcamento'
+        ordering = ['id']
+
+    def save(self, *args, **kwargs):
+        self.valor_total = self.quantidade * self.valor_unitario
+        if self.produto and not self.descricao:
+            self.descricao = self.produto.nome
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.descricao} x{self.quantidade}'
+
+
 class ItemPedido(BaseModel):
     pedido         = models.ForeignKey(
         Pedido, null=True, blank=True, on_delete=models.CASCADE, related_name='itens',
     )
+    produto        = models.ForeignKey(
+        'produtos.Produto', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='itens_pedido',
+    )
     descricao      = models.CharField(max_length=255, blank=True)
-    quantidade     = models.IntegerField(default=1)
+    quantidade     = models.DecimalField(max_digits=12, decimal_places=3, default=1)
     valor_unitario = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     valor_total    = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
 
@@ -129,6 +160,8 @@ class ItemPedido(BaseModel):
 
     def save(self, *args, **kwargs):
         self.valor_total = self.quantidade * self.valor_unitario
+        if self.produto and not self.descricao:
+            self.descricao = self.produto.nome
         super().save(*args, **kwargs)
 
     def __str__(self):

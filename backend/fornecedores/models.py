@@ -1,5 +1,5 @@
-from django.db import models
-from common.models import PessoaBase
+from django.db import models, transaction
+from common.models import BaseModel, PessoaBase
 
 
 class CategoriaFornecedor(models.TextChoices):
@@ -31,3 +31,30 @@ class Fornecedor(PessoaBase):
 
     def __str__(self):
         return self.nome_razao_social
+
+
+class AcionistaFornecedor(BaseModel):
+    fornecedor = models.ForeignKey(Fornecedor, on_delete=models.CASCADE, related_name='acionistas')
+    nome = models.CharField('nome', max_length=150)
+    email = models.EmailField('e-mail', blank=True)
+    cpf = models.CharField('CPF', max_length=11, blank=True, default='')
+    telefone = models.CharField('telefone', max_length=20, blank=True)
+    whatsapp = models.CharField('whatsapp', max_length=20, blank=True)
+    principal = models.BooleanField('principal', default=False)
+
+    class Meta:
+        db_table = 'fornecedores_acionista'
+        ordering = ['-principal', 'nome']
+        verbose_name = 'Acionista'
+        verbose_name_plural = 'Acionistas'
+
+    def save(self, *args, **kwargs):
+        if self.principal:
+            with transaction.atomic():
+                AcionistaFornecedor.objects.filter(
+                    fornecedor=self.fornecedor, principal=True
+                ).exclude(pk=self.pk).update(principal=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.nome} ({self.fornecedor})'

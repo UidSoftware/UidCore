@@ -1,6 +1,7 @@
-"""Testes do app vendas (Fase E.1 -- Manutencao #7).
+"""Testes do app vendas (Fase E.1 -- Manutencao #7 e Fase C -- Manutencao #11).
 
-Cobre RF-V01 a RF-V03 e RN-V01 a RN-V03 da Especificacao_Hotfix.md.
+Cobre RF-V01 a RF-V03/V04, RN-V01 a RN-V03.
+Cobre Fase C (Manutencao #11): ItemOrcamento, endpoints de itens de orcamento e pedido.
 """
 from decimal import Decimal
 
@@ -10,8 +11,9 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 from clientes.models import Cliente
+from produtos.models import Produto
 
-from .models import ItemPedido, Orcamento, Pedido
+from .models import ItemOrcamento, ItemPedido, Orcamento, Pedido
 
 
 def _make_user(email='admin@teste.com'):
@@ -138,3 +140,129 @@ class PedidoAPITest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         ped.refresh_from_db()
         self.assertFalse(ped.is_active)
+
+
+# --- Fase C (Manutenção #11): ItemOrcamento e itens de pedido inline ------
+
+def _make_produto(nome='Produto Vendas Teste'):
+    return Produto.objects.create(
+        nome=nome, unidade_base='UN',
+        valor_unitario=Decimal('10.00'), preco_venda=Decimal('15.00'),
+    )
+
+
+class ItemOrcamentoModelTest(TestCase):
+    def setUp(self):
+        self.cliente = _make_cliente()
+        self.orc = Orcamento.objects.create(cliente=self.cliente, descricao='Orc Itens')
+
+    def test_valor_total_calculado_no_save(self):
+        item = ItemOrcamento.objects.create(
+            orcamento=self.orc, descricao='Item A',
+            quantidade=Decimal('3'), valor_unitario=Decimal('20.00'),
+        )
+        self.assertEqual(item.valor_total, Decimal('60.00'))
+
+    def test_descricao_preenchida_pelo_produto_quando_vazia(self):
+        produto = _make_produto(nome='Produto Auto')
+        item = ItemOrcamento.objects.create(
+            orcamento=self.orc, produto=produto,
+            descricao='',  # vazio — deve ser preenchido pelo produto
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        self.assertEqual(item.descricao, 'Produto Auto')
+
+    def test_descricao_manual_nao_e_sobrescrita_pelo_produto(self):
+        produto = _make_produto(nome='Produto X')
+        item = ItemOrcamento.objects.create(
+            orcamento=self.orc, produto=produto,
+            descricao='Desc Manual',
+            quantidade=Decimal('1'), valor_unitario=Decimal('5.00'),
+        )
+        self.assertEqual(item.descricao, 'Desc Manual')
+
+
+class ItensOrcamentoAPITest(APITestCase):
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.cliente = _make_cliente()
+        self.orc = Orcamento.objects.create(cliente=self.cliente, descricao='ORC API')
+
+    def test_listar_itens_orcamento(self):
+        ItemOrcamento.objects.create(
+            orcamento=self.orc, descricao='Item 1',
+            quantidade=Decimal('2'), valor_unitario=Decimal('10.00'),
+        )
+        resp = self.client.get(f'/api/v1/vendas/orcamentos/{self.orc.id}/itens/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data), 1)
+
+    def test_criar_item_orcamento(self):
+        resp = self.client.post(
+            f'/api/v1/vendas/orcamentos/{self.orc.id}/itens/',
+            {'descricao': 'Novo Item', 'quantidade': '2.000', 'valor_unitario': '50.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data['valor_total'], '100.00')
+
+    def test_patch_item_orcamento(self):
+        item = ItemOrcamento.objects.create(
+            orcamento=self.orc, descricao='Item PATCH',
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        resp = self.client.patch(
+            f'/api/v1/vendas/orcamentos/{self.orc.id}/itens/{item.id}/',
+            {'quantidade': '3.000', 'valor_unitario': '10.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['valor_total'], '30.00')
+
+    def test_delete_item_orcamento_soft_delete(self):
+        item = ItemOrcamento.objects.create(
+            orcamento=self.orc, descricao='Del',
+            quantidade=Decimal('1'), valor_unitario=Decimal('5.00'),
+        )
+        resp = self.client.delete(f'/api/v1/vendas/orcamentos/{self.orc.id}/itens/{item.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        item.refresh_from_db()
+        self.assertFalse(item.is_active)
+
+    def test_orcamento_serializer_inclui_itens(self):
+        ItemOrcamento.objects.create(
+            orcamento=self.orc, descricao='Serializer Item',
+            quantidade=Decimal('1'), valor_unitario=Decimal('100.00'),
+        )
+        resp = self.client.get(f'/api/v1/vendas/orcamentos/{self.orc.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('itens', resp.data)
+        self.assertEqual(len(resp.data['itens']), 1)
+
+
+class ItensPedidoInlineAPITest(APITestCase):
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.cliente = _make_cliente()
+        self.ped = Pedido.objects.create(cliente=self.cliente, data_pedido='2026-07-31')
+
+    def test_criar_item_pedido_inline(self):
+        resp = self.client.post(
+            f'/api/v1/vendas/pedidos/{self.ped.id}/itens/',
+            {'descricao': 'Item Pedido', 'quantidade': '5.000', 'valor_unitario': '20.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(resp.data['valor_total'], '100.00')
+
+    def test_pedido_serializer_inclui_itens(self):
+        ItemPedido.objects.create(
+            pedido=self.ped, descricao='Item',
+            quantidade=Decimal('2'), valor_unitario=Decimal('10.00'),
+        )
+        resp = self.client.get(f'/api/v1/vendas/pedidos/{self.ped.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('itens', resp.data)
+        self.assertEqual(len(resp.data['itens']), 1)

@@ -1,5 +1,6 @@
 from django.db import models
 from common.models import BaseModel, PessoaBase
+from django.db import transaction
 
 
 class SegmentoCliente(models.TextChoices):
@@ -47,3 +48,30 @@ class HistoricoCliente(BaseModel):
 
     def __str__(self):
         return f'{self.cliente} — {self.created_at:%d/%m/%Y}'
+
+
+class AcionistaCliente(BaseModel):
+    cliente = models.ForeignKey(Cliente, on_delete=models.CASCADE, related_name='acionistas')
+    nome = models.CharField('nome', max_length=150)
+    email = models.EmailField('e-mail', blank=True)
+    cpf = models.CharField('CPF', max_length=11, blank=True, default='')
+    telefone = models.CharField('telefone', max_length=20, blank=True)
+    whatsapp = models.CharField('whatsapp', max_length=20, blank=True)
+    principal = models.BooleanField('principal', default=False)
+
+    class Meta:
+        db_table = 'clientes_acionista'
+        ordering = ['-principal', 'nome']
+        verbose_name = 'Acionista'
+        verbose_name_plural = 'Acionistas'
+
+    def save(self, *args, **kwargs):
+        if self.principal:
+            with transaction.atomic():
+                AcionistaCliente.objects.filter(
+                    cliente=self.cliente, principal=True
+                ).exclude(pk=self.pk).update(principal=False)
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'{self.nome} ({self.cliente})'

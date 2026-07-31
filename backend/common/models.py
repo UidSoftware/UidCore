@@ -38,6 +38,14 @@ class PessoaBase(BaseModel):
         validators=[validar_documento],
         help_text='Apenas dígitos (sem máscara)',
     )
+    cpf = models.CharField(
+        'CPF', max_length=11, blank=True, default='',
+        help_text='Apenas dígitos (11 caracteres)',
+    )
+    cnpj = models.CharField(
+        'CNPJ', max_length=14, blank=True, default='',
+        help_text='Apenas dígitos (14 caracteres)',
+    )
     nome_razao_social = models.CharField('nome / razão social', max_length=255, blank=True)
     telefone = models.CharField('telefone', max_length=20, blank=True)
     email = models.EmailField('e-mail', blank=True)

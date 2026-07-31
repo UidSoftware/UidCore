@@ -546,3 +546,86 @@ class ConciliacaoUploadAPITest(APITestCase):
     def test_upload_campos_obrigatorios_400(self):
         resp = self.client.post('/api/v1/financeiro/conciliacoes/upload/', {}, format='multipart')
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+# --- Fase D (Manutenção #11): dashboard com despesas/receitas por mes -----
+
+class DashboardFinanceiroPorMesTest(APITestCase):
+    """Fase D: verifica que dashboard retorna despesas_pagas_por_mes e
+    receitas_recebidas_por_mes com a estrutura correta."""
+
+    def setUp(self):
+        from datetime import date
+        self.user = _make_user(email='dash@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta Dashboard Teste')
+        self.categoria = Categoria.objects.create(nome='Servico', tipo='ENTRADA')
+
+        hoje = date.today()
+
+        # Criar despesa paga no mes atual
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Aluguel Dash',
+            valor_bruto=Decimal('1000.00'), pagamento=hoje, status='PAGO',
+        )
+        # Criar receita recebida no mes atual
+        Receita.objects.create(
+            conta=self.conta, tipo='SERVICO', descricao='Receita Dash',
+            categoria=self.categoria,
+            valor_bruto=Decimal('2000.00'), recebimento=hoje, status='RECEBIDO',
+        )
+
+    def test_dashboard_inclui_campos_novos(self):
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('despesas_pagas_por_mes', resp.data)
+        self.assertIn('receitas_recebidas_por_mes', resp.data)
+
+    def test_despesas_pagas_por_mes_estrutura(self):
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        desp_list = resp.data['despesas_pagas_por_mes']
+        self.assertIsInstance(desp_list, list)
+        self.assertGreaterEqual(len(desp_list), 1)
+        primeiro = desp_list[-1]  # mes mais recente deve estar no final
+        self.assertIn('mes', primeiro)
+        self.assertIn('label', primeiro)
+        self.assertIn('total', primeiro)
+        self.assertIn('itens', primeiro)
+
+    def test_receitas_recebidas_por_mes_estrutura(self):
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        rec_list = resp.data['receitas_recebidas_por_mes']
+        self.assertIsInstance(rec_list, list)
+        self.assertGreaterEqual(len(rec_list), 1)
+        primeiro = rec_list[-1]
+        self.assertIn('mes', primeiro)
+        self.assertIn('label', primeiro)
+        self.assertIn('total', primeiro)
+        self.assertIn('itens', primeiro)
+
+    def test_itens_tem_campos_corretos(self):
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        desp_list = resp.data['despesas_pagas_por_mes']
+        if desp_list:
+            item = desp_list[-1]['itens'][0]
+            self.assertIn('id', item)
+            self.assertIn('descricao', item)
+            self.assertIn('valor', item)
+            self.assertIn('data', item)
+
+    def test_despesa_pendente_nao_aparece(self):
+        from datetime import date
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Pendente NAO Aparece',
+            valor_bruto=Decimal('500.00'), status='PENDENTE',
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        todas_descricoes = []
+        for mes in resp.data['despesas_pagas_por_mes']:
+            todas_descricoes.extend([i['descricao'] for i in mes['itens']])
+        self.assertNotIn('Pendente NAO Aparece', todas_descricoes)
+
+    def test_sem_autenticacao_401(self):
+        self.client.force_authenticate(user=None)
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.status_code, 401)

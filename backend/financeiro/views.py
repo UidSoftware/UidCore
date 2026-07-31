@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.db import connection, transaction
 from django.db.models import Sum, Q
+from django.db.models.functions import TruncMonth
 from rest_framework import status
 from rest_framework.decorators import action, api_view
 from rest_framework.filters import OrderingFilter, SearchFilter
@@ -581,6 +582,103 @@ def dashboard_financeiro(request):
     indicadores = calcular_indicadores_cfo()
     balanco = calcular_balanco()
 
+    # Ultimos 12 meses — despesas pagas e receitas recebidas agrupadas por mes
+    MESES_NOMES_PT = [
+        'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+        'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+    ]
+
+    doze_meses_atras = date(hoje.year - 1, hoje.month, 1) if hoje.month != 1 else date(hoje.year - 2, 1, 1)
+    # calcula corretamente: 12 meses antes do início do mês atual
+    if hoje.month == 1:
+        doze_meses_atras = date(hoje.year - 1, 1, 1)
+    else:
+        doze_meses_atras = date(hoje.year - 1, hoje.month, 1)
+
+    # Despesas pagas nos ultimos 12 meses, agrupadas por mes
+    desp_por_mes_qs = (
+        Despesa.objects.filter(
+            is_active=True,
+            status='PAGO',
+            estornado=False,
+            pagamento__gte=doze_meses_atras,
+        )
+        .annotate(mes_ref=TruncMonth('pagamento'))
+        .values('mes_ref')
+        .annotate(total=Sum('valor_liquido'))
+        .order_by('mes_ref')
+    )
+
+    despesas_pagas_por_mes = []
+    for row in desp_por_mes_qs:
+        mes_ref = row['mes_ref']
+        label = f'{MESES_NOMES_PT[mes_ref.month - 1]} {mes_ref.year}'
+        itens_qs = list(
+            Despesa.objects.filter(
+                is_active=True,
+                status='PAGO',
+                estornado=False,
+                pagamento__year=mes_ref.year,
+                pagamento__month=mes_ref.month,
+            ).values('id', 'descricao', 'valor_liquido', 'pagamento', 'tipo')
+        )
+        despesas_pagas_por_mes.append({
+            'mes': f'{mes_ref.year}-{mes_ref.month:02d}',
+            'label': label,
+            'total': float(row['total'] or 0),
+            'itens': [
+                {
+                    'id': i['id'],
+                    'descricao': i['descricao'],
+                    'valor': float(i['valor_liquido']),
+                    'data': i['pagamento'].isoformat() if i['pagamento'] else None,
+                    'tipo': i['tipo'],
+                }
+                for i in itens_qs
+            ],
+        })
+
+    # Receitas recebidas nos ultimos 12 meses, agrupadas por mes
+    rec_por_mes_qs = (
+        Receita.objects.filter(
+            is_active=True,
+            status='RECEBIDO',
+            recebimento__gte=doze_meses_atras,
+        )
+        .annotate(mes_ref=TruncMonth('recebimento'))
+        .values('mes_ref')
+        .annotate(total=Sum('valor_liquido'))
+        .order_by('mes_ref')
+    )
+
+    receitas_recebidas_por_mes = []
+    for row in rec_por_mes_qs:
+        mes_ref = row['mes_ref']
+        label = f'{MESES_NOMES_PT[mes_ref.month - 1]} {mes_ref.year}'
+        itens_qs = list(
+            Receita.objects.filter(
+                is_active=True,
+                status='RECEBIDO',
+                recebimento__year=mes_ref.year,
+                recebimento__month=mes_ref.month,
+            ).values('id', 'descricao', 'valor_liquido', 'recebimento', 'tipo')
+        )
+        receitas_recebidas_por_mes.append({
+            'mes': f'{mes_ref.year}-{mes_ref.month:02d}',
+            'label': label,
+            'total': float(row['total'] or 0),
+            'itens': [
+                {
+                    'id': i['id'],
+                    'descricao': i['descricao'],
+                    'valor': float(i['valor_liquido']),
+                    'data': i['recebimento'].isoformat() if i['recebimento'] else None,
+                    'tipo': i['tipo'],
+                }
+                for i in itens_qs
+            ],
+        })
+
     return Response({
         'receita_mes': receita_mes,
         'despesa_mes': despesa_mes,
@@ -598,6 +696,8 @@ def dashboard_financeiro(request):
             'ativo_total': balanco['ativo']['total'],
             'passivo_total': balanco['passivo']['total'],
         },
+        'despesas_pagas_por_mes': despesas_pagas_por_mes,
+        'receitas_recebidas_por_mes': receitas_recebidas_por_mes,
     })
 
 
