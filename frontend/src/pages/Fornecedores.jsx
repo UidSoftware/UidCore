@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { User, Building2, Plus, Trash2 } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -12,55 +13,52 @@ const PAGE_SIZE = 10
 
 const UF_OPTIONS = [
   { value: '', label: 'Selecione...' },
-  { value: 'AC', label: 'AC' },
-  { value: 'AL', label: 'AL' },
-  { value: 'AM', label: 'AM' },
-  { value: 'AP', label: 'AP' },
-  { value: 'BA', label: 'BA' },
-  { value: 'CE', label: 'CE' },
-  { value: 'DF', label: 'DF' },
-  { value: 'ES', label: 'ES' },
-  { value: 'GO', label: 'GO' },
-  { value: 'MA', label: 'MA' },
-  { value: 'MG', label: 'MG' },
-  { value: 'MS', label: 'MS' },
-  { value: 'MT', label: 'MT' },
-  { value: 'PA', label: 'PA' },
-  { value: 'PB', label: 'PB' },
-  { value: 'PE', label: 'PE' },
-  { value: 'PI', label: 'PI' },
-  { value: 'PR', label: 'PR' },
-  { value: 'RJ', label: 'RJ' },
-  { value: 'RN', label: 'RN' },
-  { value: 'RO', label: 'RO' },
-  { value: 'RR', label: 'RR' },
-  { value: 'RS', label: 'RS' },
-  { value: 'SC', label: 'SC' },
-  { value: 'SE', label: 'SE' },
-  { value: 'SP', label: 'SP' },
-  { value: 'TO', label: 'TO' },
-]
-
-const TIPO_PESSOA_OPTIONS = [
-  { value: 'PF', label: 'Pessoa Física' },
-  { value: 'PJ', label: 'Pessoa Jurídica' },
+  { value: 'AC', label: 'AC' }, { value: 'AL', label: 'AL' }, { value: 'AM', label: 'AM' },
+  { value: 'AP', label: 'AP' }, { value: 'BA', label: 'BA' }, { value: 'CE', label: 'CE' },
+  { value: 'DF', label: 'DF' }, { value: 'ES', label: 'ES' }, { value: 'GO', label: 'GO' },
+  { value: 'MA', label: 'MA' }, { value: 'MG', label: 'MG' }, { value: 'MS', label: 'MS' },
+  { value: 'MT', label: 'MT' }, { value: 'PA', label: 'PA' }, { value: 'PB', label: 'PB' },
+  { value: 'PE', label: 'PE' }, { value: 'PI', label: 'PI' }, { value: 'PR', label: 'PR' },
+  { value: 'RJ', label: 'RJ' }, { value: 'RN', label: 'RN' }, { value: 'RO', label: 'RO' },
+  { value: 'RR', label: 'RR' }, { value: 'RS', label: 'RS' }, { value: 'SC', label: 'SC' },
+  { value: 'SE', label: 'SE' }, { value: 'SP', label: 'SP' }, { value: 'TO', label: 'TO' },
 ]
 
 const CATEGORIA_OPTIONS = [
   { value: '', label: 'Selecione...' },
-  { value: 'MATERIA_PRIMA', label: 'Matéria-Prima' },
-  { value: 'SERVICOS', label: 'Serviços' },
+  { value: 'MATERIA_PRIMA', label: 'Materia-Prima' },
+  { value: 'SERVICOS', label: 'Servicos' },
   { value: 'TECNOLOGIA', label: 'Tecnologia' },
-  { value: 'LOGISTICA', label: 'Logística' },
-  { value: 'MANUTENCAO', label: 'Manutenção' },
-  { value: 'ESCRITORIO', label: 'Escritório' },
+  { value: 'LOGISTICA', label: 'Logistica' },
+  { value: 'MANUTENCAO', label: 'Manutencao' },
+  { value: 'ESCRITORIO', label: 'Escritorio' },
   { value: 'MARKETING', label: 'Marketing' },
   { value: 'OUTRO', label: 'Outro' },
 ]
 
+const maskCPF = (v) => {
+  const d = v.replace(/\D/g, '').slice(0, 11)
+  if (d.length <= 3) return d
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`
+}
+
+const maskCNPJ = (v) => {
+  const d = v.replace(/\D/g, '').slice(0, 14)
+  if (d.length <= 2) return d
+  if (d.length <= 5) return `${d.slice(0, 2)}.${d.slice(2)}`
+  if (d.length <= 8) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5)}`
+  if (d.length <= 12) return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8)}`
+  return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
+}
+
+const EMPTY_ACIONISTA = { nome: '', email: '', cpf: '', telefone: '', whatsapp: '', principal: false }
+
 const EMPTY_FORM = {
   tipo_pessoa: 'PJ',
-  documento: '',
+  cpf: '',
+  cnpj: '',
   nome_razao_social: '',
   inscricao_estadual: '',
   telefone: '',
@@ -69,10 +67,13 @@ const EMPTY_FORM = {
   contato_nome: '',
   contato_telefone: '',
   endereco: '',
+  numero: '',
+  complemento: '',
   cidade: '',
   estado: '',
   cep: '',
   categoria: '',
+  origem: '',
   observacoes: '',
 }
 
@@ -87,6 +88,7 @@ export default function Fornecedores() {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
+  const [acionistas, setAcionistas] = useState([])
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -115,14 +117,16 @@ export default function Fornecedores() {
 
   const openNew = () => {
     setForm(EMPTY_FORM)
+    setAcionistas([])
     setEditingId(null)
     setModalOpen(true)
   }
 
-  const openEdit = (fornecedor) => {
+  const openEdit = async (fornecedor) => {
     setForm({
       tipo_pessoa: fornecedor.tipo_pessoa || 'PJ',
-      documento: fornecedor.documento || '',
+      cpf: fornecedor.cpf || '',
+      cnpj: fornecedor.cnpj || '',
       nome_razao_social: fornecedor.nome_razao_social || '',
       inscricao_estadual: fornecedor.inscricao_estadual || '',
       telefone: fornecedor.telefone || '',
@@ -131,38 +135,97 @@ export default function Fornecedores() {
       contato_nome: fornecedor.contato_nome || '',
       contato_telefone: fornecedor.contato_telefone || '',
       endereco: fornecedor.endereco || '',
+      numero: fornecedor.numero || '',
+      complemento: fornecedor.complemento || '',
       cidade: fornecedor.cidade || '',
       estado: fornecedor.estado || '',
       cep: fornecedor.cep || '',
       categoria: fornecedor.categoria || '',
+      origem: fornecedor.origem || '',
       observacoes: fornecedor.observacoes || '',
     })
     setEditingId(fornecedor.id)
+    setAcionistas([])
     setModalOpen(true)
+    try {
+      const r = await api.get(`/fornecedores/${fornecedor.id}/acionistas/`)
+      setAcionistas(r.data.results || r.data || [])
+    } catch {
+      // silencioso
+    }
   }
 
   const closeModal = () => {
     setModalOpen(false)
     setEditingId(null)
     setForm(EMPTY_FORM)
+    setAcionistas([])
   }
 
   const handleChange = (e) => {
     const { name, value } = e.target
-    setForm((prev) => ({ ...prev, [name]: value }))
+    if (name === 'cpf') {
+      setForm((prev) => ({ ...prev, cpf: maskCPF(value) }))
+    } else if (name === 'cnpj') {
+      setForm((prev) => ({ ...prev, cnpj: maskCNPJ(value) }))
+    } else {
+      setForm((prev) => ({ ...prev, [name]: value }))
+    }
+  }
+
+  const handleTipoPessoa = (tipo) => {
+    setForm((prev) => ({ ...prev, tipo_pessoa: tipo }))
+  }
+
+  // Acionistas
+  const addAcionista = () => {
+    setAcionistas((prev) => [...prev, { ...EMPTY_ACIONISTA }])
+  }
+
+  const removeAcionista = (idx) => {
+    setAcionistas((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  const updateAcionista = (idx, field, value) => {
+    setAcionistas((prev) =>
+      prev.map((a, i) => {
+        if (i !== idx) return a
+        return { ...a, [field]: value }
+      })
+    )
+  }
+
+  const setPrincipal = (idx) => {
+    setAcionistas((prev) =>
+      prev.map((a, i) => ({ ...a, principal: i === idx }))
+    )
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
     setSaving(true)
     try {
-      const payload = stripEmptyStrings(form)
+      const payload = stripEmptyStrings({
+        ...form,
+        documento: form.tipo_pessoa === 'PF' ? form.cpf : form.cnpj,
+      })
+      let fornecedorId = editingId
       if (editingId) {
         await api.patch(`/fornecedores/${editingId}/`, payload)
         showToast('Fornecedor atualizado com sucesso.')
       } else {
-        await api.post('/fornecedores/', payload)
+        const r = await api.post('/fornecedores/', payload)
+        fornecedorId = r.data.id
         showToast('Fornecedor cadastrado com sucesso.')
+      }
+      if (form.tipo_pessoa === 'PJ' && acionistas.length > 0 && fornecedorId) {
+        for (const ac of acionistas) {
+          if (!ac.id) {
+            await api.post(`/fornecedores/${fornecedorId}/acionistas/`, stripEmptyStrings(ac)).catch(() => {})
+          } else {
+            await api.patch(`/fornecedores/${fornecedorId}/acionistas/${ac.id}/`, stripEmptyStrings(ac)).catch(() => {})
+          }
+        }
       }
       closeModal()
       fetchFornecedores()
@@ -188,6 +251,8 @@ export default function Fornecedores() {
     setSearch(e.target.value)
     setPage(1)
   }
+
+  const isPF = form.tipo_pessoa === 'PF'
 
   return (
     <div className="space-y-4">
@@ -274,20 +339,10 @@ export default function Fornecedores() {
                       <p className="font-medium text-gray-800 truncate">{f.email}</p>
                     </div>
                   )}
-                  {f.website && (
-                    <div className="col-span-2">
-                      <span className="text-gray-400">Website</span>
-                      <p className="font-medium text-gray-800 truncate">{f.website}</p>
-                    </div>
-                  )}
                 </div>
                 <div className="mt-3 flex gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => openEdit(f)}>
-                    Editar
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => handleDelete(f)}>
-                    Excluir
-                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => openEdit(f)}>Editar</Button>
+                  <Button size="sm" variant="danger" onClick={() => handleDelete(f)}>Excluir</Button>
                 </div>
               </Card>
             ))}
@@ -306,7 +361,7 @@ export default function Fornecedores() {
                       <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Categoria</th>
                       <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Cidade/UF</th>
                       <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Contato</th>
-                      <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Ações</th>
+                      <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Acoes</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
@@ -339,12 +394,8 @@ export default function Fornecedores() {
                         </td>
                         <td className="px-6 py-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-2">
-                            <Button size="sm" variant="secondary" onClick={() => openEdit(f)}>
-                              Editar
-                            </Button>
-                            <Button size="sm" variant="danger" onClick={() => handleDelete(f)}>
-                              Excluir
-                            </Button>
+                            <Button size="sm" variant="secondary" onClick={() => openEdit(f)}>Editar</Button>
+                            <Button size="sm" variant="danger" onClick={() => handleDelete(f)}>Excluir</Button>
                           </div>
                         </td>
                       </tr>
@@ -367,47 +418,141 @@ export default function Fornecedores() {
           maxW="max-w-2xl"
         >
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Select
-                label="Tipo de Pessoa"
-                name="tipo_pessoa"
-                options={TIPO_PESSOA_OPTIONS}
-                value={form.tipo_pessoa}
-                onChange={handleChange}
-              />
-              <Input
-                label="CPF / CNPJ"
-                name="documento"
-                value={form.documento}
-                onChange={handleChange}
-                placeholder="00.000.000/0001-00"
-              />
+            {/* Segmented control PF/PJ */}
+            <div>
+              <label className="text-sm font-medium text-gray-700 block mb-1.5">Tipo de Pessoa</label>
+              <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+                <button
+                  type="button"
+                  onClick={() => handleTipoPessoa('PF')}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
+                    isPF
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <User size={16} />
+                  Pessoa Fisica
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTipoPessoa('PJ')}
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300 ${
+                    !isPF
+                      ? 'bg-primary-600 text-white'
+                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                  }`}
+                >
+                  <Building2 size={16} />
+                  Pessoa Juridica
+                </button>
+              </div>
             </div>
 
+            {/* Documento */}
+            {isPF ? (
+              <Input
+                label="CPF"
+                name="cpf"
+                value={form.cpf}
+                onChange={handleChange}
+                placeholder="000.000.000-00"
+              />
+            ) : (
+              <Input
+                label="CNPJ"
+                name="cnpj"
+                value={form.cnpj}
+                onChange={handleChange}
+                placeholder="00.000.000/0000-00"
+              />
+            )}
+
+            {/* Card acionistas (somente PJ) */}
+            {!isPF && (
+              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700">Socios / Acionistas</h3>
+                  <button
+                    type="button"
+                    onClick={addAcionista}
+                    className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors"
+                  >
+                    <Plus size={14} />
+                    Adicionar Socio
+                  </button>
+                </div>
+                {acionistas.length === 0 && (
+                  <p className="text-xs text-gray-400">Nenhum socio adicionado.</p>
+                )}
+                <div className="space-y-3">
+                  {acionistas.map((ac, idx) => (
+                    <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                          <input
+                            type="radio"
+                            name="acionista_fornecedor_principal"
+                            checked={ac.principal}
+                            onChange={() => setPrincipal(idx)}
+                            className="accent-primary-600"
+                          />
+                          Principal
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeAcionista(idx)}
+                          className="text-red-400 hover:text-red-600 transition-colors"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <Input
+                          label="Nome"
+                          value={ac.nome}
+                          onChange={(e) => updateAcionista(idx, 'nome', e.target.value)}
+                          placeholder="Nome completo"
+                        />
+                        <Input
+                          label="E-mail"
+                          type="email"
+                          value={ac.email}
+                          onChange={(e) => updateAcionista(idx, 'email', e.target.value)}
+                          placeholder="email@exemplo.com"
+                        />
+                        <Input
+                          label="CPF"
+                          value={ac.cpf}
+                          onChange={(e) => updateAcionista(idx, 'cpf', maskCPF(e.target.value))}
+                          placeholder="000.000.000-00"
+                        />
+                        <Input
+                          label="Telefone"
+                          value={ac.telefone}
+                          onChange={(e) => updateAcionista(idx, 'telefone', e.target.value)}
+                          placeholder="(11) 99999-0000"
+                        />
+                        <Input
+                          label="WhatsApp"
+                          value={ac.whatsapp}
+                          onChange={(e) => updateAcionista(idx, 'whatsapp', e.target.value)}
+                          placeholder="(11) 99999-0000"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <Input
-              label="Nome / Razão Social"
+              label={isPF ? 'Nome Completo' : 'Nome / Razao Social'}
               name="nome_razao_social"
               value={form.nome_razao_social}
               onChange={handleChange}
-              placeholder="Nome ou razão social do fornecedor"
+              placeholder={isPF ? 'Nome completo' : 'Nome ou razao social do fornecedor'}
             />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                label="Inscrição Estadual"
-                name="inscricao_estadual"
-                value={form.inscricao_estadual}
-                onChange={handleChange}
-                placeholder="000.000.000.000"
-              />
-              <Select
-                label="Categoria"
-                name="categoria"
-                options={CATEGORIA_OPTIONS}
-                value={form.categoria}
-                onChange={handleChange}
-              />
-            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
@@ -427,57 +572,115 @@ export default function Fornecedores() {
               />
             </div>
 
-            <Input
-              label="Website"
-              name="website"
-              type="url"
-              value={form.website}
-              onChange={handleChange}
-              placeholder="https://www.fornecedor.com.br"
-            />
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <Input
-                label="Nome do Contato"
-                name="contato_nome"
-                value={form.contato_nome}
-                onChange={handleChange}
-                placeholder="Nome do responsável"
-              />
-              <Input
-                label="Telefone do Contato"
-                name="contato_telefone"
-                value={form.contato_telefone}
-                onChange={handleChange}
-                placeholder="(11) 99999-0000"
-              />
-            </div>
-
-            <Input
-              label="Endereço"
-              name="endereco"
-              value={form.endereco}
-              onChange={handleChange}
-              placeholder="Rua, número, complemento"
-            />
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <div className="col-span-2 sm:col-span-1">
+            {!isPF && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Inscricao Estadual"
+                    name="inscricao_estadual"
+                    value={form.inscricao_estadual}
+                    onChange={handleChange}
+                    placeholder="000.000.000.000"
+                  />
+                  <Select
+                    label="Categoria"
+                    name="categoria"
+                    options={CATEGORIA_OPTIONS}
+                    value={form.categoria}
+                    onChange={handleChange}
+                  />
+                </div>
                 <Input
-                  label="CEP"
-                  name="cep"
-                  value={form.cep}
+                  label="Website"
+                  name="website"
+                  type="url"
+                  value={form.website}
                   onChange={handleChange}
-                  placeholder="00000-000"
+                  placeholder="https://www.fornecedor.com.br"
+                />
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Input
+                    label="Nome do Contato"
+                    name="contato_nome"
+                    value={form.contato_nome}
+                    onChange={handleChange}
+                    placeholder="Nome do responsavel"
+                  />
+                  <Input
+                    label="Telefone do Contato"
+                    name="contato_telefone"
+                    value={form.contato_telefone}
+                    onChange={handleChange}
+                    placeholder="(11) 99999-0000"
+                  />
+                </div>
+                <Input
+                  label="Origem"
+                  name="origem"
+                  value={form.origem}
+                  onChange={handleChange}
+                  placeholder="Como conheceu a empresa..."
+                />
+              </>
+            )}
+
+            {isPF && (
+              <Select
+                label="Categoria"
+                name="categoria"
+                options={CATEGORIA_OPTIONS}
+                value={form.categoria}
+                onChange={handleChange}
+              />
+            )}
+
+            {/* Logradouro */}
+            <div className="grid grid-cols-3 gap-4">
+              <div className="col-span-2">
+                <Input
+                  label="Logradouro"
+                  name="endereco"
+                  value={form.endereco}
+                  onChange={handleChange}
+                  placeholder="Rua, Avenida..."
                 />
               </div>
               <Input
-                label="Cidade"
-                name="cidade"
-                value={form.cidade}
+                label="Numero"
+                name="numero"
+                value={form.numero}
                 onChange={handleChange}
-                placeholder="São Paulo"
+                placeholder="123"
               />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Input
+                label="Complemento"
+                name="complemento"
+                value={form.complemento}
+                onChange={handleChange}
+                placeholder="Apto, sala..."
+              />
+              <Input
+                label="CEP"
+                name="cep"
+                value={form.cep}
+                onChange={handleChange}
+                placeholder="00000-000"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="col-span-2">
+                <Input
+                  label="Cidade"
+                  name="cidade"
+                  value={form.cidade}
+                  onChange={handleChange}
+                  placeholder="Sao Paulo"
+                />
+              </div>
               <Select
                 label="UF"
                 name="estado"
@@ -488,13 +691,13 @@ export default function Fornecedores() {
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observações</label>
+              <label className="text-sm font-medium text-gray-700">Observacoes</label>
               <textarea
                 name="observacoes"
                 value={form.observacoes}
                 onChange={handleChange}
                 rows={3}
-                placeholder="Informações adicionais sobre o fornecedor..."
+                placeholder="Informacoes adicionais sobre o fornecedor..."
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors duration-150"
               />
             </div>
@@ -504,7 +707,7 @@ export default function Fornecedores() {
                 Cancelar
               </Button>
               <Button type="submit" loading={saving}>
-                {editingId ? 'Salvar Alterações' : 'Cadastrar Fornecedor'}
+                {editingId ? 'Salvar Alteracoes' : 'Cadastrar Fornecedor'}
               </Button>
             </div>
           </form>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { ChevronDown, ChevronUp, Edit } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -149,9 +150,66 @@ export default function Financeiro() {
   )
 }
 
+// --- Sub-componente: MesColapsavel ---
+function MesColapsavel({ mes, tipo, onEdit }) {
+  const [aberto, setAberto] = useState(false)
+  const isReceita = tipo === 'receita'
+  const colorClass = isReceita ? 'text-green-700' : 'text-red-700'
+
+  return (
+    <div className="border-t border-gray-100">
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        className="w-full flex justify-between items-center px-4 py-2 hover:bg-gray-50 transition-colors"
+      >
+        <span className="text-sm text-gray-700 font-medium">{mes.label}</span>
+        <div className="flex items-center gap-2">
+          <span className={`text-sm font-semibold ${colorClass}`}>{BRL(mes.total)}</span>
+          {aberto ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+        </div>
+      </button>
+      {aberto && (
+        <div className="px-4 pb-2 space-y-1">
+          {(!mes.itens || mes.itens.length === 0) ? (
+            <p className="text-xs text-gray-400">Nenhum lancamento neste mes.</p>
+          ) : (
+            mes.itens.map((item) => (
+              <div key={item.id} className="flex justify-between items-center py-1 text-xs border-b border-gray-50 last:border-0">
+                <div className="min-w-0 flex-1">
+                  <p className="text-gray-800 truncate">{item.descricao}</p>
+                  <p className="text-gray-400">{item.data}</p>
+                </div>
+                <div className="flex items-center gap-2 ml-2 shrink-0">
+                  <span className={`font-semibold ${colorClass}`}>{BRL(item.valor_bruto)}</span>
+                  {onEdit && (
+                    <button
+                      type="button"
+                      onClick={() => onEdit(item)}
+                      className="text-gray-400 hover:text-gray-700 transition-colors"
+                      title="Editar"
+                    >
+                      <Edit size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ResumoTab() {
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [cardAberto, setCardAberto] = useState({ despesas: false, receitas: false })
+
+  const toggleCard = (key) => {
+    setCardAberto((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -164,21 +222,34 @@ function ResumoTab() {
   if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
   if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar dados.</div>
 
+  const despesasPorMes = data.despesas_pagas_por_mes || []
+  const receitasPorMes = data.receitas_recebidas_por_mes || []
+  const totalDespesas = despesasPorMes.reduce((s, m) => s + (Number(m.total) || 0), 0)
+  const totalReceitas = receitasPorMes.reduce((s, m) => s + (Number(m.total) || 0), 0)
+
+  const handleEditItem = (item) => {
+    // Placeholder — o edit do item individual abre o modal de edicao da
+    // Despesa/Receita correspondente. Como requer estado compartilhado com
+    // as tabs de Despesas/Receitas, navegar via tab e filtrar pelo id.
+    // Por ora, exibe o id para rastreabilidade.
+    window.alert(`Editar item ID: ${item.id}\nUse a aba "Contas a Pagar" / "Contas a Receber" para editar.`)
+  }
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard label="Saldo Total" value={BRL(data.saldo_total_contas)} color="blue" />
-        <KpiCard label="Receita (mês)" value={BRL(data.receita_mes)} color="green" />
-        <KpiCard label="Despesa (mês)" value={BRL(data.despesa_mes)} color="red" />
+        <KpiCard label="Receita (mes)" value={BRL(data.receita_mes)} color="green" />
+        <KpiCard label="Despesa (mes)" value={BRL(data.despesa_mes)} color="red" />
         <KpiCard label="Resultado" value={BRL(data.resultado_mes)} color={Number(data.resultado_mes) >= 0 ? 'green' : 'red'} />
       </div>
 
       {data.indicadores && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KpiCard label="MRR" value={BRL(data.indicadores.mrr)} color="blue" />
-          <KpiCard label="Margem Líquida" value={`${data.indicadores.margem_liquida}%`} color={Number(data.indicadores.margem_liquida) >= 0 ? 'green' : 'red'} />
+          <KpiCard label="Margem Liquida" value={`${data.indicadores.margem_liquida}%`} color={Number(data.indicadores.margem_liquida) >= 0 ? 'green' : 'red'} />
           <KpiCard label="Runway" value={`${data.indicadores.runway_meses} meses`} color={Number(data.indicadores.runway_meses) >= 6 ? 'green' : Number(data.indicadores.runway_meses) >= 3 ? 'blue' : 'red'} />
-          <KpiCard label="Ponto Equilíbrio" value={BRL(data.indicadores.ponto_equilibrio)} color="blue" />
+          <KpiCard label="Ponto Equilibrio" value={BRL(data.indicadores.ponto_equilibrio)} color="blue" />
         </div>
       )}
 
@@ -244,6 +315,55 @@ function ResumoTab() {
           </div>
         </Card>
       )}
+
+      {/* Cards colapsaveis Despesas/Receitas pagas */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+        {/* Card Despesas Pagas */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          <div
+            className="flex justify-between items-center p-4 cursor-pointer select-none"
+            onClick={() => toggleCard('despesas')}
+          >
+            <h3 className="font-semibold text-red-700">Despesas Pagas</h3>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-red-700">{BRL(totalDespesas)}</span>
+              {cardAberto.despesas ? <ChevronUp size={18} className="text-red-600" /> : <ChevronDown size={18} className="text-red-600" />}
+            </div>
+          </div>
+          {cardAberto.despesas && (
+            despesasPorMes.length === 0 ? (
+              <p className="px-4 pb-4 text-sm text-gray-400">Nenhuma despesa paga registrada.</p>
+            ) : (
+              despesasPorMes.map((mes) => (
+                <MesColapsavel key={mes.mes} mes={mes} tipo="despesa" onEdit={handleEditItem} />
+              ))
+            )
+          )}
+        </div>
+
+        {/* Card Receitas Recebidas */}
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+          <div
+            className="flex justify-between items-center p-4 cursor-pointer select-none"
+            onClick={() => toggleCard('receitas')}
+          >
+            <h3 className="font-semibold text-green-700">Receitas Recebidas</h3>
+            <div className="flex items-center gap-2">
+              <span className="font-bold text-green-700">{BRL(totalReceitas)}</span>
+              {cardAberto.receitas ? <ChevronUp size={18} className="text-green-600" /> : <ChevronDown size={18} className="text-green-600" />}
+            </div>
+          </div>
+          {cardAberto.receitas && (
+            receitasPorMes.length === 0 ? (
+              <p className="px-4 pb-4 text-sm text-gray-400">Nenhuma receita recebida registrada.</p>
+            ) : (
+              receitasPorMes.map((mes) => (
+                <MesColapsavel key={mes.mes} mes={mes} tipo="receita" onEdit={handleEditItem} />
+              ))
+            )
+          )}
+        </div>
+      </div>
     </div>
   )
 }

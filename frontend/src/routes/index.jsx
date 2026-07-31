@@ -13,6 +13,7 @@ import Administrativo from '../pages/Administrativo.jsx'
 import Rh from '../pages/Rh.jsx'
 import Agendamento from '../pages/Agendamento.jsx'
 import Portal from '../pages/Portal.jsx'
+import Produtos from '../pages/Produtos.jsx'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -37,6 +38,7 @@ export default function AppRoutes() {
         <Route path="/clientes" element={<Clientes />} />
         <Route path="/fornecedores" element={<Fornecedores />} />
         <Route path="/vendas" element={<Vendas />} />
+        <Route path="/produtos" element={<Produtos />} />
         <Route path="/pagamentos" element={<Pagamentos />} />
         <Route path="/financeiro" element={<Financeiro />} />
         <Route path="/conciliacao" element={<Conciliacao />} />
