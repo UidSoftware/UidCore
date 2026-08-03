@@ -766,6 +766,7 @@ class BalancoCarteiraBugTest(TestCase):
     def test_ca04_sem_conta_carteira_chave_existe(self):
         """CA-04: mesmo sem nenhuma conta CARTEIRA criada, chave deve existir com zero."""
         from .relatorios import calcular_balanco
+        LivroCaixa.objects.filter(conta__tipo='CARTEIRA').delete()
         Conta.objects.filter(tipo='CARTEIRA').delete()
         balanco = calcular_balanco()
         self.assertIn('cartao_credito_a_pagar', balanco['passivo']['circulante'])

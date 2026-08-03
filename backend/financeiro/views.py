@@ -672,7 +672,7 @@ def dashboard_financeiro(request):
         'receita_mes': receita_mes,
         'despesa_mes': despesa_mes,
         'resultado_mes': receita_mes - despesa_mes,
-        'saldo_total_contas': saldo_total,
+        'saldo_total_contas': indicadores['saldo_total'],
         'mrr': mrr,
         'receitas_vencer': receitas_vencer,
         'despesas_vencer': despesas_vencer,
