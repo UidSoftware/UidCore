@@ -547,17 +547,6 @@ def dashboard_financeiro(request):
         .values('id', 'descricao', 'valor_liquido', 'vencimento', 'fornecedor')
     )
 
-    saldo_total = Conta.objects.filter(is_active=True).aggregate(
-        v=Sum('saldo_inicial')
-    )['v'] or Decimal('0')
-    agg_saldo = LivroCaixa.objects.filter(
-        conta__is_active=True, estornado=False,
-    ).aggregate(
-        e=Sum('valor', filter=Q(tipo='ENTRADA')),
-        s=Sum('valor', filter=Q(tipo='SAIDA')),
-    )
-    saldo_total += (agg_saldo['e'] or Decimal('0')) - (agg_saldo['s'] or Decimal('0'))
-
     MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
     grafico = []
     for i in range(5, -1, -1):

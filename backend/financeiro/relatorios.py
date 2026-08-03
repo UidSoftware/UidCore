@@ -7,16 +7,41 @@ from .models import Aporte, Categoria, Conta, Despesa, LivroCaixa, Receita
 
 
 def _saldo_total_contas():
-    saldo_inicial = Conta.objects.filter(is_active=True).aggregate(
+    saldo_inicial = Conta.objects.filter(
+        is_active=True,
+    ).exclude(tipo='CARTEIRA').aggregate(
         v=Sum('saldo_inicial')
     )['v'] or Decimal('0')
     agg = LivroCaixa.objects.filter(
         conta__is_active=True, estornado=False,
-    ).aggregate(
+    ).exclude(conta__tipo='CARTEIRA').aggregate(
         e=Sum('valor', filter=Q(tipo='ENTRADA')),
         s=Sum('valor', filter=Q(tipo='SAIDA')),
     )
     return saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
+
+
+def _divida_cartao_credito():
+    """
+    Soma o saldo liquido de todas as contas CARTEIRA ativas.
+    Se o saldo for negativo (fatura em aberto), retorna o valor
+    absoluto como positivo (= valor da divida, Passivo Circulante).
+    Retorna Decimal('0') se nao ha cartao ativo ou o saldo e >= 0.
+    """
+    saldo_inicial = Conta.objects.filter(
+        is_active=True, tipo='CARTEIRA',
+    ).aggregate(v=Sum('saldo_inicial'))['v'] or Decimal('0')
+
+    agg = LivroCaixa.objects.filter(
+        conta__is_active=True, conta__tipo='CARTEIRA', estornado=False,
+    ).aggregate(
+        e=Sum('valor', filter=Q(tipo='ENTRADA')),
+        s=Sum('valor', filter=Q(tipo='SAIDA')),
+    )
+    saldo_cartao = saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
+
+    # Divida = saldo negativo convertido em positivo
+    return abs(saldo_cartao) if saldo_cartao < Decimal('0') else Decimal('0')
 
 
 def calcular_dre_mes(ano, mes):
@@ -104,7 +129,8 @@ def calcular_balanco(data_ref=None):
         is_active=True, tipo='EMPRESTIMO',
     ).aggregate(v=Sum('valor'))['v'] or Decimal('0')
 
-    passivo_circulante = contas_a_pagar
+    divida_cartao = _divida_cartao_credito()
+    passivo_circulante = contas_a_pagar + divida_cartao
     passivo_exigivel_lp = emprestimos
     passivo_total = passivo_circulante + passivo_exigivel_lp
 
@@ -141,6 +167,7 @@ def calcular_balanco(data_ref=None):
         'passivo': {
             'circulante': {
                 'contas_a_pagar': contas_a_pagar,
+                'cartao_credito_a_pagar': divida_cartao,
                 'total': passivo_circulante,
             },
             'exigivel_lp': {

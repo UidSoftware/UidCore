@@ -629,3 +629,163 @@ class DashboardFinanceiroPorMesTest(APITestCase):
         self.client.force_authenticate(user=None)
         resp = self.client.get('/api/v1/financeiro/dashboard/')
         self.assertEqual(resp.status_code, 401)
+
+
+# --- Manutencao #13 — BUGs contabeis CARTEIRA ---------------------------------
+
+class SaldoTotalContasCarteiraBugTest(TestCase):
+    """CA-01, CA-02, CA-05 — _saldo_total_contas() e _divida_cartao_credito()."""
+
+    def setUp(self):
+        # Conta bancaria: R$5.000 disponivel
+        self.banco = Conta.objects.create(
+            nome='Banco Teste',
+            tipo='CORRENTE',
+            saldo_inicial=Decimal('5000.00'),
+        )
+        # Conta cartao de credito: saldo_inicial zero, fatura de R$1.500
+        self.cartao = Conta.objects.create(
+            nome='Cartao Teste',
+            tipo='CARTEIRA',
+            saldo_inicial=Decimal('0'),
+        )
+        # Compra no cartao — saida de R$1.500 (fatura em aberto)
+        LivroCaixa.objects.create(
+            conta=self.cartao,
+            tipo='SAIDA',
+            origem='MANUAL',
+            valor=Decimal('1500.00'),
+            descricao='Compra no cartao',
+            data=date.today(),
+            saldo_anterior=Decimal('0'),
+            saldo_atual=Decimal('-1500.00'),
+            estornado=False,
+        )
+
+    def test_ca01_saldo_total_exclui_carteira(self):
+        """CA-01: _saldo_total_contas() deve retornar apenas saldo do banco (R$5.000)."""
+        from .relatorios import _saldo_total_contas
+        saldo = _saldo_total_contas()
+        self.assertEqual(saldo, Decimal('5000.00'))
+
+    def test_ca02_divida_cartao_retorna_valor_absoluto(self):
+        """CA-02: _divida_cartao_credito() deve retornar R$1.500 (modulo da divida)."""
+        from .relatorios import _divida_cartao_credito
+        divida = _divida_cartao_credito()
+        self.assertEqual(divida, Decimal('1500.00'))
+
+    def test_ca02_cartao_quitado_retorna_zero(self):
+        """CA-02: quando cartao tem saldo zero, divida deve ser Decimal('0')."""
+        from .relatorios import _divida_cartao_credito
+        # Quitar a fatura: entrada de R$1.500 no cartao
+        LivroCaixa.objects.create(
+            conta=self.cartao,
+            tipo='ENTRADA',
+            origem='MANUAL',
+            valor=Decimal('1500.00'),
+            descricao='Pagamento fatura',
+            data=date.today(),
+            saldo_anterior=Decimal('-1500.00'),
+            saldo_atual=Decimal('0'),
+            estornado=False,
+        )
+        divida = _divida_cartao_credito()
+        self.assertEqual(divida, Decimal('0'))
+
+    def test_ca02_sem_carteira_retorna_zero(self):
+        """CA-02: sem nenhuma conta CARTEIRA ativa, divida deve ser Decimal('0')."""
+        from .relatorios import _divida_cartao_credito
+        self.cartao.is_active = False
+        self.cartao.save()
+        divida = _divida_cartao_credito()
+        self.assertEqual(divida, Decimal('0'))
+
+    def test_ca05_indicadores_saldo_total_sem_carteira(self):
+        """CA-05: calcular_indicadores_cfo() retorna saldo_total sem conta CARTEIRA."""
+        from .relatorios import calcular_indicadores_cfo
+        indicadores = calcular_indicadores_cfo()
+        self.assertEqual(indicadores['saldo_total'], Decimal('5000.00'))
+
+
+class BalancoCarteiraBugTest(TestCase):
+    """CA-03, CA-04 — calcular_balanco() com cartao_credito_a_pagar."""
+
+    def setUp(self):
+        self.banco = Conta.objects.create(
+            nome='Banco Balanco',
+            tipo='CORRENTE',
+            saldo_inicial=Decimal('5000.00'),
+        )
+        self.cartao = Conta.objects.create(
+            nome='Cartao Balanco',
+            tipo='CARTEIRA',
+            saldo_inicial=Decimal('0'),
+        )
+        LivroCaixa.objects.create(
+            conta=self.cartao,
+            tipo='SAIDA',
+            origem='MANUAL',
+            valor=Decimal('1500.00'),
+            descricao='Fatura cartao',
+            data=date.today(),
+            saldo_anterior=Decimal('0'),
+            saldo_atual=Decimal('-1500.00'),
+            estornado=False,
+        )
+
+    def test_ca03_cartao_credito_a_pagar_no_passivo(self):
+        """CA-03: calcular_balanco() inclui cartao_credito_a_pagar = R$1.500 no passivo circulante."""
+        from .relatorios import calcular_balanco
+        balanco = calcular_balanco()
+        self.assertEqual(
+            balanco['passivo']['circulante']['cartao_credito_a_pagar'],
+            Decimal('1500.00'),
+        )
+        self.assertGreaterEqual(
+            balanco['passivo']['circulante']['total'],
+            Decimal('1500.00'),
+        )
+        self.assertEqual(
+            balanco['ativo']['circulante']['caixa_equivalentes'],
+            Decimal('5000.00'),
+        )
+
+    def test_ca04_cartao_zerado_chave_existe_com_zero(self):
+        """CA-04: chave cartao_credito_a_pagar sempre presente, mesmo com valor zero."""
+        from .relatorios import calcular_balanco
+        # Sem nenhuma conta CARTEIRA ativa
+        self.cartao.is_active = False
+        self.cartao.save()
+        balanco = calcular_balanco()
+        self.assertIn('cartao_credito_a_pagar', balanco['passivo']['circulante'])
+        self.assertEqual(
+            balanco['passivo']['circulante']['cartao_credito_a_pagar'],
+            Decimal('0'),
+        )
+
+    def test_ca04_sem_conta_carteira_chave_existe(self):
+        """CA-04: mesmo sem nenhuma conta CARTEIRA criada, chave deve existir com zero."""
+        from .relatorios import calcular_balanco
+        Conta.objects.filter(tipo='CARTEIRA').delete()
+        balanco = calcular_balanco()
+        self.assertIn('cartao_credito_a_pagar', balanco['passivo']['circulante'])
+        self.assertEqual(
+            balanco['passivo']['circulante']['cartao_credito_a_pagar'],
+            Decimal('0'),
+        )
+
+
+class DashboardSaldoInlineRemovidoTest(TestCase):
+    """CA-06: verificar que bloco inline de saldo foi removido de dashboard_financeiro()."""
+
+    def test_ca06_sem_bloco_saldo_inline_em_views(self):
+        """CA-06: views.py nao deve conter bloco de calculo manual de saldo."""
+        import inspect
+        from financeiro import views
+        source = inspect.getsource(views.dashboard_financeiro)
+        # O bloco removido iniciava com esta string especifica
+        self.assertNotIn(
+            "Conta.objects.filter(is_active=True).aggregate",
+            source,
+            "Bloco inline de saldo ainda presente em dashboard_financeiro()",
+        )
