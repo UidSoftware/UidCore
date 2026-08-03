@@ -1,250 +1,549 @@
-# Especificacao_Hotfix — Manutencao #10 — UidCore
-**Data:** 2026-07-30
+# Especificacao_Hotfix — Manutencao #13 — UidCore
+**Data:** 2026-08-03
 **Sistema:** UidCore (OS #7) — Template Financeiro Multi-Nicho
-**Origem:** Solicitacao direta — paridade de tela com o SystemD
-**Agente produtor:** Analista
-**Tipo:** `feature_pequena` (gap 100% frontend — backend ja implementado e em producao)
-**Requer aprovacao comercial:** nao (dentro do escopo do contrato UidCore/financeiro)
+**Origem:** Diagnostico interno — 3 bugs contabeis em backend/financeiro/relatorios.py e views.py
+**Agente produtor:** Analista (Modo Hotfix)
+**Tipo:** `bug` — correcao contabil pura, sem alteracao de modelos, sem migration
+**Requer aprovacao comercial:** nao
 
 ---
 
-## 1. Classificacao
+## 1. Contexto
 
-| Campo | Valor |
+O modulo financeiro do UidCore possui funcoes de relatorio em
+`backend/financeiro/relatorios.py` e uma view de dashboard em
+`backend/financeiro/views.py`. Foram identificados 3 bugs contabeis
+independentes, todos relacionados ao tratamento de contas do tipo
+`CARTEIRA` (cartao de credito) no calculo de saldo e balanco patrimonial.
+
+Os tres bugs existem no codigo atual em producao. Nenhum deles exige
+alteracao de model nem de migration — a correcao e puramente em logica
+de calculo Python/ORM.
+
+Referencia de modelo: `TipoConta.CARTEIRA = 'CARTEIRA'` em
+`backend/financeiro/models.py` linha 13.
+
+---
+
+## 2. Diagnostico tecnico — os 3 bugs
+
+### BUG 1 — `_saldo_total_contas()` inclui contas CARTEIRA
+
+**Arquivo:** `backend/financeiro/relatorios.py`, linhas 9-19
+
+**Codigo atual:**
+```python
+def _saldo_total_contas():
+    saldo_inicial = Conta.objects.filter(is_active=True).aggregate(
+        v=Sum('saldo_inicial')
+    )['v'] or Decimal('0')
+    agg = LivroCaixa.objects.filter(
+        conta__is_active=True, estornado=False,
+    ).aggregate(
+        e=Sum('valor', filter=Q(tipo='ENTRADA')),
+        s=Sum('valor', filter=Q(tipo='SAIDA')),
+    )
+    return saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
+```
+
+**Problema:** a funcao soma TODAS as contas ativas sem excluir `tipo=CARTEIRA`.
+Quando o cartao tem fatura em aberto, o saldo da conta CARTEIRA e negativo
+(ex: -R$1.500). Esse valor negativo reduz o caixa disponivel reportado, como
+se o dinheiro ja tivesse saido do banco — o que e errado. A divida do cartao
+e um **Passivo Circulante**, nao uma reducao de Ativo disponivel. O dinheiro
+no banco continua disponivel; o que existe e uma obrigacao futura de pagar a
+fatura.
+
+**Impacto:** afeta `calcular_indicadores_cfo()` (que chama `_saldo_total_contas()`
+para calcular o runway) e `calcular_balanco()` (que tambem chama
+`_saldo_total_contas()` para preencher `caixa_equivalentes`). Ambos reportam
+caixa menor do que o real sempre que houver cartao com fatura pendente.
+
+---
+
+### BUG 2 — `calcular_balanco()` sem linha de Passivo para divida de cartao
+
+**Arquivo:** `backend/financeiro/relatorios.py`, linhas 83-160
+
+**Problema:** mesmo apos corrigir o BUG 1 (excluir CARTEIRA de
+`_saldo_total_contas()`), a divida do cartao desaparece completamente do
+balanco. Ela nao aparece como Ativo (correto apos BUG 1) e tambem nao
+aparece como Passivo — simplesmente some.
+
+Isso quebra a equacao contabil fundamental:
+
+```
+Ativo = Passivo + Patrimonio Liquido
+```
+
+Exemplo concreto com os tres bugs:
+- Banco: R$5.000 (conta CORRENTE)
+- Cartao: -R$1.500 (conta CARTEIRA, fatura em aberto)
+- Despesas PENDENTE: R$800
+- Aportes: R$10.000
+- Lucros acumulados: R$3.700
+
+**Balanco ERRADO (codigo atual):**
+```
+Ativo Circulante:
+  Caixa e equivalentes: R$3.500  <- banco + cartao (-1.500) somados
+  Contas a receber:     R$0
+  Total Ativo:          R$3.500
+
+Passivo Circulante:
+  Contas a pagar:       R$800
+  Total Passivo:        R$800
+
+PL:
+  Aportes:              R$10.000
+  Lucros acumulados:    R$3.700
+  Total PL:             R$13.700
+
+Total Passivo + PL:     R$14.500
+equacao_ok: FALSE  <- 3.500 != 14.500
+```
+
+**Balanco CORRETO (apos correcao de BUG 1 + BUG 2):**
+```
+Ativo Circulante:
+  Caixa e equivalentes: R$5.000  <- so banco, sem cartao
+  Contas a receber:     R$0
+  Total Ativo:          R$5.000
+
+Passivo Circulante:
+  Contas a pagar:       R$800
+  Cartao a pagar:       R$1.500  <- divida do cartao como passivo
+  Total Passivo:        R$2.300
+
+PL:
+  Aportes:              R$10.000
+  Lucros acumulados:    R$2.700  <- resultado reflete despesas reais
+  Total PL:             R$12.700
+
+Total Passivo + PL:     R$15.000
+equacao_ok: FALSE  <- ainda nao fecha porque PL usa regime de competencia
+```
+
+Nota: a equacao `Ativo = Passivo + PL` pode nao fechar perfeitamente
+dependendo do regime contabil de cada elemento. O que importa e que o
+cartao nao desapareca — ele deve aparecer em Passivo Circulante como
+`cartao_credito_a_pagar`.
+
+---
+
+### BUG 3 — `dashboard_financeiro()` calcula saldo_total inline duplicado
+
+**Arquivo:** `backend/financeiro/views.py`, linhas 550-559
+
+**Codigo atual:**
+```python
+saldo_total = Conta.objects.filter(is_active=True).aggregate(
+    v=Sum('saldo_inicial')
+)['v'] or Decimal('0')
+agg_saldo = LivroCaixa.objects.filter(
+    conta__is_active=True, estornado=False,
+).aggregate(
+    e=Sum('valor', filter=Q(tipo='ENTRADA')),
+    s=Sum('valor', filter=Q(tipo='SAIDA')),
+)
+saldo_total += (agg_saldo['e'] or Decimal('0')) - (agg_saldo['s'] or Decimal('0'))
+```
+
+**Problema duplo:**
+1. Replica manualmente a logica de `_saldo_total_contas()`, criando
+   divergencia potencial de manutencao (se alguem corrigir `_saldo_total_contas()`
+   sem lembrar de corrigir esse bloco, o dashboard mostra valor diferente).
+2. Inclui o BUG 1: nao exclui `tipo=CARTEIRA`, entao o saldo_total do
+   dashboard e errado quando ha cartao com fatura em aberto.
+
+Alem disso, o `saldo_total` calculado inline nunca e retornado na resposta da
+view (a view retorna `indicadores['saldo_total']` via `calcular_indicadores_cfo()`).
+O bloco e codigo morto com bug embutido.
+
+---
+
+## 3. Requisitos Funcionais
+
+**RF01 — Excluir CARTEIRA de `_saldo_total_contas()`**
+A funcao deve filtrar apenas contas cujo `tipo != 'CARTEIRA'` ao calcular
+caixa e equivalentes. Contas CARTEIRA representam passivo, nao ativo disponivel.
+
+**RF02 — Criar funcao auxiliar `_divida_cartao_credito()`**
+Nova funcao em `relatorios.py` que soma o saldo negativo das contas CARTEIRA
+ativas e retorna como valor positivo (= valor da divida). Retorna `Decimal('0')`
+quando nao ha conta CARTEIRA ativa ou quando todas tem saldo zero ou positivo.
+
+**RF03 — Adicionar linha de Passivo Circulante em `calcular_balanco()`**
+`calcular_balanco()` deve chamar `_divida_cartao_credito()` e incluir o
+resultado em `passivo.circulante` como `cartao_credito_a_pagar`. O
+`passivo_total` deve incluir esse valor.
+
+**RF04 — Remover bloco inline de saldo em `dashboard_financeiro()`**
+O bloco manual de calculo de saldo (linhas 550-559 de views.py) deve ser
+removido. O `saldo_total` do dashboard ja vem de `calcular_indicadores_cfo()`
+via `indicadores['saldo_total']`, que por sua vez usa `_saldo_total_contas()`.
+Nao ha nada para substituir — o bloco e removido sem substituicao (e codigo morto).
+
+---
+
+## 4. Requisitos Nao Funcionais
+
+**RNF01 — Zero migrations**
+Os 3 bugs sao de logica de calculo. Nenhuma alteracao de model e necessaria.
+O Forge nao deve gerar nem aplicar nenhuma migration.
+
+**RNF02 — Backward compatibility**
+A assinatura e o retorno de `_saldo_total_contas()` e `calcular_balanco()`
+devem permanecer compatíveis com todos os callers existentes. Apenas os
+VALORES retornados mudam (correcao dos numeros errados).
+
+**RNF03 — `calcular_balanco()` deve incluir `cartao_credito_a_pagar` no dict retornado**
+O campo deve aparecer em `passivo.circulante` mesmo quando seu valor for zero
+(para o frontend nao quebrar ao tentar acessar a chave).
+
+**RNF04 — Nao alterar frontend**
+Essa manutencao e puramente de backend. O frontend nao deve ser alterado.
+Se o Loom for invocado, deve confirmar que nenhuma alteracao e necessaria e
+encerrar.
+
+---
+
+## 5. Spec backend detalhada — o que Forge deve implementar
+
+### 5.1 `_saldo_total_contas()` — adicionar `.exclude(tipo='CARTEIRA')`
+
+```python
+# ANTES (bugado)
+def _saldo_total_contas():
+    saldo_inicial = Conta.objects.filter(is_active=True).aggregate(
+        v=Sum('saldo_inicial')
+    )['v'] or Decimal('0')
+    agg = LivroCaixa.objects.filter(
+        conta__is_active=True, estornado=False,
+    ).aggregate(
+        e=Sum('valor', filter=Q(tipo='ENTRADA')),
+        s=Sum('valor', filter=Q(tipo='SAIDA')),
+    )
+    return saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
+
+# DEPOIS (correto)
+def _saldo_total_contas():
+    saldo_inicial = Conta.objects.filter(
+        is_active=True,
+    ).exclude(tipo='CARTEIRA').aggregate(
+        v=Sum('saldo_inicial')
+    )['v'] or Decimal('0')
+    agg = LivroCaixa.objects.filter(
+        conta__is_active=True, estornado=False,
+    ).exclude(conta__tipo='CARTEIRA').aggregate(
+        e=Sum('valor', filter=Q(tipo='ENTRADA')),
+        s=Sum('valor', filter=Q(tipo='SAIDA')),
+    )
+    return saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
+```
+
+### 5.2 Nova funcao `_divida_cartao_credito()` — inserir logo apos `_saldo_total_contas()`
+
+A divida e calculada diretamente pelo saldo calculado: `saldo_inicial` da conta
+CARTEIRA mais os movimentos de LivroCaixa dela. Se esse valor for negativo,
+retorna o modulo como positivo (= valor da divida). Se for zero ou positivo
+(cartao quitado ou sem fatura), retorna `Decimal('0')`.
+
+```python
+def _divida_cartao_credito():
+    """
+    Soma o saldo liquido de todas as contas CARTEIRA ativas.
+    Se o saldo for negativo (fatura em aberto), retorna o valor
+    absoluto como positivo (= valor da divida, Passivo Circulante).
+    Retorna Decimal('0') se nao ha cartao ativo ou o saldo e >= 0.
+    """
+    saldo_inicial = Conta.objects.filter(
+        is_active=True, tipo='CARTEIRA',
+    ).aggregate(v=Sum('saldo_inicial'))['v'] or Decimal('0')
+
+    agg = LivroCaixa.objects.filter(
+        conta__is_active=True, conta__tipo='CARTEIRA', estornado=False,
+    ).aggregate(
+        e=Sum('valor', filter=Q(tipo='ENTRADA')),
+        s=Sum('valor', filter=Q(tipo='SAIDA')),
+    )
+    saldo_cartao = saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
+
+    # Divida = saldo negativo convertido em positivo
+    return abs(saldo_cartao) if saldo_cartao < Decimal('0') else Decimal('0')
+```
+
+### 5.3 `calcular_balanco()` — adicionar `cartao_credito_a_pagar` em passivo.circulante
+
+Localizar o bloco de `passivo_circulante` em `calcular_balanco()` e inserir
+a chamada a `_divida_cartao_credito()`:
+
+```python
+# ANTES
+passivo_circulante = contas_a_pagar
+passivo_exigivel_lp = emprestimos
+passivo_total = passivo_circulante + passivo_exigivel_lp
+
+# DEPOIS
+divida_cartao = _divida_cartao_credito()
+passivo_circulante = contas_a_pagar + divida_cartao
+passivo_exigivel_lp = emprestimos
+passivo_total = passivo_circulante + passivo_exigivel_lp
+```
+
+E no dict retornado, dentro de `'passivo': {'circulante': {...}}`:
+
+```python
+# ANTES
+'circulante': {
+    'contas_a_pagar': contas_a_pagar,
+    'total': passivo_circulante,
+},
+
+# DEPOIS
+'circulante': {
+    'contas_a_pagar': contas_a_pagar,
+    'cartao_credito_a_pagar': divida_cartao,
+    'total': passivo_circulante,
+},
+```
+
+### 5.4 `dashboard_financeiro()` — remover bloco de saldo inline (linhas 550-559)
+
+Remover inteiramente as 10 linhas do bloco manual de calculo de saldo:
+
+```python
+# REMOVER este bloco inteiro (codigo morto com bug):
+saldo_total = Conta.objects.filter(is_active=True).aggregate(
+    v=Sum('saldo_inicial')
+)['v'] or Decimal('0')
+agg_saldo = LivroCaixa.objects.filter(
+    conta__is_active=True, estornado=False,
+).aggregate(
+    e=Sum('valor', filter=Q(tipo='ENTRADA')),
+    s=Sum('valor', filter=Q(tipo='SAIDA')),
+)
+saldo_total += (agg_saldo['e'] or Decimal('0')) - (agg_saldo['s'] or Decimal('0'))
+```
+
+O saldo que o dashboard retorna vem de `indicadores['saldo_total']`
+(calculado por `calcular_indicadores_cfo()` → `_saldo_total_contas()`),
+que ja estara correto apos a correcao do BUG 1. Nao ha substituicao necessaria.
+
+---
+
+## 6. Arquivos a alterar
+
+| Arquivo | Mudanca |
 |---|---|
-| Sistema | UidCore |
-| Caminho do projeto | `/var/www/uidcore` |
-| Tipo | `feature_pequena` |
-| Caminho afetado | `frontend/src/pages/`, `frontend/src/routes/`, `frontend/src/components/layout/Sidebar.jsx` |
-| Complexidade | baixa — sem mudanca de contrato de API, sem migration, sem model novo |
-| Backend | ja existe e ja esta em producao (ver secao 3) — **nao mexer** |
+| `backend/financeiro/relatorios.py` | BUG 1: exclude CARTEIRA em `_saldo_total_contas()` |
+| `backend/financeiro/relatorios.py` | BUG 2: nova funcao `_divida_cartao_credito()` |
+| `backend/financeiro/relatorios.py` | BUG 2: `calcular_balanco()` usa `_divida_cartao_credito()` |
+| `backend/financeiro/views.py` | BUG 3: remover bloco saldo inline linhas 550-559 |
+
+**Nao alterar:** models.py, serializers.py, urls.py, migrations/, frontend/
 
 ---
 
-## 2. Escopo desta manutencao
+## 7. Testes existentes a verificar
 
-### Incluido
-- **RF-F01** — Pagina `Conciliacao.jsx` com listagem de historico de conciliacoes
-- **RF-F02** — Modal de upload de novo extrato (arquivo PDF + conta + periodo + senha opcional + auto)
-- **RF-F03** — Tela de detalhe de uma conciliacao com lista de itens
-- **RF-F04** — Acao de confirmar item divergente (`FALTANDO_SISTEMA` + `confirmado=false`)
-- **RF-F05** — Aba de Padroes Seguros de Conciliacao (listagem + CRUD)
-- **RF-F06** — Rota `/conciliacao` registrada no router
-- **RF-F07** — Item de menu "Conciliacao" na Sidebar
+Antes de escrever testes novos, o Forge deve confirmar se ja existem testes
+para `_saldo_total_contas()`, `calcular_balanco()` e `dashboard_financeiro()`
+no suite atual. Localizar em:
 
-### Fora do escopo (nao implementar nesta manutencao)
-- Qualquer alteracao em `views.py`, `parsers.py`, `conciliacao_service.py`, `serializers.py`, `models.py` do app `financeiro`
-- `destroy`/`delete` em `ConciliacaoViewSet` — ele e `ReadOnlyModelViewSet` de proposito (extrato processado e imutavel; se um dia for pedido soft-delete, e mudanca de backend fora desta manutencao — **nao pedido agora**)
-- Sistema de perfis/roles no `User` — usar `IsAuthenticated` como o resto do UidCore
-- Re-processamento/replay de um extrato ja enviado (nao existe endpoint para isso)
+```
+backend/financeiro/tests/
+```
+
+Se existirem testes que criam contas e verificam saldo/balanco, eles podem
+estar passando com o comportamento errado (afinal, o bug esta em producao).
+Esses testes devem ser **atualizados** para refletir o comportamento correto
+apos a correcao.
 
 ---
 
-## 3. Backend — JA EXISTE (somente leitura/consumo, nao alterar)
+## 8. Criterios de Aceite (para o Sentinel)
 
-Confirmado em `backend/financeiro/views.py`, `urls.py`, `serializers.py`, `models.py`.
+### CA-01 — `_saldo_total_contas()` exclui CARTEIRA
 
-### 3.1 Endpoints
+Cenario: criar uma conta CORRENTE com saldo_inicial=R$5.000 e uma conta
+CARTEIRA com saldo_inicial=R$0 mais lancamentos de SAIDA=R$1.500 no LivroCaixa
+(fatura em aberto, saldo efetivo = -R$1.500).
 
-| Metodo | Path | Descricao |
-|---|---|---|
-| `POST` | `/api/v1/financeiro/conciliacoes/upload/` | multipart: `arquivo` (PDF), `conta_id`, `periodo` (`YYYY-MM`), `senha` (opcional), `auto` (opcional, boolean-like string) |
-| `GET` | `/api/v1/financeiro/conciliacoes/` | lista historico (paginado — `response.data.results`) |
-| `GET` | `/api/v1/financeiro/conciliacoes/{id}/itens/` | lista itens de uma conciliacao |
-| `POST` | `/api/v1/financeiro/conciliacoes/{id}/confirmar-item/` | body `{ item_id }` — marca `confirmado=true`, recalcula `divergencias`/`status` da conciliacao |
-| `GET/POST/PUT/PATCH/DELETE` | `/api/v1/financeiro/padroes-conciliacao/` | CRUD completo (`ModelViewSet`) — `DELETE` faz soft delete (`is_active=False`) |
-| `GET` | `/api/v1/financeiro/contas/` | lista contas (ja usado em `Financeiro.jsx` — reaproveitar mesmo padrao) |
+Resultado esperado de `_saldo_total_contas()`: `Decimal('5000.00')`
+Resultado errado (codigo atual): `Decimal('3500.00')`
 
-`ConciliacaoViewSet` e `ReadOnlyModelViewSet` — so tem `list`, `retrieve` + as 2 actions acima. **Nao ha e nao deve ser criado** `create`/`update`/`destroy` padrao nele.
+### CA-02 — `_divida_cartao_credito()` retorna valor absoluto da divida
 
-### 3.2 Campos retornados — `ConciliacaoExtratoSerializer`
+Mesmo cenario do CA-01.
 
-```
-id, conta, conta_nome, arquivo_nome, periodo,
-processado_em, status, status_label,
-total_banco, total_sistema, divergencias
-```
-Todos os campos exceto `conta` (write) sao `read_only` — a tela so exibe, nunca edita a conciliacao em si.
+Resultado esperado de `_divida_cartao_credito()`: `Decimal('1500.00')`
+Resultado quando cartao quitado (saldo=0): `Decimal('0')`
+Resultado quando cartao sem fatura (saldo positivo): `Decimal('0')`
 
-**Status possiveis** (`StatusConciliacao`): `PROCESSADO` | `COM_DIVERGENCIAS` | `PENDENTE`
+### CA-03 — `calcular_balanco()` inclui `cartao_credito_a_pagar` em passivo.circulante
 
-Cores sugeridas (reaproveitar padrao `STATUS_BADGES` de `Financeiro.jsx`):
-```
-PROCESSADO        -> verde  (bg-green-100 text-green-800)
-COM_DIVERGENCIAS  -> vermelho (bg-red-100 text-red-800)
-PENDENTE          -> amarelo (bg-yellow-100 text-yellow-800)
+Mesmo cenario do CA-01.
+
+```python
+balanco = calcular_balanco()
+assert balanco['passivo']['circulante']['cartao_credito_a_pagar'] == Decimal('1500.00')
+assert balanco['passivo']['circulante']['total'] >= Decimal('1500.00')
+assert balanco['ativo']['circulante']['caixa_equivalentes'] == Decimal('5000.00')
 ```
 
-### 3.3 Campos retornados — `ItemConciliacaoSerializer`
+### CA-04 — `calcular_balanco()` com cartao zerado retorna `cartao_credito_a_pagar` = 0
 
-```
-id, conciliacao, data_banco, descricao_banco,
-valor, tipo, tipo_label, status, status_label,
-lancamento_lc, confirmado, is_active, created_at
-```
+Cenario: nenhuma conta CARTEIRA, ou conta CARTEIRA com saldo zero.
 
-**Tipo** (`TipoLancamento`): `ENTRADA` | `SAIDA`
-**Status do item** (`StatusItemConciliacao`): `CONCILIADO` | `FALTANDO_SISTEMA` | `FALTANDO_BANCO`
-
-**Regra de exibicao do botao "Confirmar":** so aparece quando `status === 'FALTANDO_SISTEMA' && confirmado === false`. Os outros dois status (`CONCILIADO`, `FALTANDO_BANCO`) sao so informativos nesta tela — `FALTANDO_BANCO` significa que o sistema tem um lancamento que nao apareceu no extrato do banco, e a resolucao disso e manual, fora do escopo desta tela (fica so como alerta visual).
-
-### 3.4 Campos retornados — `PadraoSeguroConciliacaoSerializer`
-
-```
-id, descricao_padrao, tipo, tipo_label,
-natureza, natureza_label, is_active, created_at
+```python
+balanco = calcular_balanco()
+# Chave deve existir mesmo com valor zero (frontend nao quebra)
+assert 'cartao_credito_a_pagar' in balanco['passivo']['circulante']
+assert balanco['passivo']['circulante']['cartao_credito_a_pagar'] == Decimal('0')
 ```
 
-**IMPORTANTE — correcao em relacao ao pedido original:** o pedido descreveu o CRUD como "descricao, tipo ENTRADA|SAIDA", mas o model real (`PadraoSeguroConciliacao`) tem **3 campos editaveis**, nao 2:
+### CA-05 — `calcular_indicadores_cfo()` retorna `saldo_total` sem cartao
 
-- `descricao_padrao` (texto — trecho do extrato que casa com esse padrao)
-- `tipo`: `ENTRADA` | `SAIDA` (mesmo `TipoLancamento` do item de conciliacao)
-- `natureza`: `APORTE` | `RECEITA_FINANCEIRA` — **so faz sentido quando `tipo=ENTRADA`** (help_text do model: "Apenas para tipo=ENTRADA: APORTE vai para PL; RECEITA_FINANCEIRA entra no DRE"). Default `APORTE`.
+Mesmo cenario do CA-01.
 
-**RN-01:** o formulario de Padrao Seguro deve esconder/desabilitar o campo `natureza` quando `tipo=SAIDA` (nao faz sentido semantico e o backend nao valida isso — a UI e a unica barreira).
+```python
+indicadores = calcular_indicadores_cfo()
+assert indicadores['saldo_total'] == Decimal('5000.00')  # so banco, sem cartao
+```
+
+### CA-06 — `dashboard_financeiro()` nao tem bloco de saldo duplicado
+
+Verificacao estatica: ler `backend/financeiro/views.py` e confirmar que
+**nao existe** nenhum bloco do tipo:
+
+```python
+saldo_total = Conta.objects.filter(is_active=True).aggregate(...)
+```
+
+dentro da funcao `dashboard_financeiro()`.
+
+### CA-07 — Endpoint `/api/v1/financeiro/dashboard/` retorna HTTP 200
+
+Cenario: container de teste rodando, usuario autenticado.
+O endpoint deve retornar HTTP 200 e o campo `indicadores.saldo_total` deve
+ser igual ao valor de `_saldo_total_contas()` (sem cartao).
+
+### CA-08 — Suite completa de testes Django passa sem falhas
+
+```bash
+# No container de teste isolado (docker compose -p uidcore-test)
+docker exec uidcore-test-backend-1 python manage.py test --verbosity=2
+```
+
+Resultado esperado: 0 falhas, 0 erros.
 
 ---
 
-## 4. Requisitos Funcionais — Frontend (o que sera criado)
+## 9. Instrucoes para o Sentinel — como testar com conta CARTEIRA real
 
-### RF-F01 — Listagem de historico
-- Tabela (padrao desktop) / cards (padrao mobile) igual ao estilo de `LivroCaixaTab` em `Financeiro.jsx`
-- Colunas: Periodo (formatado `MM/YYYY`), Conta, Status (badge), Total Banco, Total Sistema, Divergencias, Processado em
-- Clique na linha/card abre o detalhe (RF-F03)
-- `GET /financeiro/conciliacoes/` — usar `response.data.results` (PageNumberPagination), com `Pagination` component existente
+O Sentinel deve criar dados de teste via shell do Django ou via fixtures
+para validar os CAs acima com valores reais. Roteiro sugerido:
 
-### RF-F02 — Modal "Nova Conciliacao"
-- Botao no topo da pagina, ao lado do titulo (mesmo padrao de `+ Nova Receita` em `Financeiro.jsx`)
-- Campos:
-  - `arquivo`: `<input type="file" accept="application/pdf">` — obrigatorio
-  - `conta_id`: `Select` populado via `GET /financeiro/contas/` (mesmo padrao do `useEffect` em `Financeiro.jsx` linha 102-109) — obrigatorio
-  - `periodo`: `<input type="month">` (nativo do HTML, gera `YYYY-MM` direto) — obrigatorio
-  - `senha`: `Input` type password, opcional (label "Senha do PDF (se protegido)")
-  - `auto`: checkbox, opcional (label "Conciliar automaticamente por padroes seguros")
-- Submit: `FormData` + `POST /financeiro/conciliacoes/upload/` com header `multipart/form-data` (o `client.js` axios default e `application/json` — sobrescrever `Content-Type` nesta chamada especifica, igual qualquer upload de arquivo)
-- Erro de validacao (400: "arquivo, conta_id e periodo sao obrigatorios" ou "Conta nao encontrada" ou "Formato de periodo invalido") -> `extractErrorMessage()` + toast, igual ao resto da pagina Financeiro
-- Sucesso: fecha modal, mostra toast, recarrega a listagem (RF-F01) — se o backend retornar o objeto criado no payload de resposta, abrir o detalhe direto e opcional ("nice to have"); senao, so recarregar a lista e o usuario clica
+```bash
+# Abrir shell no container de teste
+docker exec -it uidcore-test-backend-1 python manage.py shell
 
-### RF-F03 — Detalhe da conciliacao
-- Acessado clicando numa linha da listagem (estado local `selecionada` na pagina, sem rota propria — decisao de implementacao do Loom entre aba interna ou `Modal` maxW="max-w-4xl", ambos atendem o RF)
-- Header do detalhe: conta, periodo, status (badge), total banco, total sistema, divergencias
-- `GET /financeiro/conciliacoes/{id}/itens/` — lista de itens
-- Tabela: Data, Descricao (do banco), Valor, Tipo (ENTRADA/SAIDA com cor verde/vermelho igual `LivroCaixaTab`), Status (badge), Acao
-- Linha com `status=CONCILIADO` -> visual neutro, sem acao
-- Linha com `status=FALTANDO_BANCO` -> visual de alerta (amarelo/laranja), sem acao (fora do escopo resolver aqui)
-- Linha com `status=FALTANDO_SISTEMA && confirmado=false` -> visual de alerta (vermelho) + botao "Confirmar"
-- Linha com `status=FALTANDO_SISTEMA && confirmado=true` -> visual neutro (ja resolvido), sem acao
+# Criar conta bancaria e conta cartao
+from financeiro.models import Conta, LivroCaixa
+from decimal import Decimal
+from datetime import date
 
-### RF-F04 — Confirmar item
-- Botao "Confirmar" -> `POST /financeiro/conciliacoes/{id}/confirmar-item/` com body `{ item_id }`
-- Resposta: `{ ok: true, divergencias_restantes: N }`
-- Apos sucesso: atualizar o item na lista local para `confirmado=true` (ou re-fetch dos itens) + atualizar contador de divergencias no header do detalhe + toast de sucesso
-- Erro: toast com `extractErrorMessage()`
+banco = Conta.objects.create(
+    nome='Banco Teste',
+    tipo='CORRENTE',
+    saldo_inicial=Decimal('5000.00'),
+)
+cartao = Conta.objects.create(
+    nome='Cartao Teste',
+    tipo='CARTEIRA',
+    saldo_inicial=Decimal('0'),
+)
 
-### RF-F05 — Aba "Padroes Seguros"
-- Segunda aba/secao dentro da mesma pagina `Conciliacao.jsx` (padrao de abas igual `TABS` em `Financeiro.jsx`: `[{key:'historico', label:'Historico'}, {key:'padroes', label:'Padroes Seguros'}]`)
-- Listagem: Descricao, Tipo (badge ENTRADA/SAIDA), Natureza (so exibe quando tipo=ENTRADA)
-- Botao "+ Novo Padrao" -> abre modal com `descricao_padrao` (Input), `tipo` (Select ENTRADA/SAIDA), `natureza` (Select APORTE/RECEITA_FINANCEIRA, visivel/habilitado somente quando `tipo=ENTRADA` — RN-01)
-- Editar (abre mesmo modal preenchido) e Excluir (confirm + `DELETE`, soft delete no backend) — mesmo padrao de `ContasTab`/`ReceitasTab` em `Financeiro.jsx`
-- Considerar usar o componente `ResourceCrud.jsx` existente se ele cobrir esse CRUD simples (verificar antes de recriar do zero — instrucao do CLAUDE.md do projeto: "usar componentes UI existentes em vez de recriar estilo")
+# Simular fatura em aberto: compra de R$1.500 no cartao
+LivroCaixa.objects.create(
+    conta=cartao,
+    tipo='SAIDA',
+    valor=Decimal('1500.00'),
+    descricao='Compra no cartao',
+    data=date.today(),
+    estornado=False,
+)
 
-### RF-F06 — Rota
-- `frontend/src/routes/index.jsx`: importar `Conciliacao` de `../pages/Conciliacao.jsx` e adicionar `<Route path="/conciliacao" element={<Conciliacao />} />` dentro do bloco `ProtectedRoute` (mesmo nivel de `/financeiro`)
+# Verificar resultado correto
+from financeiro.relatorios import _saldo_total_contas, _divida_cartao_credito, calcular_balanco
 
-### RF-F07 — Menu lateral
-- `frontend/src/components/layout/Sidebar.jsx`: adicionar em `navItems`, logo apos o item `financeiro` (ordem sugerida por ser sub-modulo do financeiro):
-  ```js
-  { to: '/conciliacao', label: 'Conciliação', icon: '🔄' }
-  ```
-  **Atencao:** o restante da Sidebar hoje usa emoji puro (`📊`, `👥` etc. — mesmo com `lucide-react` disponivel no `package.json`). Essa e uma divergencia ja identificada e suspensa na Manutencao #9 (DIV-UI03: "padrao intencional, nao alterar"). Ou seja: **manter emoji `🔄` para consistencia com o padrao atual da Sidebar**, nao migrar so este item para Lucide.
+saldo = _saldo_total_contas()
+divida = _divida_cartao_credito()
+balanco = calcular_balanco()
 
----
-
-## 5. Requisitos Nao Funcionais
-
-- **RNF-01** — Upload de PDF deve mostrar estado de loading/disabled no botao de submit durante o processamento (arquivo pode levar alguns segundos para o parser processar)
-- **RNF-02** — Fontes: Plus Jakarta Sans + DM Sans (ja configuradas globalmente desde a Manutencao #9 — nao precisa reconfigurar, so nao usar classe/estilo que quebre isso)
-- **RNF-03** — Responsivo: padrao mobile (cards) / desktop (tabela) igual ao resto do Financeiro
-- **RNF-04** — Nenhuma chamada de API sem tratamento de erro (toda promise com `.catch` + `extractErrorMessage`)
-- **RNF-05** — `vite build` deve terminar sem warnings novos (nem sobre imports nao usados, nem sobre chunks)
-
----
-
-## 6. Regras de Negocio
-
-- **RN-01** — Campo `natureza` do Padrao Seguro so e relevante/editavel quando `tipo=ENTRADA` (ver secao 3.4)
-- **RN-02** — Botao "Confirmar" so aparece para item com `status=FALTANDO_SISTEMA` e `confirmado=false` — nunca para `CONCILIADO` ou `FALTANDO_BANCO` (esses dois nao tem acao disponivel nesta tela)
-- **RN-03** — `ConciliacaoViewSet` nao tem `create` nem `destroy` — a tela nunca deve tentar `DELETE` ou `POST` direto em `/conciliacoes/{id}/`, so nas actions `upload/`, `itens/` e `confirmar-item/`
-
----
-
-## 7. Telas (resumo visual)
-
-```
-/conciliacao
-├── [Aba: Historico] (default)
-│   ├── Header: "Conciliação Bancária" + botao "+ Nova Conciliação"
-│   ├── Lista/tabela de conciliacoes (RF-F01)
-│   │   └── clique -> abre Detalhe (RF-F03) com itens + acao confirmar (RF-F04)
-│   └── Modal "Nova Conciliação" (RF-F02)
-│
-└── [Aba: Padrões Seguros]
-    ├── Header: "Padrões Seguros" + botao "+ Novo Padrão"
-    ├── Lista de padroes (RF-F05)
-    └── Modal criar/editar padrao
+print('saldo_total_contas:', saldo)          # esperado: 5000.00
+print('divida_cartao:', divida)              # esperado: 1500.00
+print('cartao_a_pagar:', balanco['passivo']['circulante']['cartao_credito_a_pagar'])  # esperado: 1500.00
+print('caixa_equivalentes:', balanco['ativo']['circulante']['caixa_equivalentes'])   # esperado: 5000.00
 ```
 
+O Sentinel deve executar esse roteiro no container de teste e registrar
+os valores reais obtidos no relatorio de aprovacao/reprovacao.
+
 ---
 
-## 8. Especificacao Frontend — arquivos a criar/alterar
+## 10. Observacoes tecnicas
 
-| Arquivo | Acao |
+**Por que CARTEIRA e Passivo e nao Ativo:**
+O modelo de cartao de credito como conta CARTEIRA foi documentado no CLAUDE.md
+do projeto (secao "Padroes financeiros herdados do SystemD"). O cartao e um
+instrumento de pagamento diferido — o dinheiro de verdade continua no banco
+ate o dia do pagamento da fatura. Antes disso, existe uma obrigacao (Passivo),
+nao uma reducao de disponivel (Ativo).
+
+**Por que o BUG 3 e codigo morto:**
+A variavel `saldo_total` calculada inline em `dashboard_financeiro()` nao e
+usada em nenhum lugar apos o calculo — a view retorna `indicadores['saldo_total']`
+que vem de `calcular_indicadores_cfo()`. O bloco e vestigio de uma versao
+anterior do dashboard e pode ser removido sem consequencia alguma para a
+resposta da API.
+
+**Quanto a `equacao_ok` em `calcular_balanco()`:**
+Apos a correcao, `equacao_ok` pode continuar nao fechando em alguns cenarios
+(ex: quando `lucros_acumulados` usa regime de competencia e os demais elementos
+usam regime misto). Esse e um limitador contabil preexistente, nao introduzido
+por esta manutencao. O campo `equacao_ok` deve ser mantido como esta — o
+objetivo desta manutencao e somente garantir que o cartao aparece nos lugares
+certos (excluido do Ativo, incluido no Passivo), nao reescrever a logica de
+fechamento de balanco.
+
+---
+
+## 11. Scope e o que nao fazer
+
+**Fora do escopo desta manutencao:**
+- Alteracao de models ou migrations
+- Correcao do calculo de `lucros_acumulados` em `calcular_balanco()`
+- Alteracao de qualquer endpoint alem de `dashboard_financeiro`
+- Alteracao do frontend
+- Alteracao de `calcular_dre_mes()` ou `calcular_fluxo_projetado()`
+- Refatoracao geral do modulo financeiro
+
+**Forge deve encerrar apos alterar exatamente 2 arquivos:**
+1. `backend/financeiro/relatorios.py` (BUG 1 + BUG 2)
+2. `backend/financeiro/views.py` (BUG 3)
+
+---
+
+## 12. Resumo executivo para o Planner
+
+| Item | Detalhe |
 |---|---|
-| `frontend/src/pages/Conciliacao.jsx` | **criar** — pagina completa (RF-F01 a RF-F05) |
-| `frontend/src/routes/index.jsx` | **editar** — import + rota `/conciliacao` (RF-F06) |
-| `frontend/src/components/layout/Sidebar.jsx` | **editar** — item de menu (RF-F07) |
-
-Componentes UI a reaproveitar (nao recriar): `Card`, `Button`, `Input`, `Select`, `Modal`, `Pagination` (todos em `frontend/src/components/ui/`), `extractErrorMessage`/`stripEmptyStrings` (`frontend/src/utils/errors.js`), `api` client (`frontend/src/api/client.js`).
-
-Padrao de referencia direta para a estrutura da pagina: `frontend/src/pages/Financeiro.jsx` (abas via `useState` + array `TABS`, toast local, `contasOptions` via `useEffect` + `GET /financeiro/contas/`, tabelas desktop/cards mobile, badges de status).
-
----
-
-## 9. Criterios de Aceite (para o Sentinel)
-
-- CA-01 — `GET /conciliacoes/` exibido em lista paginada, badge de status correta para os 3 valores
-- CA-02 — Upload real de um PDF (ambiente `docker compose -p uidcore-test`) cria uma nova conciliacao e ela aparece na listagem
-- CA-03 — Upload com campos obrigatorios faltando mostra erro legivel (nao generico) vindo do backend
-- CA-04 — Detalhe de uma conciliacao lista os itens com tipo/status corretos
-- CA-05 — Confirmar um item `FALTANDO_SISTEMA` chama `confirmar-item/`, o item muda de estado na tela sem reload manual, e o contador de divergencias atualiza
-- CA-06 — Botao "Confirmar" **nao aparece** para itens `CONCILIADO` ou `FALTANDO_BANCO`
-- CA-07 — CRUD de Padroes Seguros funcional (criar, editar, listar, excluir) com os 3 campos (`descricao_padrao`, `tipo`, `natureza`)
-- CA-08 — Campo `natureza` escondido/desabilitado quando `tipo=SAIDA` no formulario de Padrao Seguro
-- CA-09 — Rota `/conciliacao` acessivel via Sidebar, protegida por `ProtectedRoute` (redireciona pra `/login` se nao autenticado)
-- CA-10 — `vite build` sem warnings novos
-- CA-11 — Nenhuma chamada `DELETE`/`POST create` direta em `/conciliacoes/{id}/` (so as actions documentadas)
-
----
-
-## 10. Validacao obrigatoria (antes do Sentinel aprovar)
-
-- Testar upload real com PDF em ambiente de teste (`docker compose -p uidcore-test`)
-- `vite build` limpo, sem warnings novos
-- Confirmar item `FALTANDO_SISTEMA` e ver o lancamento (`LivroCaixa` referenciado via `lancamento_lc`) refletido corretamente na tela — ou ao menos o item saindo do estado pendente
-
----
-
-## 11. Passagem de bastao
-
-```
-✅ Solicitacao classificada — UidCore (OS #7)
-   tipo: feature_pequena
-   descricao_tecnica: Tela de Conciliacao Bancaria no frontend (paridade SystemD) —
-     backend 100% pronto, gap e so frontend (pagina + rota + menu)
-   caminho_afetado: frontend/src/pages/Conciliacao.jsx (novo),
-     frontend/src/routes/index.jsx, frontend/src/components/layout/Sidebar.jsx
-   requer_aprovacao_comercial: false
-➡️  Planner: rotear para Pipeline C (feature_pequena) — Loom implementa,
-   Forge nao tem trabalho nesta manutencao (backend ja pronto e nao deve ser tocado),
-   Sentinel valida os 11 CAs acima, Pilot so libera com Sentinel = APROVADO explicito.
-```
+| Tipo | bug — 3 bugs contabeis independentes |
+| Arquivos alterados | 2 (relatorios.py + views.py) |
+| Migrations | nenhuma |
+| Frontend | nenhuma alteracao |
+| Risco | baixo — correcao de calculo, sem mudanca de interface |
+| Bloqueante em producao | nao — os valores estao errados, mas o sistema funciona |
+| Prioridade sugerida | alta — dados financeiros errados impactam decisoes do cliente |
