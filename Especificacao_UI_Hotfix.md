@@ -1,406 +1,390 @@
-# Especificação UI Hotfix — UidCore (Manutenção #10)
-**Tela:** Conciliação Bancária
-**Baseado em:** `Especificacao_Hotfix.md` (Analista, Manutenção #10)
-**Modo:** Hotfix — sistema existente, design system já definido (`design_system.md` +
-padrão vivo em `Financeiro.jsx`). Nenhuma cor, fonte ou token novo é criado aqui.
+# Especificação UI Hotfix — UidCore — Manutenção #15 (Módulo PDV)
+
+**Base:** Especificacao_Hotfix.md (Analista, 492 linhas) + design_system.md (Brush, Manutenção #8)
+**Modo:** MODO HOTFIX — camada visual sobre spec já aprovada. Nenhuma decisão de model/endpoint/arquitetura de app é tomada aqui (isso é do Blueprint). Este documento assume que o Blueprint resolveu os dois pontos [CONFIRMAR COM BLUEPRINT] da Seção 15 da spec (app `pdv` vs `vendas`; mês de abatimento do estorno no DRE) — nenhum dos dois afeta a UI.
+
+> Nota: este arquivo é regravado a cada manutenção — o conteúdo anterior (relativo
+> à Manutenção #14, puramente backend, sem UI) já cumpriu seu papel e está
+> preservado no histórico de execuções do `CLAUDE.md` do projeto. Este documento
+> passa a refletir apenas a Manutenção #15, em curso.
 
 ---
 
-## Design System do Projeto (referência)
+## Design System do Projeto (referência — não redefinido aqui)
 
-- **Fonte:** Plus Jakarta Sans (títulos) + DM Sans (corpo) — já configuradas globalmente
-  desde a Manutenção #9. Não repetir configuração, só não usar classe que quebre.
-- **Cores primárias:** `primary-600`/`primary-700` (Tailwind custom, ver `tailwind.config.js`)
-  para ações principais e abas ativas; `accent-600` reservado para toast de sucesso
-  (mesmo padrão de `Financeiro.jsx`).
-- **Cores de fundo:** branco (`bg-white`) para cards/tabelas, `bg-gray-50`/`bg-gray-100`
-  para hover e cabeçalho de tabela, `bg-gray-900` fixo na Sidebar.
-- **BorderRadius padrão:** `rounded-lg` (8px) em inputs/botões/badges de pílula,
-  `rounded-xl` (12px) em `Card`, `rounded-2xl` em `Modal`, `rounded-full` em badges de status.
-- **Padrão de card:** componente `Card.jsx` existente — `bg-white rounded-xl border
-  border-gray-200 shadow-sm`, `title` opcional com borda inferior.
-- **Ícones:** `lucide-react` já está no `package.json` e deve ser usado **dentro da página**
-  (botões, ações, estados vazios). **Exceção confirmada pela Analista (RF-F07):** o item
-  de menu da Sidebar mantém emoji `🔄`, por consistência com o padrão atual da Sidebar
-  (divergência DIV-UI03 já suspensa na Manutenção #9 — não migrar só este item).
+- **Tema:** claro (light mode) — `bg-gray-50` app, `bg-gray-900` sidebar. **Não** usar o padrão escuro Uid (#0a0014) — divergência já documentada e aprovada em `design_system.md`.
+- **Cor primária:** `primary-600` (#2563eb) / hover `primary-700` (#1d4ed8) — todo botão de ação principal, tab ativa, foco de input.
+- **Cor de sucesso:** `accent-600` (#059669) — toast de sucesso, valores de entrada.
+- **Cor de erro/perigo:** `red-600` (#dc2626) — toast de erro, botão danger, valores de saída.
+- **Fonte:** Plus Jakarta Sans (headings) + DM Sans (body) — **ainda não configurada no projeto** (divergência #1 do design_system.md). Não é bloqueante para o PDV; usar as classes Tailwind de tamanho/peso normalmente, a fonte é herdada do que estiver configurado no `index.html`/`tailwind.config.js` no momento em que o Loom implementar. **Não** importar Inter/Roboto/Arial manualmente em nenhuma tela nova.
+- **BorderRadius:** `rounded-lg` (8px) inputs/botões, `rounded-xl` (12px) cards, `rounded-full` badges/pills.
+- **Padrão de card:** `bg-white rounded-xl border border-gray-200 shadow-sm`, header `px-6 py-4 border-b border-gray-100`, body `px-6 py-4`.
+- **Padrão dual mobile/desktop:** `md:hidden` (cards empilhados) / `hidden md:block` (tabela), breakpoint crítico 768px — usado em Financeiro e Conciliação, replicar 1:1 no PDV.
+- ⚠️ **NUNCA** `overflow-hidden` em elemento raiz de tela nova (regra global Uid — o `AppLayout` root já tem essa divergência documentada, não repetir o padrão em telas novas).
 
 ---
 
-## Observação sobre cores de badge (reconciliação de fontes)
+## Componentes existentes a reutilizar (sem criar nada novo em `components/ui/`)
 
-O prompt desta manutenção sugeriu "verde=PROCESSADO/CONCILIADO, amarelo=COM_DIVERGENCIAS/
-FALTANDO_BANCO, vermelho=FALTANDO_SISTEMA". A `Especificacao_Hotfix.md` (§3.2, artefato
-canônico do Analista, já validado) é mais específica e separa dois enums distintos —
-sigo ela como fonte de verdade para o **status da conciliação** e uso a orientação do
-prompt (mais granular) para o **status do item**, que a Especificação só descreve em
-prosa (§4, RF-F03):
+| Componente | Uso no PDV |
+|---|---|
+| `Card.jsx` | Container de toda seção: carrinho, resumo de sessão, listas |
+| `Button.jsx` (`variant`: primary/secondary/danger) | Todas as ações — ver mapeamento por tela abaixo |
+| `Input.jsx` | Busca de produto, campos numéricos (valor, quantidade, contagem física) |
+| `Select.jsx` | Seleção de conta, cliente (se não usar autocomplete), forma de pagamento |
+| `Modal.jsx` | Sangria/Suprimento, confirmação de cancelamento, devolução parcial, split de pagamento (se não couber inline) |
+| `Pagination.jsx` | Histórico de Vendas, Relatório de Sessões |
+| `Loading.jsx` | Carregamento inicial de cada tela |
+| Toast pattern (inline, `fixed top-4 right-4 z-50`) | Sucesso venda finalizada / erro de API — replicar exatamente o padrão de Financeiro.jsx/Conciliacao.jsx |
+| Badge pattern (`<span className="px-2 py-0.5 rounded-full text-xs font-semibold ...">`) | Status de Venda, SessaoCaixa, RecebivelCartao — mapas novos definidos abaixo |
+| Padrão `MesColapsavel` (Financeiro.jsx) — card com header clicável + lista expansível | Inspiração para agrupamento por sessão no Relatório de Sessões, se fizer sentido agrupar por dia |
 
-| Enum | Valor | Cor | Classe Tailwind |
+**Nenhum componente novo em `components/ui/` é necessário.** Os padrões visuais específicos de PDV (linha de item de carrinho, chip de forma de pagamento, teclado numérico de contagem) são compostos localmente dentro de cada page, seguindo o mesmo estilo de composição inline já usado em `Financeiro.jsx`/`Conciliacao.jsx` (sub-componentes de função dentro do próprio arquivo de página, não componentes globais).
+
+---
+
+## Mapas de Badge novos (seguir a mesma estrutura de `STATUS_BADGES` de Financeiro.jsx)
+
+```js
+// Venda.status
+const STATUS_VENDA_BADGES = {
+  ABERTA: 'bg-yellow-100 text-yellow-800',
+  FINALIZADA: 'bg-green-100 text-green-800',
+  CANCELADA: 'bg-gray-100 text-gray-600',
+}
+
+// SessaoCaixa.status
+const STATUS_SESSAO_BADGES = {
+  ABERTA: 'bg-yellow-100 text-yellow-800',
+  FECHADA: 'bg-blue-100 text-blue-800',
+}
+
+// RecebivelCartao.status
+const STATUS_RECEBIVEL_BADGES = {
+  PREVISTO: 'bg-yellow-100 text-yellow-800',
+  LIQUIDADO: 'bg-green-100 text-green-800',
+  CANCELADO: 'bg-gray-100 text-gray-600',
+}
+
+// MovimentoCaixa.tipo (chip, não badge de status)
+const TIPO_MOVIMENTO_STYLE = {
+  SANGRIA: 'bg-red-50 text-red-700',
+  SUPRIMENTO: 'bg-green-50 text-green-700',
+}
+```
+Mesma estrutura de `<Badge status={...} />` já usada — não criar componente `Badge.jsx` novo, replicar a função inline como em `Financeiro.jsx`/`Conciliacao.jsx`.
+
+---
+
+## Ícones (Lucide React) — mapeamento completo do módulo PDV
+
+| Ação/Contexto | Ícone | Tamanho | Cor |
 |---|---|---|---|
-| **Status da Conciliação** (`StatusConciliacao`) | `PROCESSADO` | verde | `bg-green-100 text-green-800` |
-| | `COM_DIVERGENCIAS` | vermelho | `bg-red-100 text-red-800` |
-| | `PENDENTE` | amarelo | `bg-yellow-100 text-yellow-800` |
-| **Status do Item** (`StatusItemConciliacao`) | `CONCILIADO` | verde | `bg-green-100 text-green-800` |
-| | `FALTANDO_BANCO` | amarelo/laranja | `bg-yellow-100 text-yellow-800` |
-| | `FALTANDO_SISTEMA` | vermelho | `bg-red-100 text-red-800` |
-
-Reaproveitar o padrão `STATUS_BADGES` + componente `Badge` já existentes em
-`Financeiro.jsx` (linhas 73-90) — copiar a mesma estrutura de objeto/lookup, apenas
-com as chaves acima, em vez de recriar um componente de badge do zero.
-
----
-
-## Especificação Visual por Tela
-
-### `Conciliacao.jsx` — Layout geral da página
-
-Segue **exatamente** a estrutura de `Financeiro.jsx` (mesmo componente pai controlando
-abas via `useState` + array `TABS`, sem sub-rotas):
-
-```jsx
-const TABS = [
-  { key: 'historico', label: 'Histórico' },
-  { key: 'padroes', label: 'Padrões Seguros' },
-]
-```
-
-- Header da página (fora das abas, sempre visível):
-  - `<h1 className="text-2xl font-bold text-gray-900">Conciliação Bancária</h1>`
-  - `<p className="text-sm text-gray-500 mt-0.5">Envie extratos e concilie com o Livro Caixa</p>`
-- Barra de abas: `flex gap-1 overflow-x-auto pb-1`, botão ativo
-  `bg-primary-600 text-white`, inativo `bg-white text-gray-600 hover:bg-gray-100
-  border border-gray-200` — idêntico ao `TABS.map` de `Financeiro.jsx` (linhas 124-138).
-- Toast local: mesmo padrão (`fixed top-4 right-4 z-50 ...`, verde `bg-accent-600` /
-  vermelho `bg-red-600`), reaproveitar tal qual.
-- Padding externo da página: nenhum adicional — o layout autenticado (`AppLayout`) já
-  define o padding do conteúdo; a página só usa `space-y-4` no container raiz.
-- **Mobile (375px):** abas com `overflow-x-auto` já cobre o caso de label não caber;
-  título quebra para `text-xl` se necessário, mas `text-2xl` já é o padrão usado em
-  outras páginas em mobile sem overflow, então manter.
+| Abrir caixa | `Unlock` | 20px (botão principal) | branco (dentro de botão primary) |
+| Fechar caixa | `Lock` | 16px | — |
+| Nova venda / carrinho | `ShoppingCart` | 20px (header), 16px (menu) | — |
+| Buscar produto | `Search` | 16px (dentro do Input, `icon` prop se existir, senão posicionado absolute) | text-gray-400 |
+| Código de barras | `ScanLine` | 16px (botão/toggle ao lado da busca) | text-gray-500 |
+| Adicionar item ao carrinho / incrementar qtd | `Plus` | 14px | — |
+| Remover 1 unidade | `Minus` | 14px | — |
+| Remover item do carrinho | `Trash2` | 14px | text-red-600 no hover |
+| Cliente vinculado | `User` | 16px | — |
+| Consumidor final (sem cliente) | `UserX` | 16px | text-gray-400 |
+| Sangria (saída de gaveta) | `ArrowDownCircle` | 16px | text-red-600 |
+| Suprimento (entrada na gaveta) | `ArrowUpCircle` | 16px | text-green-600 |
+| Dinheiro (forma pagamento) | `Banknote` | 20px | text-green-700 |
+| PIX | `Zap` | 20px | text-green-600 |
+| Cartão débito | `CreditCard` | 20px | text-blue-600 |
+| Cartão crédito | `CreditCard` | 20px | text-purple-600 (diferenciar do débito só pela cor, mesmo ícone — já é o padrão do design_system.md para "Cartão") |
+| Boleto | `FileText` | 20px | text-blue-600 |
+| Outro método | `MoreHorizontal` | 20px | text-gray-500 |
+| Finalizar venda | `CheckCircle2` | 16px (dentro do Button) | branco |
+| Cancelar venda | `XCircle` | 14px | text-red-600 |
+| Devolver item (parcial) | `RotateCcw` | 14px | text-yellow-700 |
+| Ver detalhe de venda | `Eye` | 14px | text-gray-500 |
+| Diferença de caixa (alerta) | `AlertTriangle` | 16px | text-yellow-600 (diferença) / text-red-600 (diferença negativa alta, a critério do Loom) |
+| Contagem física confere | `CheckCircle` | 16px | text-green-600 |
+| Filtro de período | `Calendar` | 14px | text-gray-400 |
+| Relatório de sessões | `ClipboardList` | 16px (menu) | — |
+| Estado vazio (carrinho/histórico) | `PackageSearch` | 32px | text-gray-300 |
+| Recebível pendente (Conciliação, RF-17) | `Link2` | 14px | text-primary-600 |
 
 ---
 
-### Aba "Histórico" (RF-F01) — Listagem de conciliações
+## Tela 1 — Abertura de Caixa
 
-**Cabeçalho da aba:**
-```jsx
-<div className="flex items-center justify-between gap-3">
-  <h2 className="text-lg font-semibold text-gray-800">Histórico de Conciliações</h2>
-  <Button onClick={openNovaConciliacao}>
-    <Plus size={16} className="mr-1" /> Nova Conciliação
-  </Button>
-</div>
+**Rota:** `/pdv/abertura` (redireciona para cá automaticamente sempre que o operador tenta acessar `/pdv` sem `SessaoCaixa ABERTA` na conta — RN-02).
+
+**Layout:** tela full-width, sem tabs, foco único — não é um CRUD, é um gate. Card único centralizado, `max-w-md mx-auto` (mesmo espírito do Card de Login: `bg-white rounded-2xl shadow-sm border border-gray-200 p-8`).
+
 ```
-(ícone Lucide `Plus`, 16px, mesmo padrão de "+ Nova Receita" em `Financeiro.jsx` mas
-com ícone real em vez de `+` literal — primeira página do UidCore a usar Lucide dentro
-do corpo, conforme já habilitado pelo design system)
-
-**Estado vazio:** `text-center py-12 text-gray-400`, ícone `<Inbox size={40}
-className="mx-auto mb-2 opacity-50" />` + `<p className="text-sm">Nenhuma conciliação
-enviada ainda.</p>`.
-
-**Estado loading:** `text-center py-12 text-gray-400 text-sm` com texto "Carregando...".
-
-**Desktop (`hidden md:block`) — Tabela dentro de `Card`:**
-
-Reaproveitar exatamente a estrutura de tabela de `LivroCaixaTab` (`overflow-x-auto -mx-6
--my-4`, `<table className="w-full text-sm">`, `thead` com `bg-gray-50 border-b
-border-gray-200`, `tbody` com `divide-y divide-gray-100`, linha `hover:bg-gray-50
-cursor-pointer` porque a linha inteira é clicável).
-
-| Coluna | Classe | Formatação |
-|---|---|---|
-| Período | `px-4 py-3 text-gray-600` | `MM/YYYY` (ex: `periodo` já vem `YYYY-MM` do backend — formatar no front) |
-| Conta | `px-4 py-3 text-gray-600` | `conta_nome` |
-| Status | `px-4 py-3` | `<Badge status={item.status} map={STATUS_CONCILIACAO_BADGES} />` |
-| Total Banco | `px-4 py-3 text-right font-mono text-gray-700` | `BRL(item.total_banco)` |
-| Total Sistema | `px-4 py-3 text-right font-mono text-gray-700` | `BRL(item.total_sistema)` |
-| Divergências | `px-4 py-3 text-right` | `item.divergencias` — se `> 0`: `font-semibold text-red-600`; se `0`: `text-gray-400` |
-| Processado em | `px-4 py-3 text-gray-500 text-xs` | `processado_em` formatado `dd/MM/yyyy HH:mm` |
-| Ações | `px-4 py-3 text-right` | `<ChevronRight size={16} className="text-gray-400" />` (indica "clicável", sem botão) |
-
-Linha inteira com `onClick={() => abrirDetalhe(item)}`.
-
-**Mobile (`flex flex-col gap-3 md:hidden`) — Cards:**
-
-Mesmo padrão de `ReceitasTab`/`DespesasTab` mobile — `Card` clicável (`onClick` no
-`Card` ou `div` interno):
-
-```jsx
-<Card key={item.id} className="cursor-pointer" onClick={() => abrirDetalhe(item)}>
-  <div className="flex justify-between items-start gap-2">
-    <div className="min-w-0">
-      <p className="font-semibold text-gray-900 truncate">{item.conta_nome}</p>
-      <p className="text-xs text-gray-500 mt-0.5">{formatarPeriodo(item.periodo)}</p>
-    </div>
-    <Badge status={item.status} map={STATUS_CONCILIACAO_BADGES} />
-  </div>
-  <div className="mt-2 flex justify-between items-center text-sm">
-    <span className="text-gray-500">Banco: <span className="font-mono text-gray-700">{BRL(item.total_banco)}</span></span>
-    <span className="text-gray-500">Sistema: <span className="font-mono text-gray-700">{BRL(item.total_sistema)}</span></span>
-  </div>
-  {item.divergencias > 0 && (
-    <p className="text-xs text-red-600 font-medium mt-1">{item.divergencias} divergência(s)</p>
-  )}
-</Card>
+┌─────────────────────────────────┐
+│      🔓 Abrir Caixa              │  ← ícone Unlock 32px text-primary-600, centralizado
+│  Selecione a conta e informe o   │  ← subtítulo text-sm text-gray-500
+│  valor de abertura               │
+│                                   │
+│  Conta (Select, tipo=CAIXA)      │
+│  [ Selecione...            ▾]    │
+│                                   │
+│  Valor de abertura (Input)       │
+│  [ R$ 0,00                  ]    │  ← input numérico, mesmo padrão de Input.jsx, alinhado à direita, font-mono
+│                                   │
+│  [    Abrir Caixa (primary)  ]   │  ← full width, ícone Unlock
+└─────────────────────────────────┘
 ```
 
-`Pagination` component embaixo, igual ao resto — usar `PAGE_SIZE = 20` (mesma constante
-de `Financeiro.jsx`), `response.data.results`/`response.data.count`.
+- Select de conta: popular via `GET /financeiro/contas/?tipo=CAIXA` (reaproveita endpoint já existente, filtrado).
+- Se a conta escolhida já tiver `SessaoCaixa ABERTA` (RF-02/RN-01), erro inline abaixo do Select (mesmo padrão de erro de Input: `border-red-500` + mensagem `text-red-600 text-xs`), **não** toast — é erro de validação de formulário, não de rede.
+- Se o operador já tem uma `SessaoCaixa ABERTA` própria em outra conta, mostrar aviso informativo (não bloqueante) acima do form: `bg-blue-50 border border-blue-200 text-blue-700 text-sm rounded-lg px-4 py-3` — "Você já tem uma sessão aberta na conta X. Deseja continuar nela?" com botão secundário "Ir para o caixa aberto".
+- Botão "Abrir Caixa": `loading` state via `Button.jsx` prop já existente enquanto o POST não retorna.
+- Mobile: mesmo layout, card ocupa `w-full` com padding lateral da tela (`px-4`), sem `max-w-md`.
 
 ---
 
-### Modal "Nova Conciliação" (RF-F02)
+## Tela 2 — Frente de Caixa / Nova Venda
 
-`<Modal title="Nova Conciliação" onClose={...} maxW="max-w-lg">` (tamanho padrão, não
-precisa de `max-w-2xl` — poucos campos).
+**Rota:** `/pdv/venda`
 
-Ordem dos campos (`space-y-4` dentro do `<form>`, igual padrão de `Financeiro.jsx`):
+**Layout geral:** duas colunas em desktop (busca+carrinho à esquerda 65%, resumo+pagamento à direita 35%, sticky), empilhado em mobile com **barra de total fixa no rodapé** (padrão comum de PDV/apps de venda — não existe ainda no UidCore, é o único padrão genuinamente novo desta especificação).
 
-1. **Arquivo (obrigatório):**
-   ```jsx
-   <div className="flex flex-col gap-1">
-     <label className="text-sm font-medium text-gray-700">Extrato Bancário (PDF)</label>
-     <input type="file" accept="application/pdf" required
-       className="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3
-         file:rounded-lg file:border-0 file:bg-primary-50 file:text-primary-700
-         file:text-sm file:font-medium hover:file:bg-primary-100" />
-   </div>
-   ```
-   (mesmo estilo de input de arquivo já usado em `ResourceCrud.jsx` linha 208-221 —
-   reaproveitar o padrão de classe, não recriar)
-2. **Conta (obrigatório):** `<Select label="Conta" options={[{value:'',label:'Selecione...'}, ...contasOptions]} required />` — `contasOptions` via `GET /financeiro/contas/`, mesmo `useEffect` de `Financeiro.jsx` (linhas 102-109).
-3. **Período (obrigatório):** `<input type="month" required>` estilizado com a mesma classe de `Input.jsx` (borda, radius, focus ring) — como não existe `type="month"` no componente `Input` genérico, usar `<input>` nativo com as classes do padrão de input do projeto (copiar classe de `Input.jsx`).
-4. **Senha do PDF (opcional):** `<Input label="Senha do PDF (se protegido)" type="password" name="senha" />`
-5. **Checkbox "Conciliar automaticamente":**
-   ```jsx
-   <div className="flex items-center gap-2">
-     <input type="checkbox" id="auto" className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
-     <label htmlFor="auto" className="text-sm font-medium text-gray-700">Conciliar automaticamente por padrões seguros</label>
-   </div>
-   ```
-   (mesmo padrão de checkbox de `ResourceCrud.jsx` linhas 193-206)
+### Header da tela
+- Título: "Nova Venda" (`text-2xl font-bold text-gray-900`) + badge da sessão ativa ao lado: `Sessão #{id} · {conta.nome} · Aberta às {hora}` em `text-xs text-gray-500`.
+- Botão secundário no topo direito (desktop) / ícone no header mobile: `ArrowDownCircle`/`ArrowUpCircle` combinados em um botão "Sangria/Suprimento" que abre o Modal da Tela 3.
 
-Rodapé do form: `<Button type="button" variant="secondary">Cancelar</Button>` +
-`<Button type="submit" loading={uploading}>Enviar</Button>` — durante upload, `Button`
-já tem spinner embutido (`loading` prop existente), atende RNF-01 (não precisa criar
-spinner novo).
+### Coluna esquerda — Busca + Carrinho
 
-**Ícone no botão de trigger do modal:** `Upload` (Lucide) é uma alternativa a `Plus`
-para reforçar "envio de arquivo" — usar `Plus` no botão da listagem (ação genérica de
-criar) e `Upload` só dentro do modal se quiser reforçar visualmente a área de arquivo
-(opcional, não obrigatório).
+**Busca de produto:**
+- Input com ícone `Search` à esquerda (posicionamento absolute dentro do wrapper, `pl-9` no input), placeholder "Buscar por nome ou código de barras...".
+- Botão/ícone `ScanLine` ao lado direito do input — foco automático no input ao clicar, para leitor de código de barras USB (que simula teclado) funcionar sem campo dedicado. Não é um scanner de câmera nesta entrega (fora de escopo, spec não menciona).
+- Resultado da busca: dropdown/lista abaixo do input (`absolute z-10 bg-white rounded-lg shadow-lg border border-gray-200 mt-1 max-h-64 overflow-y-auto`), cada linha: nome do produto + `text-xs text-gray-400` com código de barras + preço à direita (`font-mono text-sm`). Clique adiciona ao carrinho.
+- Se `quantidade_estoque <= 0`: linha do resultado com opacidade reduzida (`opacity-50`) e badge `bg-red-100 text-red-800` "Sem estoque" — ainda clicável mas o backend vai bloquear (RF-07); mostrar erro extraído da API via toast se acontecer.
 
----
-
-### Detalhe da Conciliação (RF-F03) — decisão de UI: `Modal maxW="max-w-4xl"`
-
-A Especificação deixou a escolha entre aba interna ou Modal a critério do Loom. Brush
-recomenda **Modal `max-w-4xl`**, por consistência com o único outro modal grande já
-existente no padrão do projeto (`Modal` com `maxW` customizável já suporta isso nativamente,
-sem componente novo) e porque preserva o estado da listagem por trás (não perde
-filtro/página ao fechar).
-
-**Header do detalhe (dentro do modal, acima da tabela de itens):**
-
-```jsx
-<div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
-  <div>
-    <p className="text-xs text-gray-500">Conta</p>
-    <p className="text-sm font-semibold text-gray-900">{conciliacao.conta_nome}</p>
-  </div>
-  <div>
-    <p className="text-xs text-gray-500">Período</p>
-    <p className="text-sm font-semibold text-gray-900">{formatarPeriodo(conciliacao.periodo)}</p>
-  </div>
-  <div>
-    <p className="text-xs text-gray-500">Status</p>
-    <Badge status={conciliacao.status} map={STATUS_CONCILIACAO_BADGES} />
-  </div>
-  <div>
-    <p className="text-xs text-gray-500">Divergências</p>
-    <p className={`text-sm font-bold ${conciliacao.divergencias > 0 ? 'text-red-600' : 'text-green-600'}`}>
-      {conciliacao.divergencias}
-    </p>
-  </div>
-</div>
-<div className="grid grid-cols-2 gap-3 mb-4 pb-4 border-b border-gray-100">
-  <div className="rounded-xl p-3 bg-blue-50 text-blue-700">
-    <p className="text-xs font-medium opacity-70">Total Banco</p>
-    <p className="text-base font-bold mt-0.5">{BRL(conciliacao.total_banco)}</p>
-  </div>
-  <div className="rounded-xl p-3 bg-blue-50 text-blue-700">
-    <p className="text-xs font-medium opacity-70">Total Sistema</p>
-    <p className="text-base font-bold mt-0.5">{BRL(conciliacao.total_sistema)}</p>
-  </div>
-</div>
-```
-(reaproveita o mesmo estilo de mini-KPI de `KpiCard` em `Financeiro.jsx`, sem precisar
-importar o componente — inline, já que é local a este modal)
-
-**Tabela de itens** (`GET /conciliacoes/{id}/itens/`), mesmo padrão desktop/mobile de
-`LivroCaixaTab`:
-
-| Coluna | Formatação |
-|---|---|
-| Data | `data_banco`, `dd/MM/yyyy` |
-| Descrição | `descricao_banco`, `truncate max-w-[220px]` |
-| Valor | `BRL(valor)`, cor por `tipo`: `ENTRADA` → `text-green-700` com prefixo `+`, `SAIDA` → `text-red-700` com prefixo `-` (idêntico a `LivroCaixaTab`) |
-| Tipo | ícone Lucide inline: `ArrowUpCircle` (verde) para `ENTRADA`, `ArrowDownCircle` (vermelho) para `SAIDA`, 14px, ao lado do label |
-| Status | `<Badge status={item.status} map={STATUS_ITEM_BADGES} />` |
-| Ação | condicional (ver regras abaixo) |
-
-**Regras de linha (RN-02, já detalhadas na Especificação — tradução visual):**
-
-- `CONCILIADO` → linha com opacidade normal, sem badge de alerta extra, sem botão.
-- `FALTANDO_BANCO` → fundo da linha `bg-yellow-50` (leve, só para destacar visualmente
-  sem gritar), ícone `AlertTriangle` 14px amarelo ao lado do status, sem botão de ação
-  (é só informativo, fora do escopo resolver na tela).
-- `FALTANDO_SISTEMA && confirmado === false` → fundo da linha `bg-red-50`, botão de ação:
-  ```jsx
-  <Button size="sm" onClick={() => confirmarItem(item)}>
-    <CheckCircle2 size={14} className="mr-1" /> Confirmar
-  </Button>
+**Carrinho (lista de `ItemVenda`):**
+- Dentro de `Card` sem título, cada linha (`border-b border-gray-100 last:border-0 py-3`):
   ```
-- `FALTANDO_SISTEMA && confirmado === true` → volta ao visual neutro (igual `CONCILIADO`),
-  sem botão — já foi resolvido.
+  [Nome do produto]                    [Trash2]
+  {qtd} {unidade} × {valor_unitario}    R$ {valor_total}
+  [Minus] [qtd editável] [Plus]         (desconto_item, se >0, em text-xs text-gray-400 "- R$ X desconto")
+  ```
+- Stepper de quantidade: três elementos inline — botão `Minus` (rounded-full w-6 h-6 border border-gray-300), input numérico central (`w-12 text-center text-sm`), botão `Plus` (mesmo estilo do Minus, mas `bg-primary-50 text-primary-600` para diferenciar visualmente incremento de decremento). Editar quantidade direto no input também é permitido (respeitar `max_digits=12, decimal_places=3` do model — usar `step` compatível com a unidade do produto).
+- Estado vazio do carrinho: `PackageSearch` 32px + "Carrinho vazio — busque um produto acima" (`text-center py-12 text-gray-400`, mesmo padrão de empty state do design_system.md).
 
-**Estado vazio de itens:** mesma linguagem visual do resto do sistema — `<Inbox
-size={32} className="mx-auto mb-2 opacity-40" />` + "Nenhum item nesta conciliação."
+### Coluna direita — Cliente + Resumo + Pagamento (sticky no desktop: `sticky top-4`)
 
----
+**Cliente (opcional):**
+- Chip/linha no topo do Card de resumo: se nenhum cliente selecionado, mostra `UserX` + "Consumidor Final" + botão texto "Vincular cliente" (`text-primary-600 text-sm`). Ao clicar, abre autocomplete inline (reaproveitar o mesmo padrão de busca de `Select` remoto já usado em outras telas, ou um Input com dropdown de resultados igual ao de produto). Cliente vinculado: `User` + nome do cliente + `X` pequeno para desvincular.
 
-### Confirmar item (RF-F04)
+**Resumo de valores:**
+```
+Subtotal            R$ 120,00
+Desconto            R$   0,00
+─────────────────────────────
+Total                R$ 120,00   ← text-lg font-bold, mesmo peso visual do "Valor de KPI" do design system
+```
 
-Sem modal de confirmação adicional (ação de baixo risco, reversível pelo backend em
-teoria via re-consulta) — clique direto no botão "Confirmar" chama a API. Feedback:
+**Split de pagamento (`PagamentoVenda`, RF-09):**
+- Grid de "chips" de forma de pagamento (reaproveitar exatamente o grid já documentado no design_system.md: `grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3`, cada chip com ícone 20px + label, igual ao já usado em Pagamentos.jsx) — clicar em uma forma adiciona uma linha de pagamento abaixo.
+- Cada linha de pagamento adicionada:
+  ```
+  [ícone do método] {label}     [Input valor R$]   [X remover]
+  ```
+- Quando o método selecionado é **Cartão de Crédito**, a linha expande (mesmo padrão de expansão condicional já usado em Conciliação/Padrões Seguros — campo aparece/some conforme tipo) mostrando dois campos extras inline, menores (`text-xs`, `w-24`):
+  ```
+  Taxa (%) [Input]     Prazo (dias) [Input]
+  ```
+  Se RF-18 (Could) não estiver implementado ainda, esses campos vêm vazios/zerados por padrão — sem pré-preenchimento, o operador digita manualmente (RF-14 Must = seleção manual).
+- Soma das linhas de pagamento deve bater com o Total — mostrar diferença em tempo real abaixo do split: `Falta alocar: R$ X` (`text-yellow-700 text-xs`) ou `Troco: R$ X` (`text-green-700 text-xs`, quando forma = Dinheiro e valor pago > total) ou nada quando bate exato. **Não bloquear** visualmente o botão Finalizar por isso — deixar a validação de "soma = total" para a resposta de erro da API, mesmo padrão de erro tratado por toast já usado no resto do sistema.
 
-- Toast de sucesso: "Item confirmado. {divergencias_restantes} divergência(s) restante(s)."
-- Atualizar localmente: `item.confirmado = true` no state (sem re-fetch completo — UX
-  mais rápida) + atualizar `conciliacao.divergencias` no header do modal com o valor
-  `divergencias_restantes` retornado pela API.
-- Erro: toast vermelho com `extractErrorMessage()`, igual ao resto do sistema.
+**Botão Finalizar Venda:**
+- `Button variant="primary" size="lg"` full width, ícone `CheckCircle2`, texto "Finalizar Venda — R$ {total}".
+- Desktop: fixo dentro da coluna direita (sticky).
+- **Mobile: barra fixa no rodapé da tela** (`fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-40`, safe-area considerada) mostrando total + botão — padrão necessário porque em telas pequenas o resumo/split fica scrollado para baixo do carrinho; sem essa barra fixa o operador perde o botão de ação principal fora da viewport (viola o princípio "Ação principal sempre visível" do CLAUDE.md/manual do Brush). Isso não é `overflow-hidden` no root, é um elemento `fixed` — não conflita com a regra de overflow.
 
----
-
-### Aba "Padrões Seguros" (RF-F05)
-
-**Avaliação do `ResourceCrud.jsx`:** o componente cobre bem o caso — CRUD com tabela +
-modal + paginação genéricos. **Recomendação: usar `ResourceCrud`** em vez de recriar
-`ContasTab`-style do zero, com uma ressalva importante:
-
-> `ResourceCrud` não tem suporte nativo a **campo condicional** (RN-01: esconder/desabilitar
-> `natureza` quando `tipo=SAIDA`). O componente atual (`renderField`) não recebe
-> `form` como contexto para decidir visibilidade condicional de outro campo. Duas opções
-> para o Loom:
-> 1. **Estender `ResourceCrud`** com um campo `dependsOn`/`showIf: (form) => form.tipo === 'ENTRADA'`
->    no schema de `fields` (mudança pequena e reaproveitável por outros CRUDs futuros).
-> 2. **Não usar `ResourceCrud`** para este caso específico e implementar a aba com
->    form próprio (como `ContasTab`), copiando a estrutura de tabela genérica.
->
-> Brush recomenda a opção 1 (estender `ResourceCrud`) — é a única tela do projeto até
-> agora com campo condicional, e a extensão é pequena o suficiente para não justificar
-> duplicar toda a lógica de CRUD só por isso.
-
-**Colunas da tabela** (via `ResourceCrud columns` prop ou tabela custom, se optar pela
-opção 2):
-
-| Coluna | Config |
-|---|---|
-| Descrição | `descricao_padrao`, texto |
-| Tipo | badge: `ENTRADA` → `bg-green-100 text-green-700`, `SAIDA` → `bg-red-100 text-red-700` (mesmo padrão de badge de pílula do projeto) |
-| Natureza | `natureza_label` — **só exibe valor quando `tipo=ENTRADA`**; quando `tipo=SAIDA`, célula mostra `—` (`text-gray-400`) |
-
-**Modal criar/editar** — campos:
-
-1. `Input label="Descrição" name="descricao_padrao" required` (largura completa, `sm:col-span-2`)
-2. `Select label="Tipo" name="tipo" options={[{value:'ENTRADA',label:'Entrada'},{value:'SAIDA',label:'Saída'}]}`
-3. `Select label="Natureza" name="natureza" options={[{value:'APORTE',label:'Aporte'},{value:'RECEITA_FINANCEIRA',label:'Receita Financeira'}]}` —
-   **RN-01 aplicado:** quando `form.tipo === 'SAIDA'`, o campo fica `disabled` e
-   visualmente esmaecido (`opacity-50 cursor-not-allowed` no wrapper), **não escondido
-   por completo** — esconder completamente pode confundir o usuário sobre por que um
-   campo "sumiu"; desabilitar com indicação visual é mais claro. Adicionar texto de apoio:
-   `<p className="text-xs text-gray-400 mt-1">Aplicável apenas para Tipo = Entrada</p>`
-   quando desabilitado.
-
-Botão de ação no header da aba: `<Button onClick={openNovoPadrao}><Plus size={16}
-className="mr-1" /> Novo Padrão</Button>` — mesmo padrão visual de "Nova Conciliação".
-
-Excluir: `window.confirm` + `DELETE` (soft delete no backend), mesmo padrão de
-`ContasTab.handleDelete` — toast de sucesso/erro igual ao resto.
+**Após finalizar com sucesso:** toast de sucesso (padrão `bg-accent-600`) + limpar carrinho + manter o operador na mesma tela pronta para a próxima venda (não navegar embora — fluxo de PDV é venda após venda na mesma sessão).
 
 ---
 
-### Ícones Lucide — resumo de uso nesta tela
+## Tela 3 — Sangria / Suprimento (Modal)
 
-| Ação/Elemento | Ícone | Tamanho |
-|---|---|---|
-| Nova Conciliação / Novo Padrão | `<Plus />` | 16px |
-| Upload de arquivo (reforço visual, opcional) | `<Upload />` | 16-18px |
-| Linha clicável (histórico → detalhe) | `<ChevronRight />` | 16px |
-| Estado vazio (listas) | `<Inbox />` | 32-40px, `opacity-40/50` |
-| Confirmar item | `<CheckCircle2 />` | 14px |
-| Alerta (`FALTANDO_BANCO`) | `<AlertTriangle />` | 14px |
-| Entrada (tipo do item) | `<ArrowUpCircle />` (verde) | 14px |
-| Saída (tipo do item) | `<ArrowDownCircle />` (vermelho) | 14px |
-| Editar padrão | `<Pencil />` | 14px (dentro do `Button size="sm"` de editar, se não usar `ResourceCrud` padrão que já usa texto "Editar") |
-| Excluir padrão | `<Trash2 />` | 14px (idem) |
+**Componente:** `Modal.jsx` (`maxW="max-w-md"`, o menor tamanho já catalogado — é um form rápido, RF-10).
 
-Todos importados de `lucide-react`, já presente no `package.json` (confirmado na
-Manutenção #9, DIV-UI04).
-
----
-
-## Mobile-first (RNF-03)
-
-- Breakpoint de referência: 375px (iPhone SE), mesmo padrão usado no resto do sistema.
-- Listagem de histórico: cards empilhados (`flex flex-col gap-3 md:hidden`), tabela some
-  em mobile (`hidden md:block`) — padrão já validado em todas as outras páginas.
-- Modal "Nova Conciliação": `maxW="max-w-lg"` já é responsivo por padrão (`Modal.jsx`
-  usa `w-full` + `px-4` no overlay) — sem ajuste extra necessário.
-- Modal de Detalhe (`max-w-4xl`): em telas pequenas, a tabela de itens deve ter
-  `overflow-x-auto` dentro do modal (mesmo padrão `-mx-6 -my-4` das outras tabelas) para
-  não estourar a largura do modal em 375px; o grid de header (4 colunas) deve colapsar
-  para `grid-cols-2` em mobile (já especificado acima com `grid-cols-2 sm:grid-cols-4`).
-- Aba "Padrões Seguros": se usar `ResourceCrud`, o componente já não tem view mobile em
-  cards (usa só tabela com `overflow-x-auto`) — aceitável para este CRUD simples (poucos
-  campos, tabela cabe rolando horizontal), consistente com o padrão que `ResourceCrud`
-  já estabelece nos outros módulos (Vendas, RH, Administrativo etc.).
+```
+┌───────────────────────────────┐
+│  Sangria / Suprimento      [X] │
+│                                 │
+│  Tipo                          │
+│  ( ) Sangria  ( ) Suprimento    │  ← toggle de dois botões pill, não Select — reduz 1 clique num fluxo que precisa ser rápido no balcão
+│                                 │
+│  Valor (Input, obrigatório)    │
+│  [ R$ 0,00               ]     │
+│                                 │
+│  Motivo (obrigatório)          │
+│  [ textarea rows=2         ]   │
+│                                 │
+│  [Cancelar]      [Confirmar]   │
+└───────────────────────────────┘
+```
+- Toggle Tipo: dois botões lado a lado (`grid grid-cols-2 gap-2`), estilo pill igual ao das Tabs principais, cor por tipo quando selecionado: Sangria selecionada = `bg-red-50 border-red-300 text-red-700` + ícone `ArrowDownCircle`; Suprimento selecionada = `bg-green-50 border-green-300 text-green-700` + ícone `ArrowUpCircle`. Não selecionado = `bg-white border-gray-300 text-gray-600`.
+- Motivo obrigatório — usar a mesma validação visual de campo obrigatório do `Input.jsx` (border vermelho + mensagem) se o operador tentar confirmar vazio.
+- Botão "Confirmar": `variant="primary"` mas cor do texto/ícone acompanha o tipo escolhido — se quiser simplificar, manter sempre `primary-600` e deixar a cor semântica só no toggle (recomendado, evita um terceiro estado de botão custom).
+- Acesso: ícone no header da Tela 2 (Frente de Caixa) e, opcionalmente, atalho na Tela 4 (Fechamento) antes de fechar — mas o fluxo principal é durante a sessão aberta, a partir da Frente de Caixa.
 
 ---
 
-## Componentes existentes reutilizados (nenhum componente novo de UI é criado)
+## Tela 4 — Fechamento de Caixa
 
-| Componente | Uso nesta tela |
-|---|---|
-| `Card.jsx` | Container de tabela desktop, cards mobile de histórico |
-| `Button.jsx` | Todas as ações (primary/secondary/danger, com `loading`) |
-| `Input.jsx` | Senha do PDF, descrição do padrão |
-| `Select.jsx` | Conta, Tipo, Natureza |
-| `Modal.jsx` | Nova Conciliação, Detalhe da Conciliação, criar/editar Padrão |
-| `Pagination.jsx` | Listagem de histórico |
-| `ResourceCrud.jsx` | Aba Padrões Seguros (com extensão sugerida para campo condicional — ver seção acima) |
+**Rota:** `/pdv/fechamento`
 
-Nenhum ícone de emoji é introduzido dentro da página (diferente da Sidebar, que mantém
-`🔄` por decisão já documentada) — esta é a primeira página do UidCore a demonstrar o
-uso de `lucide-react` no corpo da tela, o que é coerente com o design system (que já
-lista `lucide-react` como disponível desde a Manutenção #9) mas ainda não tinha sido
-adotado em nenhuma página existente.
+**Layout:** Card único (`max-w-2xl mx-auto` desktop, full width mobile), sem tabs — fluxo linear de conferência antes de confirmar (RF-11).
+
+```
+┌──────────────────────────────────────────┐
+│  Fechar Caixa — Sessão #{id}              │
+│  {conta.nome} · aberta em {data/hora}     │
+│                                            │
+│  Resumo da sessão                         │
+│  ┌──────────┬──────────┬──────────┬─────┐ │
+│  │ Abertura │ Vendas   │ Sangrias │ Supr│ │  ← 4 KPI Cards, grid grid-cols-2 md:grid-cols-4 gap-3
+│  │ R$ X     │ R$ X     │ -R$ X    │+R$X │ │     (mesmo componente KpiCard já documentado no design_system.md)
+│  └──────────┴──────────┴──────────┴─────┘ │
+│                                            │
+│  Vendas por forma de pagamento            │
+│  Dinheiro   R$ X                          │  ← lista simples, label + valor à direita font-mono
+│  PIX        R$ X                          │
+│  Cartão Déb R$ X                          │
+│  Cartão Créd R$ X (pendente de liquidação)│  ← nota text-xs text-gray-400, pois cartão crédito não entra no "dinheiro em caixa"
+│                                            │
+│  Valor calculado em caixa    R$ X         │  ← text-lg font-bold (só considera dinheiro físico: abertura + vendas dinheiro - sangrias + suprimentos)
+│                                            │
+│  Contagem física (Input, obrigatório)     │
+│  [ R$ 0,00                          ]     │
+│                                            │
+│  Diferença: R$ X   [AlertTriangle se ≠ 0] │  ← calculada em tempo real no frontend conforme o operador digita, cor: text-gray-600 se =0, text-yellow-700 se diferença pequena, text-red-700 se diferença grande (limiar a critério do Loom, ex. >5% do calculado — não é regra de negócio da spec, é só destaque visual)
+│                                            │
+│  Observações (textarea opcional)          │
+│                                            │
+│  [Cancelar]           [Fechar Caixa]      │
+└──────────────────────────────────────────┘
+```
+- **RN-07 é explícito na UI:** o botão "Fechar Caixa" **nunca** fica desabilitado por causa da diferença — nenhuma validação de frontend bloqueia o submit por `diferenca != 0`. Mostrar o alerta visual (`AlertTriangle` + cor) é só informativo, reforçando a regra "fechamento nunca trava" já determinada pelo Analista.
+- Após confirmar: toast de sucesso + redireciona para Tela 1 (Abertura) ou Dashboard, já que a sessão foi encerrada e não há mais o que fazer no PDV até abrir outra.
+- Mobile: mesmo conteúdo em coluna única, KPI cards em `grid-cols-2` (padrão já existente).
+
+---
+
+## Tela 5 — Histórico de Vendas
+
+**Rota:** `/pdv/vendas`
+
+**Layout:** segue **exatamente** o padrão de `Conciliacao.jsx`/`Financeiro.jsx` — filtros no topo, lista dual mobile/desktop, paginação.
+
+### Barra de filtros
+```
+flex flex-wrap gap-3 items-end
+[Período: De    ] [Período: Até   ] [Operador ▾] [Status ▾]   [Limpar filtros]
+```
+- Cada filtro: label acima (`text-xs text-gray-500 mb-1`) + Input/Select abaixo — mesmo padrão descrito no manual do Brush.
+- Botão "Limpar filtros" só aparece quando algum filtro está ativo (`bg-white border border-gray-300 text-gray-600 hover:bg-gray-50`, tradução do padrão do manual para o vocabulário Tailwind já usado no projeto).
+- Status options: `[Todas, Aberta, Finalizada, Cancelada]` usando `STATUS_VENDA_BADGES`.
+
+### Lista (desktop = tabela dentro de Card, mobile = cards empilhados — padrão dual já catalogado)
+
+**Colunas da tabela:**
+| Número | Data/Hora | Operador | Cliente | Formas de Pgto | Total | Status | Ações |
+|---|---|---|---|---|---|---|---|
+- Formas de Pgto: mini-ícones inline (não texto) — ex. `Banknote` + `Zap` lado a lado se a venda teve split dinheiro+PIX, `title` tooltip com o valor de cada.
+- Total: `font-mono`, riscado (`line-through opacity-50`, mesmo padrão já usado para linha estornada no design_system.md) se `status=CANCELADA`.
+- Ações: ícone `Eye` (ver detalhe) sempre; ícone `XCircle` (cancelar) só se `status=FINALIZADA` e usuário tiver permissão; nenhuma ação de devolução na linha da tabela — devolução por item fica dentro do **detalhe** (modal ou tela expandida), não faz sentido na linha resumida.
+
+### Modal/painel de Detalhe de Venda
+Abrir em `Modal.jsx` `maxW="max-w-2xl"` (ou navegação para `/pdv/vendas/{id}`, a critério do Loom — recomendo Modal para não sair do contexto de lista):
+```
+Venda #{numero} — {status badge}
+{cliente || 'Consumidor Final'} · {operador} · {data/hora}
+
+Itens
+┌─────────────────────────────────────────────┐
+│ Produto A   3un × R$10,00   R$30,00  [RotateCcw]│  ← ícone devolver por item, some se quantidade_estornada == quantidade
+│ Produto B   1un × R$50,00   R$50,00  [RotateCcw]│
+└─────────────────────────────────────────────┘
+
+Pagamentos
+Dinheiro  R$ 40,00
+PIX       R$ 40,00
+
+Total: R$ 80,00
+
+[Cancelar Venda]  (só se ABERTA/FINALIZADA — RF-12, confirma via window.confirm() como já é padrão no projeto)
+```
+- Clicar `RotateCcw` num item abre um segundo modal pequeno (ou expande inline) com: quantidade a devolver (`Input` numérico, `max` = `quantidade - quantidade_estornada`, pré-preenchido com o restante) + motivo (obrigatório) + botão "Confirmar Devolução". Mesmo padrão de confirmação de ações sensíveis: `window.confirm()` antes de submeter, igual ao resto do projeto (não criar um Modal de confirmação novo, seguir o padrão existente documentado em "Padrões consolidados" do design_system.md).
+- Item com `quantidade_estornada > 0` mas não totalmente devolvido: mostrar badge pequena `bg-yellow-50 text-yellow-700` "Parcialmente devolvido ({quantidade_estornada}un)" abaixo do nome do produto.
+- Cancelamento de venda inteira: usar `window.confirm('Cancelar esta venda? Todo o estoque será revertido e os pagamentos estornados.')` — mesmo padrão já catalogado ("window.confirm() para ações destrutivas — simples e funcional").
+
+---
+
+## Tela 6 — Relatório de Sessões de Caixa (IsAdmin only)
+
+**Rota:** `/pdv/sessoes` — item de menu só visível se `user.is_staff` (mesmo padrão de proteção de rota já usado no projeto para telas admin-only — reaproveitar o mecanismo existente de guard de rota/menu condicional, não criar um novo).
+
+**Layout:** mesma estrutura dual tabela/cards.
+
+**Filtros:** período + operador + conta.
+
+**Colunas:**
+| Sessão | Conta | Operador | Abertura | Fechamento | Valor Abertura | Valor Calculado | Contagem Física | Diferença | Status |
+|---|---|---|---|---|---|---|---|---|---|
+
+- Coluna Diferença: `text-green-700` se `= 0`, `text-red-700` com ícone `AlertTriangle` 14px inline se `≠ 0` — é a coluna de auditoria, deve saltar aos olhos visualmente (RF-16 existe justamente para achar diferença recorrente por operador).
+- Ordenação padrão: mais recente primeiro (`-data_abertura`), mesmo padrão de `ordering` já usado nos outros módulos.
+- Clique na linha abre detalhe (Modal) com o mesmo resumo por forma de pagamento já usado na Tela 4 (Fechamento) — reaproveitar o mesmo sub-componente de resumo entre as duas telas, se o Loom organizar como função compartilhada dentro do módulo PDV (`ResumoSessao({ sessao })`, por exemplo) em vez de duplicar o JSX.
+
+---
+
+## Tela 7 (Should — RF-14/RF-18) — Configuração Método de Pagamento → Conta / Taxa padrão
+
+Fora do escopo Must desta especificação visual detalhada — se o Blueprint/Forge decidir implementar já (RF-14 parte Should), a tela é um CRUD simples e **deve reutilizar `ResourceCrud.jsx` diretamente**, sem tela custom: schema com colunas `metodo` (Select), `conta_padrao` (Select remoto de Contas), `taxa_percentual` (number, só relevante para Cartão Crédito). Mesmo padrão já usado em outros cadastros simples do sistema (ex. Metodos de pagamento em Pagamentos.jsx). Não desenhar layout novo para isso — é o caso de uso exato para o qual `ResourceCrud` existe.
+
+---
+
+## Menu / Navegação
+
+- Adicionar item "PDV" na Sidebar, entre "Vendas" e "Financeiro" (agrupa proximidade de domínio — venda de balcão é irmã de Orçamento/Pedido, e alimenta o Financeiro).
+- Ícone: `ShoppingCart` — **se o Loom migrar a Sidebar para Lucide nesta manutenção** (divergência #4 do design_system.md, não obrigatória aqui); caso a Sidebar continue em emoji por ora, usar 🛍️ ou 💵 seguindo o mesmo padrão emoji dos demais itens, **não misturar emoji e Lucide dentro do mesmo componente Sidebar** — decisão binária, não parcial.
+- Submenu (se a Sidebar suportar submenu — senão, rotas internas por tab dentro da própria página `/pdv`): Nova Venda, Histórico, Sessões (admin only), Abertura/Fechamento acessíveis contextualmente (não precisam de item de menu próprio — Abertura aparece como redirect automático, Fechamento como botão dentro da tela de venda).
+
+---
+
+## Mobile-first — resumo transversal
+
+- Breakpoint crítico: 768px (`md:`), igual ao resto do sistema.
+- Frente de Caixa é a única tela com necessidade genuinamente nova de mobile (barra de total fixa no rodapé) — todas as outras seguem o padrão dual já estabelecido sem novidade.
+- Testar sempre em 375px (iPhone SE) antes de considerar pronto — regra padrão do Brush.
+- Grid de formas de pagamento: `grid-cols-2` em mobile (cabe 2 chips por linha confortavelmente), `sm:grid-cols-3 lg:grid-cols-4` conforme cresce a tela — mesmo grid já catalogado no design_system.md para "Metodos de pagamento".
+
+---
+
+## O que NÃO foi definido aqui (propositalmente)
+
+- Nome final do app Django/estrutura de pastas do frontend (`pages/Pdv.jsx` único com tabs internas, ou pasta `pages/pdv/` com múltiplos arquivos) — decisão de organização de código, não de UI, fica com Loom seguindo o padrão que achar mais consistente com o resto do projeto (os módulos maiores como Financeiro/Conciliação usam um arquivo por página com tabs internas — recomendo o mesmo aqui, mas não é uma regra visual).
+- Payload exato dos endpoints, nomes de campos JSON — contrato de API é do Blueprint/Forge.
+- Regra de negócio de UX da devolução com split rateado entre formas de pagamento (Seção 5.6 da spec, item 4, marcado "UX a decidir com Loom/Blueprint") — **recomendação do Brush:** UI simples, deixa o operador escolher de qual `PagamentoVenda` da venda a devolução deve sair (dropdown das formas de pagamento daquela venda específica, pré-selecionado o primeiro), API valida se o valor cabe; não implementar rateio automático complexo na v1 — reduz a superfície de erro e é consistente com o princípio "menos é mais" do Brush.
 
 ---
 
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #10)
-   Telas analisadas: 1 página (Conciliacao.jsx, 2 abas: Histórico + Padrões Seguros)
-     + 3 estados de modal (Nova Conciliação, Detalhe, Criar/Editar Padrão)
-   Componentes reutilizados: 6 existentes (Card, Button, Input, Select, Modal, Pagination)
-     + ResourceCrud (com extensão sugerida — showIf/dependsOn condicional)
-   Novos padrões: uso de lucide-react no corpo da página (primeira vez no UidCore)
+✅ Especificação UI concluída — UidCore (Manutenção #15 — Módulo PDV)
+   Telas analisadas: 6 Must + 1 Should (config)
+   Componentes reutilizados: Card, Button, Input, Select, Modal, Pagination,
+     Loading, padrão de Toast, padrão de Badge, padrão dual mobile/desktop,
+     ResourceCrud (tela 7)
+   Novos padrões: barra de total fixa no rodapé mobile (Frente de Caixa),
+     grid de chips de forma de pagamento com expansão condicional (cartão
+     crédito), toggle pill de 2 opções (Sangria/Suprimento)
 
 📁 Arquivo: Especificacao_UI_Hotfix.md (em /var/www/uidcore/)
 
 ➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md
-   antes de implementar Conciliacao.jsx, routes/index.jsx e Sidebar.jsx
+   antes de implementar o frontend do módulo PDV
 ```

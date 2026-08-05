@@ -14,6 +14,11 @@ import Rh from '../pages/Rh.jsx'
 import Agendamento from '../pages/Agendamento.jsx'
 import Portal from '../pages/Portal.jsx'
 import Produtos from '../pages/Produtos.jsx'
+import AberturaCaixa from '../pages/pdv/AberturaCaixa.jsx'
+import FrenteDeCaixa from '../pages/pdv/FrenteDeCaixa.jsx'
+import FechamentoCaixa from '../pages/pdv/FechamentoCaixa.jsx'
+import HistoricoVendas from '../pages/pdv/HistoricoVendas.jsx'
+import RelatorioSessoesCaixa from '../pages/pdv/RelatorioSessoesCaixa.jsx'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -46,6 +51,12 @@ export default function AppRoutes() {
         <Route path="/rh" element={<Rh />} />
         <Route path="/agendamento" element={<Agendamento />} />
         <Route path="/portal" element={<Portal />} />
+        <Route path="/pdv" element={<FrenteDeCaixa />} />
+        <Route path="/pdv/abertura" element={<AberturaCaixa />} />
+        <Route path="/pdv/venda" element={<FrenteDeCaixa />} />
+        <Route path="/pdv/fechamento" element={<FechamentoCaixa />} />
+        <Route path="/pdv/vendas" element={<HistoricoVendas />} />
+        <Route path="/pdv/sessoes" element={<RelatorioSessoesCaixa />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
