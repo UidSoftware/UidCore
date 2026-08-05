@@ -188,7 +188,7 @@ export default function HistoricoVendas() {
     }
     setDevolvendo(true)
     try {
-      await api.post(`/pdv/itens-venda/${itemDevolucao.id}/devolver/`, {
+      await api.post(`/pdv/vendas/${vendaDetalhe.id}/itens/${itemDevolucao.id}/devolver/`, {
         quantidade: qtdDevolucao,
         motivo: motivoDevolucao.trim(),
       })
