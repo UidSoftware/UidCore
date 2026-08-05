@@ -251,7 +251,7 @@ export default function FrenteDeCaixa() {
   const handleRemover = async (itemId) => {
     if (!venda) return
     try {
-      await api.delete(`/pdv/vendas/${venda.id}/itens/${itemId}/remover`)
+      await api.delete(`/pdv/vendas/${venda.id}/itens/${itemId}/remover/`)
       const { data } = await api.get(`/pdv/vendas/${venda.id}/`)
       setVenda(data)
       setItens(data.itens || [])
