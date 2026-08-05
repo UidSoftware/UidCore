@@ -301,6 +301,10 @@ class VendaViewSet(ModelViewSet):
             pagamentos_payload=ser.validated_data['pagamentos'],
             usuario=request.user,
         )
+        # Limpa o cache de prefetch gravado pelo get_object() antes de qualquer
+        # PagamentoVenda existir. Sem isso, VendaSerializer leria pagamentos: []
+        # do cache stale mesmo com os dados certos já no banco (RF-07 / Sentinel).
+        venda._prefetched_objects_cache = {}
         return Response(VendaSerializer(venda).data)
 
     @action(detail=True, methods=['post'], url_path='cancelar')
@@ -316,6 +320,9 @@ class VendaViewSet(ModelViewSet):
             motivo=ser.validated_data['motivo'],
             usuario=request.user,
         )
+        # Mesmo padrão de finalizar: limpa cache de prefetch stale antes de
+        # serializar, garantindo que itens/pagamentos reflitam o estado pós-mutação.
+        venda._prefetched_objects_cache = {}
         return Response(VendaSerializer(venda).data)
 
     @action(detail=True, methods=['post'], url_path=r'itens/(?P<item_id>\d+)/devolver')
