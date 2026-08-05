@@ -175,13 +175,42 @@ export default function FrenteDeCaixa() {
   }
 
   // ── RF-17: Enter no campo de busca com match exato de codigo_barras ───────
-  const handleBuscaKeyDown = (e) => {
+  // Um leitor físico de código de barras manda o Enter poucos ms após o
+  // último dígito — bem antes dos 300ms do debounce de busca dispararem.
+  // Por isso o Enter não pode depender só do `resultadosBusca` já existente:
+  // ele precisa disparar uma busca imediata (cancelando o debounce pendente
+  // pra essa mesma digitação, pra resposta desatualizada dele não sobrescrever
+  // o resultado depois) e só então aplicar o match exato (RN-09).
+  const handleBuscaKeyDown = async (e) => {
     if (e.key !== 'Enter') return
-    const exatos = resultadosBusca.filter((p) => p.codigo_barras === busca.trim())
-    if (exatos.length === 1) {
-      adicionarProduto(exatos[0])
+    const termo = busca.trim()
+    if (!termo) return
+
+    // Digitação manual lenta: o debounce já rodou e resultadosBusca já
+    // reflete esse termo — usa direto, sem nova chamada à API.
+    const exatosAtuais = resultadosBusca.filter((p) => p.codigo_barras === termo)
+    if (exatosAtuais.length === 1) {
+      adicionarProduto(exatosAtuais[0])
+      return
     }
-    // RN-09: múltiplos resultados ou nenhum match exato — mantém dropdown clicável
+
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+
+    setBuscando(true)
+    try {
+      const { data } = await api.get(`/produtos/produtos/?search=${encodeURIComponent(termo)}&page_size=10`)
+      const lista = data.results || data || []
+      setResultadosBusca(lista)
+      const exatos = lista.filter((p) => p.codigo_barras === termo)
+      if (exatos.length === 1) {
+        adicionarProduto(exatos[0])
+      }
+      // RN-09: múltiplos resultados ou nenhum match exato — mantém dropdown clicável
+    } catch {
+      setResultadosBusca([])
+    } finally {
+      setBuscando(false)
+    }
   }
 
   // ── RF-19: código decodificado via câmera busca direto na API (resposta
