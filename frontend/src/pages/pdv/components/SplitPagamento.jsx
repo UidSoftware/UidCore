@@ -78,7 +78,7 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
       {linhas.length > 0 && (
         <div className="space-y-3">
           {linhas.map((linha) => (
-            <div key={linha._key} className="rounded-lg border border-gray-200 p-3 space-y-2 bg-gray-50">
+            <div key={linha._key} className="rounded-lg border border-gray-200 p-4 space-y-3 bg-gray-50">
               <div className="flex items-center gap-2">
                 <MetodoIcon nome={linha.metodo_nome} />
                 <span className="text-sm font-medium text-gray-800 flex-1">{linha.metodo_nome}</span>
@@ -91,10 +91,10 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-2 gap-3">
                 {/* Valor */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Valor (R$)</label>
+                  <label className="block text-sm text-gray-500 mb-1">Valor (R$)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -108,7 +108,7 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
 
                 {/* Conta (se não há conta_padrao) */}
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Conta de destino</label>
+                  <label className="block text-sm text-gray-500 mb-1">Conta de destino</label>
                   <select
                     value={linha.conta}
                     onChange={(e) => atualizarLinha(linha._key, 'conta', e.target.value)}
@@ -124,9 +124,9 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
 
               {/* Campos extras para cartão de crédito */}
               {linha.metodo_cartao_credito && (
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-gray-200">
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-200">
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Taxa (%)</label>
+                    <label className="block text-sm text-gray-500 mb-1">Taxa (%)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -139,7 +139,7 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-500 mb-1">Prazo (dias)</label>
+                    <label className="block text-sm text-gray-500 mb-1">Prazo (dias)</label>
                     <input
                       type="number"
                       step="1"

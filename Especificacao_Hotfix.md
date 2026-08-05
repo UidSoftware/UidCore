@@ -1,492 +1,181 @@
-# Especificação Hotfix — Manutenção #15 — Módulo PDV (Ponto de Venda)
+# Especificação de Hotfix — UidCore PDV (Manutenção #21)
 
-**Sistema:** UidCore
-**Tipo:** `feature_grande` (aprovação comercial já concedida por Luiz Eduardo)
-**Modo Analista:** manutenção — re-elicitação de escopo completo, com ênfase nos Pontos 2 e 3
-**Data:** 2026-08-03
+**Sistema:** UidCore (OS #7)
+**Tipo:** `melhoria_ux` + `bug` (grupos 1, 2, 3, 5 = melhoria_ux/feature_pequena · grupo 4 = bug)
+**Origem:** solicitação pós-lançamento do módulo PDV (Manutenção #15, concluída em 2026-08-05)
+**Data:** 2026-08-05
+**Complexidade:** média (5 grupos, 3 sem alteração de backend necessária, 1 com fix real de backend/frontend, 1 puramente de UI; frontend com 1 dependência nova)
+**Requer aprovação comercial:** não (ajuste de melhoria em módulo já entregue, sem escopo novo de contrato)
+
+> Esta especificação **substitui** o conteúdo anterior deste arquivo (que era
+> da Especificação da Manutenção #15, já concluída e registrada no histórico
+> do CLAUDE.md do projeto). O conteúdo antigo permanece rastreável via git
+> history — não é necessário mantê-lo aqui.
 
 ---
 
 ## 1. Contexto
 
-O UidCore já opera com os módulos `financeiro` (Conta, Receita, Despesa, LivroCaixa,
-Conciliação Bancária), `produtos` (Produto, ConversaoUnidade, EntradaEstoque),
-`clientes` (Cliente) e `pagamentos` (MetodoPagamento, Cobranca, Parcela). O cliente
-quer um módulo de **frente de caixa / PDV** para vender balcão com baixa de estoque
-e geração automática de Receita/LivroCaixa.
+O módulo PDV (Manutenção #15, 2026-08-05) foi entregue e está em produção.
+Este pedido reúne 5 grupos de ajustes pós-lançamento relatados pelo time de
+caixa: leitor de código de barras incompleto, confirmação de que a busca de
+produto já funciona, exibição de informações na abertura de caixa, um bug de
+mensagem de erro crua na Frente de Caixa, e ajustes de UI no carrinho/split
+de pagamento.
 
-Luiz Eduardo expandiu o escopo original em dois pontos que mudam a arquitetura
-financeira do sistema e por isso foram re-elicitados a fundo nesta especificação:
-
-- **Ponto 2** — devolução parcial de item vendido exige que `Receita` (que hoje
-  **não tem nenhum mecanismo de estorno**, ao contrário de `Despesa`) ganhe um
-  mecanismo de estorno — e, além disso, **parcial** (Despesa só suporta estorno
-  total).
-- **Ponto 3** — pagamento em cartão de crédito com taxa da maquininha e prazo de
-  liquidação exige um novo fluxo de recebível que nasce `PENDENTE` e vira
-  `RECEBIDO` só quando o valor líquido cair na conta, integrado à Conciliação
-  Bancária já existente.
+Todo o levantamento abaixo foi feito lendo o código real (backend e
+frontend) antes de especificar qualquer requisito — nenhum item foi
+assumido sem confirmação, conforme instruído pelo pedido.
 
 ---
 
-## 2. Achados críticos da leitura de código (antes de especificar)
+## 2. AS-IS (confirmado por leitura de código)
 
-Lidos: `backend/financeiro/models.py`, `views.py`, `relatorios.py`, `signals.py`,
-`serializers.py`; `backend/produtos/models.py`; `backend/clientes/models.py`;
-`backend/pagamentos/models.py`; `backend/vendas/models.py`; `backend/common/models.py`;
-`backend/common/permissions.py`.
-
-| # | Achado | Impacto no PDV |
-|---|---|---|
-| A1 | `Receita` **não tem** `estornado`/`data_estorno`/`motivo_estorno` — só `Despesa` tem, com action `estornar` em `DespesaViewSet` (linha 227) que estorna **sempre o valor total**. | Devolução parcial (Ponto 2) não tem onde se apoiar — precisa de mecanismo novo, e não pode ser cópia 1:1 do padrão de Despesa (que é tudo-ou-nada). Detalhado na Seção 5. |
-| A2 | `calcular_dre_mes()` em `relatorios.py` filtra `Despesa` por `estornado=False` mas **não filtra `Receita` por nada equivalente** (porque o campo não existe) — todo `Receita.status=RECEBIDO` entra no DRE integralmente. | O DRE vai ficar incorreto assim que existir estorno de Receita, se `calcular_dre_mes` não for atualizado junto (ver Seção 5.5). Forge precisa tocar `relatorios.py`, não só `models.py`/`views.py`. |
-| A3 | Já existe um app **`vendas`** em produção com `Orcamento`, `Pedido`, `ItemOrcamento`, `ItemPedido` (tabelas `vnd_*`). `Pedido`/`ItemPedido` **não** debitam estoque, **não** geram `Receita`/`LivroCaixa`, **não** têm sessão de caixa — é fluxo de encomenda/orçamento, propósito diferente do PDV (venda de balcão à vista com caixa aberto). | Não há duplicação funcional, mas é uma decisão de arquitetura em aberto: o PDV deve virar um app novo (`pdv`) ou viver dentro do app `vendas` junto de Orçamento/Pedido? **Repasso essa decisão para o Blueprint** — não decido arquitetura de pastas/apps aqui, só sinalizo o achado para não ser descoberto tarde. |
-| A4 | `MetodoPagamento` (app `pagamentos`) é só um `choices` de nome — **não tem FK para `Conta`**. Não existe hoje nenhum "mapeamento forma de pagamento → conta" no sistema, apesar do briefing original pedir reaproveitamento desse mapeamento. | Esse mapeamento **não existe ainda** — é model novo (Seção 4, `PagamentoVenda.conta` resolvido no momento da venda, ou tabela de configuração `MetodoPagamento ↔ Conta` como Should — ver RF-14). |
-| A5 | `IsAdmin` (`common/permissions.py`) = `request.user.is_staff`. Não há sistema de perfis dedicado nesta base (diferente do SystemD). O briefing pede "IsAdmin only" pro Relatório de Sessões — mapeia direto pra essa permission já existente, sem criar nada novo. | Confirma RN de permissões (Seção 11) sem necessidade de novo mecanismo. |
-| A6 | Padrão de estorno de `Despesa`/`LivroCaixaViewSet.estornar` sempre roda dentro de `transaction.atomic()` + `pg_advisory_xact_lock(conta.id)` e termina com `_reconstruir_cadeia(conta)` — é o padrão de concorrência do sistema todo, inclusive a `transferir` de `ContaViewSet`. | PDV deve seguir **exatamente** esse padrão em: finalizar venda, cancelar venda, estornar item, abrir/fechar sessão (Seção 9). Forge não deve inventar outro mecanismo de lock. |
-| A7 | `EntradaEstoque.save()` já resolve conversão de unidade (`ConversaoUnidade`) e faz `Produto.objects.filter(pk=...).update(quantidade_estoque=F('quantidade_estoque') + quantidade_base)` só em criação. | Baixa de estoque do PDV deve ser a operação **inversa** exata dessa lógica (mesma resolução de conversão, `F('quantidade_estoque') - quantidade_base`), não uma reimplementação paralela. Ver RF-06. |
+| Item do pedido | Situação real confirmada |
+|---|---|
+| 1) Leitor físico | Busca por nome/código já funciona (`backend/produtos/views.py:13` — `search_fields = ['nome', 'codigo_barras']`). Input de busca em `FrenteDeCaixa.jsx:321-329` **não tem `onKeyDown`** — Enter não faz nada. Resultado só é adicionado via clique no dropdown (`onClick={() => adicionarProduto(p)}`, linha 351). |
+| 1) Câmera | Não existe — nenhum botão de câmera, nenhuma lib de leitura de código de barras no projeto. `frontend/package.json` confirmado: dependências são apenas `@tanstack/react-query`, `axios`, `lucide-react`, `react`, `react-dom`, `react-router-dom`, `zustand`. Nenhuma lib tipo `@zxing/library`, `html5-qrcode` ou `quagga2` instalada. |
+| 2) Vincular produto na busca | Mesmo gap do item 1 — busca e dropdown clicável já funcionam ponta a ponta (backend + frontend). Não é funcionalidade ausente, é o mesmo fix de auto-vínculo via Enter/scan do item 1. Nenhum trabalho adicional além do já descrito ali. |
+| 3) Abrir Caixa — fluxo | Confirmado que **já existe e já funciona**: `AberturaCaixa.jsx` → `POST /pdv/sessoes/` → `SessaoCaixaViewSet.create()` (`pdv/views.py:71-83`) → `services.abrir_sessao()` (`pdv/services.py:173-199`) seta `operador=usuario` (linha 194) e `data_abertura` é `auto_now_add=True` no model (`pdv/models.py:49`) — automático, sem intervenção do frontend. **Não falta lógica de backend.** |
+| 3) Abrir Caixa — exibição | `AberturaCaixa.jsx` importa `useAuthStore` e lê `user` (linha 15) **mas nunca renderiza** nome do operador nem data/hora atual em nenhum lugar da tela (linhas 85-179 revisadas por completo). O campo de valor de abertura está rotulado apenas "Valor de abertura" (linha 148), sem menção a "Fundo de Troco". |
+| 3) Campo `operador` — User vs Funcionario | Confirmado por leitura de `pdv/models.py:43-47`: `SessaoCaixa.operador` é `ForeignKey(settings.AUTH_USER_MODEL, ...)` — aponta pro model `User` do Django, não pro app `rh`. Confirmado por leitura de `rh/models.py` completo: `rh.Funcionario` é uma entidade **isolada**, sem nenhuma FK para `User`/`auth` (campos: nome, cpf, email, cargo, datas, salário, regime) — usada só pelo módulo de RH (cargos, folha, férias). **Hoje não existe nenhuma ponte entre `User` e `Funcionario`.** Trocar `operador` para apontar pra `Funcionario` exigiria: (a) decidir se todo `User` do sistema ganha um `Funcionario` correspondente ou se seria um campo novo paralelo, e (b) migração de dados dos registros de `SessaoCaixa`/`MovimentoCaixa`/`Venda` já existentes em produção — mudança estrutural, não um ajuste de UI. |
+| 4) Bug `sessao_caixa: Nenhuma sessao...` | Confirmado por leitura de `pdv/views.py:173-196` (`VendaViewSet.create()`): quando não há `SessaoCaixa` com `operador=request.user, status='ABERTA'`, retorna `400` com `{'sessao_caixa': 'Nenhuma sessao de caixa aberta para este operador.'}` — mensagem crua de backend, exatamente como descrito no pedido. Confirmado em `FrenteDeCaixa.jsx:88-97` (`criarVenda()`): o `catch` desse POST só chama `mostrarToast(extractErrorMessage(err, ...), 'error')` — **não redireciona** para `/pdv/abertura`, diferente do `useEffect` de carregamento de sessão (linhas 65-74) que **já redireciona** corretamente quando `GET /pdv/sessoes/atual/` falha. Existe uma janela de corrida real entre o `GET /sessoes/atual/` (linha 66) e o `POST /pdv/vendas/` disparado logo em seguida pelo `useEffect` da linha 99-103 — se a sessão for fechada nesse intervalo (ex: 2ª aba, expiração, outra sessão fechando a mesma conta), o operador vê o erro cru em vez de ser levado de volta pra abertura. |
+| 5) Card Carrinho | `components/ui/Card.jsx` (componente genérico) usa `px-6 py-4` de padding fixo em todo conteúdo, sem `max-height`/scroll interno. Estado vazio do carrinho (`FrenteDeCaixa.jsx:380-383`) soma `py-12` adicional — soma de paddings deixa o card visualmente alto mesmo com poucos ou nenhum item. |
+| 5) SplitPagamento | `components/SplitPagamento.jsx` confirmado: grid de 2 colunas (`grid-cols-2 gap-2`, linha 94) para Valor/Conta, labels em `text-xs` (linhas 97, 111) e inputs em `text-sm` (linha 105) dentro de um card já compacto (`p-3 space-y-2`, linha 81) — confirma a queixa de "campos apertados". Responsividade mobile é feita via `BottomBar` fixa em `FrenteDeCaixa.jsx:522-540` (`md:hidden`), que não depende do layout interno do `SplitPagamento` — há margem para aumentar espaçamento sem quebrar o layout mobile. |
 
 ---
 
-## 3. Reaproveitamento confirmado (não duplicar)
+## 3. TO-BE
 
-- `produtos.Produto` (busca por nome/`codigo_barras`, `quantidade_estoque`, `unidade_base`, `preco_venda`) + `produtos.ConversaoUnidade` para conversão de unidade na baixa de estoque.
-- `clientes.Cliente` — venda com ou sem cliente vinculado (Consumidor Final = `cliente=None`).
-- `financeiro.Conta` (tipo `CAIXA`/`CORRENTE`/`CARTEIRA`) como destino dos lançamentos.
-- `financeiro.Receita` + signal `receita_para_livro_caixa` — venda finalizada gera `Receita(status=RECEBIDO)` e o `LivroCaixa` nasce sozinho via signal existente, sem código novo de lançamento manual.
-- `financeiro.LivroCaixa` + `_gerar_lancamento`/`_reconstruir_cadeia` (via signal, indiretamente).
-- `pagamentos.MetodoPagamento` como catálogo de formas de pagamento no split.
-- `financeiro.ConciliacaoExtrato`/`ItemConciliacao` — ponto de integração do Ponto 3 (Seção 6.3), não recriar conciliação.
-- Padrão `IsAdmin` (`common/permissions.py`) para o Relatório de Sessões de Caixa.
+### Grupos 1+2 — Leitor de código de barras (físico + câmera) e auto-vínculo
 
----
+- Enter no campo de busca com 1 resultado de match exato de `codigo_barras` adiciona o produto direto ao carrinho, sem exigir clique.
+- Botão "Escanear com câmera" ao lado da busca, usando lib leve de leitura de código de barras via `getUserMedia`, preenchendo o campo de busca e disparando o mesmo fluxo de auto-adição.
+- Permissão de câmera negada exibe mensagem clara via toast já existente na tela, sem travar a tela.
 
-## 4. Modelos novos (visão geral — detalhamento de estorno/recebível nas Seções 5 e 6)
+### Grupo 3 — Abrir Caixa
 
-### 4.1 `SessaoCaixa` (app a decidir com Blueprint — ver A3)
-```
-conta                        FK financeiro.Conta (tipo=CAIXA)
-operador                     FK settings.AUTH_USER_MODEL
-valor_abertura                DecimalField
-data_abertura                 DateTimeField (auto_now_add)
-data_fechamento               DateTimeField (null=True)
-valor_fechamento_informado    DecimalField (null=True — contagem física)
-valor_fechamento_calculado    DecimalField (null=True — abertura + vendas dinheiro - sangrias + suprimentos)
-diferenca                     DecimalField (null=True — calculado - informado)
-status                        CharField choices ABERTA/FECHADA, default ABERTA
-observacoes                   TextField blank
-(herda BaseModel: created_at, updated_at, is_active)
-```
-**RN-01:** unicidade de sessão `ABERTA` é **por `conta`**, não global — `UniqueConstraint`
-condicional (`status='ABERTA'`) por `conta`, ou validação em `perform_create` +
-`select_for_update` para evitar corrida entre dois operadores abrindo a mesma conta
-ao mesmo tempo.
+- Tela de abertura exibe operador logado e data/hora atual antes de confirmar.
+- Campo de valor de abertura reforça o termo "Fundo de Troco" usado pelo time de caixa.
+- Campo `operador` continua apontando para `User` do Django — mudança para `rh.Funcionario` fica **fora de escopo** deste hotfix (ver RN-03).
 
-### 4.2 `MovimentoCaixa`
-```
-sessao      FK SessaoCaixa (related_name='movimentos')
-tipo        CharField choices SANGRIA/SUPRIMENTO
-valor       DecimalField
-motivo      CharField/TextField (obrigatório)
-operador    FK settings.AUTH_USER_MODEL
-data_hora   DateTimeField (auto_now_add)
-```
-Sangria/Suprimento **não** passam por `Receita`/`Despesa` nem geram `LivroCaixa`
-diretamente (são movimentação física de gaveta, não lançamento bancário) — entram
-apenas no cálculo de `valor_fechamento_calculado` da sessão. **Confirmar com
-Blueprint** se cliente quer isso também refletido no `LivroCaixa` da conta CAIXA
-(recomendo que sim, para o CAIXA como `Conta` ficar auditável como qualquer outra —
-nesse caso vira `origem=MANUAL` com `criado_por`, seguindo o padrão de lock já usado).
+### Grupo 4 — Bug de sessão
 
-### 4.3 `Venda`
-```
-numero                CharField (auto: VDA-{ano}-{seq}, mesmo padrão de Orcamento/Pedido em vendas/models.py)
-sessao_caixa           FK SessaoCaixa (obrigatório, PROTECT)
-cliente                FK clientes.Cliente (null=True — Consumidor Final)
-operador               FK settings.AUTH_USER_MODEL
-status                 CharField choices ABERTA/FINALIZADA/CANCELADA, default ABERTA
-subtotal               DecimalField (soma dos itens antes do desconto)
-desconto_total         DecimalField
-valor_total            DecimalField (editable=False, calculado no save())
-data_hora              DateTimeField (auto_now_add)
-cancelada_em           DateTimeField (null=True)
-motivo_cancelamento    TextField (blank)
-```
-Note: não existe FK única `receita` na `Venda` — uma venda pode gerar **mais de uma**
-`Receita` (uma por forma de pagamento no split, Seção 4.5), então a relação é
-`Receita.origem_venda` (FK reversa, ver 4.5) ou uma tabela de junção implícita via
-`PagamentoVenda.receita`.
+- `criarVenda()` trata o erro 400 de `sessao_caixa` redirecionando para `/pdv/abertura` com mensagem amigável, no mesmo padrão já usado pelo carregamento inicial de sessão.
 
-### 4.4 `ItemVenda`
-```
-venda            FK Venda (related_name='itens')
-produto          FK produtos.Produto (PROTECT)
-quantidade       DecimalField (mesma casas decimais de produtos.Produto: max_digits=12, decimal_places=3)
-unidade          CharField choices produtos.UnidadeBase
-valor_unitario   DecimalField (snapshot — copiado de Produto.preco_venda no momento da venda, nunca lido de Produto depois)
-desconto_item    DecimalField default 0
-valor_total      DecimalField (editable=False, calculado no save(): quantidade*valor_unitario - desconto_item)
-quantidade_estornada  DecimalField default 0   ← NOVO campo pro Ponto 2 (Seção 5.1)
-```
+### Grupo 5 — UI Carrinho e SplitPagamento
 
-### 4.5 `PagamentoVenda`
-```
-venda      FK Venda (related_name='pagamentos')
-metodo     FK pagamentos.MetodoPagamento
-valor      DecimalField
-conta      FK financeiro.Conta (conta de destino resolvida no momento da venda — ver A4/RF-14)
-receita    FK financeiro.Receita (null=True até a Receita ser criada na finalização — ver RF-08)
-```
-Para `metodo.nome == CARTAO_CREDITO`: relação 1:1 opcional com `RecebivelCartao`
-(Seção 6) — **não** colocar os campos de taxa/prazo direto em `PagamentoVenda`
-(ficariam `null` para 95% dos pagamentos que não são cartão de crédito). Recomendo
-model separado `RecebivelCartao(pagamento=OneToOneField(PagamentoVenda))` — decisão
-final de modelagem cabe ao Blueprint, mas a razão de design está registrada aqui.
+- Card do Carrinho reduzido em altura/padding sem cortar funcionalidade.
+- Campos do SplitPagamento com mais espaçamento e fonte legível, preservando o layout mobile (`BottomBar`, breakpoints `<768px`).
 
 ---
 
-## 5. Ponto 2 — Estorno de Receita (devolução parcial de item) — DETALHADO
-
-### 5.1 Por que não copiar o padrão de `Despesa.estornar` 1:1
-
-`DespesaViewSet.estornar_despesa` (views.py:227) assume estorno **total e único**:
-marca `despesa.estornado=True` de uma vez e cria **um** `LivroCaixa` de reversão pelo
-`valor_liquido` inteiro. Devolução de item de venda precisa suportar:
-- devolver **um item entre vários** da mesma venda (ex.: venda com 3 produtos, cliente
-  devolve só 1);
-- devolver **parte da quantidade** de um item (ex.: comprou 5un, devolve 2un);
-- devolver em **momentos diferentes** (devolve item A hoje, item B semana que vem) —
-  ou seja, **múltiplos estornos parciais sobre a mesma `Receita`**.
-
-O campo booleano simples de `Despesa` não representa isso. Por isso o Ponto 2 exige
-modelo novo, não reuso direto.
-
-### 5.2 Model novo: `EstornoReceita`
-
-```python
-class EstornoReceita(BaseModel):
-    receita       = models.ForeignKey(Receita, on_delete=models.PROTECT, related_name='estornos')
-    valor         = models.DecimalField(max_digits=12, decimal_places=2)  # > 0
-    motivo        = models.TextField()  # obrigatório, mesma regra de Despesa.estornar
-    data_estorno  = models.DateField()
-    item_venda    = models.ForeignKey('pdv.ItemVenda', null=True, blank=True, on_delete=models.SET_NULL, related_name='estornos')
-    criado_por    = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
-
-    class Meta:
-        db_table = 'fin_estorno_receita'
-        ordering = ['-data_estorno']
-```
-`item_venda` é opcional e nullable de propósito: `EstornoReceita` é um mecanismo
-**genérico** do módulo `financeiro` (útil para qualquer estorno parcial de receita no
-futuro, não só PDV) — o vínculo com PDV é o link opcional, não o contrário. Evita o
-financeiro ficar dependente do app do PDV.
-
-### 5.3 Campos novos em `Receita`
-
-```python
-# Receita ganha:
-estornado       = models.BooleanField(default=False)       # True quando saldo_disponivel <= 0
-data_estorno    = models.DateField(null=True, blank=True)  # data do último estorno (compat com filtros existentes)
-motivo_estorno  = models.TextField(blank=True)              # motivo do último estorno (compat)
-
-# Property (não persistida):
-@property
-def valor_estornado_total(self):
-    return self.estornos.aggregate(v=Sum('valor'))['v'] or Decimal('0')
-
-@property
-def saldo_disponivel(self):
-    return self.valor_liquido - self.valor_estornado_total
-```
-Os 3 campos flat (`estornado`/`data_estorno`/`motivo_estorno`) são mantidos por
-**compatibilidade de padrão** com `Despesa` (mesmos nomes, mesmo uso em
-`filterset_fields`, mesmo hábito de leitura de quem já mexeu no financeiro) — mas
-aqui `estornado=True` significa "saldo esgotado", não "existe estorno". Isso deve
-ficar em `docstring` explícita no model para não confundir o próximo dev.
-
-### 5.4 Action nova: `POST /api/v1/financeiro/receitas/{id}/estornar/`
-
-Espelha `estornar_despesa` na estrutura de lock/transação, mas com a lógica de
-parcial:
-
-1. `permission_classes=[IsAdmin]` (mesmo padrão de Despesa).
-2. Body: `{valor?, motivo, data_estorno?, item_venda_id?}`. Se `valor` omitido,
-   assume `saldo_disponivel` inteiro (estorno total, comportamento equivalente ao de
-   Despesa).
-3. Validações: `receita.status == 'RECEBIDO'`; `motivo` não vazio; `0 < valor <=
-   saldo_disponivel` (nunca deixar `saldo_disponivel` negativo).
-4. Dentro de `transaction.atomic()` + `pg_advisory_xact_lock(conta.id)`:
-   - cria `EstornoReceita(receita, valor, motivo, data_estorno, item_venda)`;
-   - cria `LivroCaixa(tipo='SAIDA', origem='ESTORNO', origem_id=receita.id, valor=valor, descricao=f'Estorno receita: {receita.descricao} — {motivo}', estorno_de=<lançamento ENTRADA original, se o estorno esgota o saldo>, estornado=True)` — **tipo SAIDA**, pois a `Receita` original gerou `ENTRADA`; o estorno é o dinheiro saindo de volta;
-   - só marca o `LivroCaixa` **original** (`origem='RECEITA', origem_id=receita.id`) como `estornado=True` quando o estorno **esgota** o saldo (estorno total) — em estorno parcial o lançamento original continua válido pelo que sobrou, análogo a "reduzir", não "anular";
-   - atualiza `receita.estornado` (`True` se `saldo_disponivel <= 0` após o estorno), `data_estorno`, `motivo_estorno`;
-   - `_reconstruir_cadeia(conta)`.
-5. Retorna o `EstornoReceita` criado (serializer novo `EstornoReceitaSerializer`).
-
-### 5.5 Impacto obrigatório em `relatorios.py::calcular_dre_mes` (achado A2)
-
-Hoje `rec_qs` soma `valor_bruto`/`valor_liquido` de toda `Receita status=RECEBIDO`
-sem excluir nada. Duas opções — **decisão a confirmar com Blueprint antes do Forge
-codar**, registrando aqui as duas para não perder o raciocínio:
-
-- **Opção 1 (recomendada):** abater o estorno no **mês da receita original**
-  (`recebimento`), subtraindo `Sum(EstornoReceita.valor)` das receitas do
-  período do agregado de `receita_operacional`/`receita_bruta`. Mantém DRE do mês da
-  venda coerente com o resultado real daquele mês.
-- **Opção 2:** abater no **mês em que o estorno aconteceu** (`data_estorno`), como
-  uma linha negativa separada — mais simples de implementar (análogo a como
-  `Despesa` já filtra `estornado=False` no próprio mês do estorno), mas pode fazer
-  o DRE de um mês fechado "mudar depois" quando uma venda antiga é devolvida.
-
-Registrado como pendência explícita para o Blueprint decidir — **não decido
-arquitetura de relatório aqui**, só aponto que sem uma das duas o DRE fica errado a
-partir do momento em que `EstornoReceita` existir.
-
-### 5.6 Efeito no PDV (`ItemVenda`)
-
-Ação `POST /api/v1/pdv/vendas/{id}/itens/{item_id}/devolver/`:
-1. Recebe `{quantidade, motivo}` (`quantidade <= item.quantidade -
-   item.quantidade_estornada`).
-2. Reverte estoque: `Produto.objects.filter(pk=produto_id).update(quantidade_estoque=F('quantidade_estoque') + quantidade_base)` (mesma resolução de `ConversaoUnidade` usada em `EntradaEstoque`, ver A7) — soma de volta, nunca deixa negativo por causa da devolução.
-3. Calcula `valor_proporcional = (quantidade / item.quantidade) * item.valor_total`.
-4. Chama a lógica de estorno de Receita (5.4) pelo `valor_proporcional`, vinculado
-   à(s) `Receita`(s) da `Venda` via `PagamentoVenda.receita` — se a venda teve split
-   (dinheiro + pix), a devolução deve **ratear proporcionalmente** entre as Receitas
-   do split, ou (mais simples) sempre devolver primeiro da forma de pagamento que o
-   operador escolher na tela — **UX a decidir com Loom/Blueprint**, mas a regra de
-   negócio (nunca devolver mais do que o item vale) é a mesma nos dois casos.
-5. Atualiza `item.quantidade_estornada += quantidade`; recalcula
-   `Venda.valor_total`.
-
----
-
-## 6. Ponto 3 — Cartão de crédito com taxa e prazo (`RecebivelCartao`) — DETALHADO
-
-### 6.1 Por que reaproveitar `Receita.desconto` em vez de criar campo de taxa nela
-
-`Receita` já tem `valor_bruto`, `desconto` e `valor_liquido = valor_bruto - desconto`
-calculado no `save()` (models.py, `Receita.save()`). A taxa da maquininha **é
-exatamente esse desconto** — não precisa de campo novo em `Receita`:
-
-- `Receita.valor_bruto` = valor total pago no cartão pelo cliente;
-- `Receita.desconto` = `valor_bruto * (taxa_percentual / 100)` (a taxa da maquininha);
-- `Receita.valor_liquido` = o que realmente vai cair na conta — calculado sozinho,
-  reaproveitando o `save()` que já existe, zero mudança em `Receita` para isso.
-
-### 6.2 Model novo: `RecebivelCartao`
-
-```python
-class RecebivelCartao(BaseModel):
-    pagamento                  = models.OneToOneField('pdv.PagamentoVenda', on_delete=models.PROTECT, related_name='recebivel_cartao')
-    receita                    = models.OneToOneField(Receita, on_delete=models.PROTECT, related_name='recebivel_cartao')
-    taxa_percentual            = models.DecimalField(max_digits=5, decimal_places=2)
-    valor_bruto                = models.DecimalField(max_digits=12, decimal_places=2)   # = pagamento.valor, snapshot
-    valor_liquido_previsto     = models.DecimalField(max_digits=12, decimal_places=2, editable=False)  # = receita.valor_liquido, snapshot no momento da criação
-    data_prevista_liquidacao   = models.DateField()   # = data da venda + prazo (dias) informado no momento do pagamento
-    data_liquidacao            = models.DateField(null=True, blank=True)  # preenchida quando concilia
-    status                     = models.CharField(max_length=15, choices=[('PREVISTO','Previsto'),('LIQUIDADO','Liquidado'),('CANCELADO','Cancelado')], default='PREVISTO')
-    criado_por                 = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
-
-    class Meta:
-        db_table = 'pdv_recebivel_cartao'
-        ordering = ['data_prevista_liquidacao']
-```
-`taxa_percentual` e o prazo (em dias, usado só para calcular
-`data_prevista_liquidacao`, não persistido isoladamente) são **informados pelo
-operador no momento do split de pagamento** — não existe hoje nenhuma tabela de taxa
-por maquininha/bandeira no sistema (achado A4). Proponho como **RF Should** (não
-Must, para não travar a entrega) um cadastro simples de "taxas padrão por método"
-que só pré-preenche o campo na tela, editável — ver RF-14.
-
-### 6.3 Fluxo completo: nascimento → liquidação
-
-**Na finalização da venda** (RF-08), para cada `PagamentoVenda` com
-`metodo.nome == CARTAO_CREDITO`:
-1. Cria `Receita` com `status=PENDENTE` (não `RECEBIDO` — dinheiro ainda não caiu),
-   `valor_bruto` = valor do pagamento, `desconto` = valor da taxa, `vencimento` =
-   `data_prevista_liquidacao`, `conta` = conta mapeada para recebimento de cartão
-   (RF-14), `tipo=PRODUTO`.
-2. Cria `RecebivelCartao` vinculado a essa `Receita` e ao `PagamentoVenda`.
-3. **Nenhum `LivroCaixa` nasce ainda** — o signal `receita_para_livro_caixa` só
-   dispara quando `status == 'RECEBIDO'` (confirmado em `signals.py`), então uma
-   `Receita PENDENTE` já é automaticamente "invisível" no caixa até liquidar — zero
-   código novo de lock aqui, o mecanismo existente já faz o que precisa.
-
-**Na liquidação (Conciliação Bancária, já existente em `financeiro`):**
-`ConciliacaoViewSet.confirmar-item` (views.py:797) hoje, ao confirmar um item
-`FALTANDO_SISTEMA`, cria um `LivroCaixa` novo do zero (`origem=MANUAL`) — **não sabe
-vincular a uma `Receita PENDENTE` já existente**. Isso precisa ser estendido:
-
-4. Ao confirmar um `ItemConciliacao`, se houver `RecebivelCartao(status=PREVISTO)`
-   com `data_prevista_liquidacao` próxima e `valor_liquido_previsto` batendo (ou
-   próximo, considerando pequenas variações de taxa real vs prevista) com o valor do
-   item do banco, **sugerir o vínculo** ao operador (dropdown/autocomplete na tela de
-   conciliação — UX do Loom) em vez de forçar preenchimento manual.
-5. Ao confirmar o vínculo: `receita.status = 'RECEBIDO'`, `receita.recebimento =
-   data_banco` → dispara o signal existente → `LivroCaixa ENTRADA` nasce sozinho,
-   **sem duplicar lógica de lock**; `RecebivelCartao.status = 'LIQUIDADO'`,
-   `data_liquidacao = data_banco`.
-6. Se o valor real do banco for diferente do `valor_liquido_previsto` (taxa real
-   cobrada pela operadora divergiu da prevista), **ajustar `Receita.desconto`** antes
-   de marcar `RECEBIDO`, para o valor líquido bater exatamente com o extrato — regra
-   de negócio a confirmar com Luiz Eduardo se deve gerar alerta/aprovação ou ajustar
-   silenciosamente (proponho alerta visual, não bloqueio).
-
-**Não fazer:** criar um sistema de conciliação paralelo para `RecebivelCartao` — o
-objetivo explícito desta especificação é acoplar no que já existe
-(`ConciliacaoExtrato`/`ItemConciliacao`), só ensinando o endpoint já existente a
-reconhecer um recebível pendente em vez de sempre criar lançamento manual do zero.
-
----
-
-## 7. Requisitos Funcionais (RF)
+## 4. Requisitos Funcionais
 
 | ID | Descrição | MoSCoW |
 |---|---|---|
-| RF-01 | Operador deve poder abrir `SessaoCaixa` informando `conta` (tipo CAIXA) e `valor_abertura` | Must |
-| RF-02 | Sistema deve bloquear abertura de nova sessão se já existir `SessaoCaixa status=ABERTA` para a mesma `conta` | Must |
-| RF-03 | Sistema deve permitir buscar `Produto` por nome ou `codigo_barras` na tela de venda | Must |
-| RF-04 | Operador deve poder montar carrinho (`ItemVenda`) editável antes de finalizar | Must |
-| RF-05 | Venda deve poder ser feita sem cliente (Consumidor Final) ou vinculada a `Cliente` existente | Must |
-| RF-06 | Ao finalizar venda, sistema deve debitar `Produto.quantidade_estoque` usando a mesma resolução de conversão de unidade de `EntradaEstoque` (inversa) | Must |
-| RF-07 | Sistema deve bloquear finalização se estoque insuficiente para qualquer item (nunca deixar negativo sem aviso explícito) | Must |
-| RF-08 | Ao finalizar venda, sistema deve criar uma `Receita` por `PagamentoVenda` (split), `status=RECEBIDO` para métodos à vista, `status=PENDENTE` + `RecebivelCartao` para cartão de crédito (Seção 6) | Must |
-| RF-09 | Sistema deve permitir split de pagamento (múltiplos `PagamentoVenda` por `Venda`, soma = `valor_total`) | Must |
-| RF-10 | Sistema deve permitir sangria e suprimento durante sessão aberta (`MovimentoCaixa`) | Must |
-| RF-11 | Sistema deve permitir fechar `SessaoCaixa` com contagem física, calculando `diferenca`, **sem travar** o fechamento se houver diferença | Must |
-| RF-12 | Sistema deve permitir cancelar `Venda` inteira (reverte estoque de todos os itens + estorna todas as `Receita`s associadas) | Must |
-| RF-13 | Sistema deve permitir devolução parcial de item (`EstornoReceita`, Seção 5) | Must |
-| RF-14 | Sistema deve resolver a `Conta` de destino de cada forma de pagamento no momento da venda — Should ter tela de configuração `MetodoPagamento ↔ Conta padrão`; Must ter pelo menos seleção manual da conta no split se a config não existir | Should (config) / Must (seleção manual) |
-| RF-15 | Sistema deve mostrar Histórico de Vendas com filtro por período/operador/status, com detalhe e ação de cancelar/devolver | Must |
-| RF-16 | Sistema deve mostrar Relatório de Sessões de Caixa (auditoria de diferenças), acesso `IsAdmin` | Must |
-| RF-17 | Conciliação Bancária deve sugerir vínculo de `ItemConciliacao` com `RecebivelCartao PREVISTO` compatível em valor/data (Seção 6.3) | Should |
-| RF-18 | Cadastro de taxa padrão por `MetodoPagamento` para pré-preencher `taxa_percentual` no split | Could |
+| RF-17 | Ao pressionar Enter no campo de busca de produto da Frente de Caixa, se houver exatamente 1 resultado com match exato de `codigo_barras`, o sistema deve adicionar o produto ao carrinho automaticamente, sem exigir clique. | Must |
+| RF-18 | O sistema deve oferecer um botão "Escanear com câmera" ao lado do campo de busca que abre a câmera do dispositivo e decodifica código de barras em tempo real. | Must |
+| RF-19 | Ao decodificar um código de barras via câmera, o sistema deve preencher o campo de busca com o código lido e disparar o mesmo fluxo de adição automática do RF-17. | Must |
+| RF-20 | Se a permissão de câmera for negada, o sistema deve exibir mensagem clara ao operador sem travar a tela do PDV. | Must |
+| RF-21 | A tela de Abertura de Caixa deve exibir o nome do operador logado e a data/hora atual antes ou durante o preenchimento do formulário. | Should |
+| RF-22 | O campo "Valor de abertura" deve deixar explícito o termo "Fundo de Troco" (rótulo e/ou texto de apoio). | Should |
+| RF-23 | Quando `POST /pdv/vendas/` retornar 400 por ausência de sessão de caixa aberta (`sessao_caixa`), o frontend deve redirecionar o operador para `/pdv/abertura` com mensagem amigável, em vez de exibir a mensagem crua do backend. | Must |
 
-## 8. Requisitos Não Funcionais (RNF)
+## 5. Requisitos Não Funcionais
 
-- **RNF-01** Finalizar/cancelar venda e estornar item devem rodar em
-  `transaction.atomic()` + `pg_advisory_xact_lock(conta.id)`, mesmo padrão de
-  `transferir`/`estornar_despesa`/`estornar` já usados no `financeiro` (achado A6).
-- **RNF-02** Toda tela do PDV responsiva mobile/desktop (padrão já usado em
-  Conciliação, Manutenção #10).
-- **RNF-03** Erros de API tratados com mensagem legível (`.catch` +
-  `extractErrorMessage`, padrão já usado no frontend — Manutenção #9/#10).
-- **RNF-04** `id = serializers.IntegerField(source='pk', read_only=True)` em todos os
-  serializers novos (padrão Uid, já confirmado em uso em todo `financeiro/serializers.py`).
-- **RNF-05** Soft delete (`is_active`) em todos os models novos que herdam `BaseModel`
-  — exceto `EstornoReceita`, que **não deve ter delete** (é registro contábil
-  imutável, mesmo espírito de `LivroCaixa` já ser append-only no sistema).
+| ID | Descrição |
+|---|---|
+| RNF-06 | Leitura de código de barras via câmera deve ser testada em pelo menos 1 dispositivo Android e, se possível, 1 iOS, antes da entrega ao Sentinel. |
+| RNF-07 | Câmera só pode ser acessada via HTTPS (já garantido em produção pelo domínio + nginx) — não implementar fallback HTTP. |
+| RNF-08 | Ajustes de UI (Carrinho, SplitPagamento) não podem quebrar o layout mobile existente (`BottomBar`, breakpoints `<768px` já usados em `FrenteDeCaixa.jsx`). |
+| RNF-09 | A lib de leitura de código de barras adicionada deve ser leve e estável — Loom decide entre `@zxing/library`, `html5-qrcode` ou `quagga2`, documentando a escolha no commit. |
 
-## 9. Regras de Negócio (consolidado)
+## 6. Regras de Negócio
 
-- RN-01: 1 sessão `ABERTA` por `Conta` (não global).
-- RN-02: Venda só finaliza com `SessaoCaixa.status=ABERTA` vinculada.
-- RN-03: Preço do item = snapshot de `Produto.preco_venda` no momento da venda —
-  nunca recalculado depois se `Produto.preco_venda` mudar.
-- RN-04: Estorno de `Receita` nunca deixa `saldo_disponivel` negativo.
-- RN-05: `EstornoReceita` sempre exige `motivo` não vazio (mesma regra de
-  `estornar_despesa`).
-- RN-06: `RecebivelCartao` só vira `RECEBIDO`/`LIQUIDADO` via confirmação de
-  conciliação — nunca automaticamente por data (evita marcar como recebido algo que
-  não caiu de fato).
-- RN-07: Fechamento de caixa registra `diferenca` mas nunca bloqueia o fechamento.
-- RN-08: Cancelamento de venda reverte 100% do estoque e estorna 100% das Receitas —
-  devolução parcial de item é uma operação diferente (RF-13), não uma variação do
-  cancelamento total.
+- **RN-09** — O auto-vínculo por Enter/scan (RF-17/RF-19) só dispara quando há **exatamente 1** resultado com match **exato** de `codigo_barras` (não usar match parcial/nome, para evitar adicionar produto errado). Múltiplos resultados ou match parcial mantêm o comportamento atual (dropdown clicável).
+- **RN-10** — O leitor físico (USB/Bluetooth) continua funcionando por emulação de teclado — RF-17 não substitui esse fluxo, apenas completa o passo final que faltava.
+- **RN-11** — A leitura por câmera é complementar ao leitor físico, nunca obrigatória — o operador pode continuar digitando/usando leitor físico normalmente.
+- **RN-12 [CONFIRMAR COM LUIZ EDUARDO]** — o campo `SessaoCaixa.operador` permanece apontando para `User` do Django nesta manutenção. Não existe hoje nenhuma ligação entre `User` e `rh.Funcionario` no UidCore — migrar esse campo é mudança estrutural (models + dados já em produção), fora do escopo deste hotfix. Se houver necessidade de vincular sessões de caixa a um cadastro de RH, tratar como manutenção própria, com o Analista rodando levantamento dedicado.
+- **RN-13** — O redirecionamento do RF-23 deve usar o mesmo padrão de UX já usado no carregamento inicial da Frente de Caixa (`navigate('/pdv/abertura')`), para manter consistência.
 
-## 10. Telas
+## 7. Telas Detalhadas
 
-1. **Abertura de Caixa** — redireciona para cá se operador não tem `SessaoCaixa
-   ABERTA` na conta selecionada.
-2. **Frente de Caixa / Nova Venda** — busca produto (nome/código de barras),
-   carrinho editável, cliente opcional, split de pagamento (com campos de
-   taxa/prazo quando método = cartão de crédito), confirmação.
-3. **Sangria / Suprimento** — modal rápido, motivo obrigatório.
-4. **Fechamento de Caixa** — resumo (vendas por forma de pagamento, sangrias,
-   suprimentos), input de contagem física, mostra diferença sem bloquear.
-5. **Histórico de Vendas** — filtros período/operador/status, detalhe, ação
-   cancelar/devolver parcial (por item, com input de quantidade).
-6. **Relatório de Sessões de Caixa** — auditoria de diferenças, `IsAdmin` only.
-7. **(Should) Configuração Método de Pagamento → Conta / Taxa padrão** — tela
-   simples de cadastro, referenciada em RF-14/RF-18.
+### 7.1 Frente de Caixa (`FrenteDeCaixa.jsx`)
 
-## 11. Permissões
+- Campo de busca de produto (`buscaRef`, linha 322): adicionar `onKeyDown` que, ao detectar `Enter`, verifica se `resultadosBusca` tem exatamente 1 item com `codigo_barras` igual ao texto digitado (match exato) e, se sim, chama `adicionarProduto(resultadosBusca[0])` diretamente.
+- Botão "Escanear com câmera": novo ícone ao lado do botão `ScanLine` existente (linha 331-338, que hoje só foca o campo) — abrir modal/overlay com preview de câmera via lib escolhida pelo Loom. Ao decodificar, chamar `setBusca(codigoLido)` e reaproveitar o mesmo fluxo de match exato do Enter.
+- Erro de permissão de câmera: usar o sistema de toast já existente (`mostrarToast(msg, 'error')`, linha 59-62).
+- Card "Carrinho" (linha 378-397): reduzir padding do estado vazio (`py-12` → algo menor, ex. `py-6`/`py-8`) e avaliar `max-height` com scroll interno se a lista de itens crescer.
+- `criarVenda()` (linha 88-97): no bloco `catch`, verificar se `err?.response?.data?.sessao_caixa` existe — se sim, chamar `navigate('/pdv/abertura')` com toast explicativo (ex: "Sua sessão de caixa foi encerrada. Abra o caixa novamente."); caso contrário, manter o comportamento atual de toast genérico para outros erros.
 
-- `IsAuthenticated`: abrir/vender/sangria/suprimento/fechar caixa, devolver item.
-- `IsAdmin` (`request.user.is_staff`, já existente): Relatório de Sessões de Caixa,
-  ação `estornar` em `Receita` (mesmo padrão de `estornar_despesa`, que já é
-  `IsAdmin`).
-- Nenhum sistema de perfis novo — reaproveita `IsAdmin`/`IsAuthenticated` já em uso.
+### 7.2 Abertura de Caixa (`AberturaCaixa.jsx`)
 
-## 12. Fora de Escopo (nesta manutenção)
+- Adicionar bloco visual (ex: acima do formulário ou dentro do card, linha 115+) mostrando `user.nome` (ou campo equivalente do `useAuthStore`, já importado na linha 15 mas não usado para exibição) e a data/hora atual formatada em pt-BR.
+- Label do campo (linha 147-149): alterar para "Fundo de Troco" ou manter "Valor de abertura" com texto de apoio explícito "(Fundo de Troco)" — Loom decide o texto exato mantendo consistência com o restante da UI.
 
-- Emissão fiscal (NFC-e/SAT/cupom fiscal) — não mencionado no briefing, não incluído.
-- Cadastro de bandeiras/adquirentes específicas — taxa é informada manualmente
-  (RF-18 é Could, não Must).
-- Parcelamento de venda em cartão de crédito com liquidação escalonada por parcela
-  (ex.: 3x com 3 datas de liquidação diferentes) — o desenho atual assume 1
-  `RecebivelCartao` por `PagamentoVenda` com **uma** data de liquidação. Se o cliente
-  precisar de recebível parcelado, é uma expansão futura da Seção 6, não coberta
-  aqui — **sinalizar para Luiz Eduardo confirmar se isso é necessário já nesta
-  entrega ou fica para depois.**
+### 7.3 SplitPagamento (`components/SplitPagamento.jsx`)
 
-## 13. Riscos e Dependências
+- Grid de Valor/Conta (linha 94): aumentar `gap` e padding interno das linhas (`p-3` → `p-4`), aumentar tamanho de fonte dos labels (`text-xs` → `text-sm` onde couber) e dos inputs, sem estourar o grid de 2 colunas em telas pequenas — testar em `<768px` junto da `BottomBar`.
 
-- **Decisão de arquitetura pendente (A3):** app novo `pdv` vs. dentro de `vendas` —
-  bloqueia o Blueprint definir estrutura de pastas; não bloqueia esta especificação.
-- **Decisão pendente (5.5):** DRE abate estorno no mês da receita original ou no mês
-  do estorno — Blueprint decide antes do Forge tocar `relatorios.py`.
-- **Dependência de dado real:** RF-17 (sugestão automática de vínculo na
-  conciliação) depende de `valor_liquido_previsto` estar correto — se a taxa real
-  informada no split divergir muito da taxa real cobrada pela operadora, o
-  auto-match pode falhar e cair para vínculo manual (aceitável, não é regressão).
-- **Risco de concorrência:** duas vendas simultâneas debitando o mesmo produto —
-  mitigado pelo mesmo padrão de `pg_advisory_xact_lock`, mas nesse caso o lock deve
-  ser por `conta` (já decidido) **e também por `produto`** durante a baixa de
-  estoque, para não haver race condition de estoque entre vendas em caixas
-  diferentes vendendo o mesmo produto ao mesmo tempo — **sinalizo esse ponto extra
-  para o Forge**, não estava no briefing original mas é decorrência direta de RF-07.
+## 8. Spec Backend
 
-## 14. Sentinel — Roteiro de Teste (conforme solicitado no briefing)
+**Nenhuma alteração de backend é necessária nesta manutenção.** Confirmado por leitura de código:
 
-1. Abrir caixa → vender produto com estoque conhecido → conferir baixa de estoque
-   (valor exato, considerando conversão de unidade se aplicável).
-2. Conferir `Receita`/`LivroCaixa` criados na conta certa, valor certo.
-3. Split dinheiro+pix → conferir dois `PagamentoVenda`, duas `Receita`, dois
-   lançamentos de `LivroCaixa` (ou um por conta, se ambos forem pra mesma conta).
-4. Split com cartão de crédito → conferir `Receita PENDENTE` + `RecebivelCartao
-   PREVISTO`, **nenhum** `LivroCaixa` criado ainda.
-5. Simular conciliação confirmando o item → conferir `Receita.status=RECEBIDO`,
-   `RecebivelCartao.status=LIQUIDADO`, `LivroCaixa ENTRADA` nascido via signal.
-6. Cancelar venda → conferir estoque volta (todos os itens) + todas as Receitas
-   estornadas (não deletadas) + `LivroCaixa` de estorno criado.
-7. Devolver parcialmente 1 item de uma venda com outros itens intactos → conferir
-   estoque volta só daquele item/quantidade, `EstornoReceita` criado pelo valor
-   proporcional, `Receita.saldo_disponivel` reduzido corretamente, `Venda.valor_total`
-   recalculado, **DRE do mês reflete o ajuste** conforme a opção decidida em 5.5.
-8. Fechar caixa com diferença proposital (contagem física ≠ calculado) → conferir
-   que registra a diferença sem travar o fechamento.
-9. Tentar abrir 2ª sessão na mesma conta com uma já `ABERTA` → deve bloquear.
-10. Tentar vender com `SessaoCaixa` fechada → deve bloquear.
-11. Tentar estornar `Receita` além do `saldo_disponivel` → deve bloquear com erro
-    claro.
-12. 0 falhas obrigatório, 100% dos RFs Must com teste — conforme regra global do
-    Sentinel (CLAUDE.md).
+- Busca por `nome`/`codigo_barras` já existe (`produtos/views.py:13`).
+- `abrir_sessao()` já seta `operador` e `data_abertura` automaticamente (`pdv/services.py:173-199`, `pdv/models.py:43-49`).
+- O erro 400 de `VendaViewSet.create()` (`pdv/views.py:173-196`) já está correto e semanticamente claro — o ajuste é 100% de tratamento no frontend (RF-23).
+
+Se o Forge, ao implementar, identificar necessidade real de endpoint novo (ex: dados de operador mais ricos que o `User` já expõe), deve escalar para o Planner antes de expandir escopo — não está previsto aqui.
+
+## 9. Spec Frontend
+
+- **Nova dependência** (Loom escolhe): `@zxing/library`, `html5-qrcode` ou `quagga2` — adicionar via gerenciador de pacotes padrão do projeto, documentar escolha no commit (RNF-09).
+- `FrenteDeCaixa.jsx`: `onKeyDown` no input de busca (RF-17), novo botão + modal/overlay de câmera (RF-18/19/20), tratamento de erro 400 de `sessao_caixa` em `criarVenda()` (RF-23), redução de padding do Card Carrinho (item 5).
+- `AberturaCaixa.jsx`: exibição de operador + data/hora (RF-21), reforço textual "Fundo de Troco" (RF-22).
+- `components/SplitPagamento.jsx`: ajustes de espaçamento/fonte (item 5), preservando grid mobile.
+- Nenhuma alteração em rotas, stores ou contratos de API — mudanças são internas às páginas/componentes já existentes.
+
+## 10. Fora do Escopo
+
+- Migração do campo `operador` de `User` para `rh.Funcionario` (RN-12) — decisão estrutural, requer confirmação de Luiz Eduardo e levantamento próprio.
+- Qualquer alteração no backend do PDV — nenhum gap real de backend foi encontrado nos 5 grupos.
+- Redesenho completo do SplitPagamento ou do fluxo de pagamento — apenas ajuste de espaçamento/legibilidade.
+
+## 11. Riscos e Dependências
+
+- Bibliotecas de leitura de código de barras via câmera variam em performance entre navegadores mobile (Android Chrome vs iOS Safari) — Loom deve validar em pelo menos 1 dispositivo real antes de considerar RF-18/19 concluído (RNF-06).
+- A janela de corrida do bug do item 4 (RF-23) é rara em uso normal (1 operador, 1 aba) — o fix cobre o sintoma (UX do erro) mas não elimina a possibilidade de concorrência real entre abas/dispositivos; se o time de caixa relatar recorrência alta, pode indicar necessidade de trava adicional no backend (fora de escopo aqui, tratar como nova manutenção se ocorrer).
+- Nenhuma migration nova é esperada — validar com o Forge que de fato nenhuma alteração de model é necessária antes de fechar o ciclo.
+
+## 12. Sentinel — Roteiro de Teste
+
+1. Buscar produto por nome parcial → múltiplos resultados → confirmar que Enter **não** adiciona nada automaticamente (RN-09).
+2. Buscar produto digitando `codigo_barras` exato com 1 único resultado → pressionar Enter → confirmar item adicionado ao carrinho sem clique (RF-17).
+3. Testar leitor físico USB/Bluetooth (emulação de teclado) ponta a ponta — digita código + Enter automático → item adicionado (RN-10).
+4. Abrir "Escanear com câmera" em pelo menos 1 dispositivo Android real → escanear código de barras real → confirmar preenchimento do campo + adição automática (RF-18/19, RNF-06).
+5. Negar permissão de câmera no navegador → confirmar mensagem clara via toast, sem tela travada (RF-20).
+6. Abrir tela de Abertura de Caixa → confirmar exibição do nome do operador logado e data/hora atual (RF-21) e menção a "Fundo de Troco" no campo de valor (RF-22).
+7. Simular sessão fechada em outra aba/dispositivo enquanto a Frente de Caixa está carregando → confirmar redirecionamento para `/pdv/abertura` com mensagem amigável, sem exibir o texto cru `sessao_caixa: Nenhuma sessao de caixa aberta...` (RF-23).
+8. Conferir visualmente Card do Carrinho com 0, 1 e vários itens — altura reduzida sem cortar conteúdo (item 5).
+9. Conferir SplitPagamento em desktop e mobile (`<768px`) — campos legíveis, `BottomBar` intacta, nenhuma quebra de layout (RNF-08).
+10. 0 falhas obrigatório, 100% dos RFs Must com verificação — conforme regra global do Sentinel (CLAUDE.md).
 
 ---
 
-## 15. Observações finais do Analista
+## 13. Observações finais do Analista
 
-- Este documento **não implementa nada** — é levantamento e re-elicitação. Toda
-  decisão de estrutura de pastas/apps, nomes finais de models e contratos de API
-  fica com o **Blueprint**.
-- Dois pontos ficam marcados **[CONFIRMAR COM BLUEPRINT]** antes do Forge iniciar:
-  (a) app `pdv` novo vs. dentro de `vendas` (Seção 2, A3); (b) mês de abatimento do
-  estorno no DRE (Seção 5.5).
-- Um ponto fica marcado **[CONFIRMAR COM LUIZ EDUARDO]**: se recebível de cartão
-  parcelado (múltiplas datas de liquidação por venda) é necessário já nesta entrega
-  (Seção 12).
+Dos 5 grupos do pedido, os itens 2 e parte do item 3 (fluxo de abertura de
+caixa) **já estão implementados corretamente no backend** — o pedido do
+cliente descrevia como "faltando" algo que na verdade é só falta de
+**exibição**/UX, não de lógica ausente. Isso foi confirmado lendo o código
+real antes de especificar qualquer RF, evitando retrabalho desnecessário.
 
-➡️ **Planner:** rotear para Pipeline D (feature grande, aprovação comercial já
-concedida) — Blueprint deve ler esta especificação e as duas decisões de
-arquitetura pendentes antes de gerar a planta para Forge + Loom.
+O único ponto que abre uma decisão de arquitetura (RN-12, campo `operador`)
+foi marcado como fora de escopo e não prescrito como fix — cabe a Luiz
+Eduardo decidir se isso vira uma manutenção própria.
+
+➡️ **Planner:** rotear conforme tipo — grupos 1, 2, 3 e 5 = `melhoria_ux`/
+`feature_pequena` (Pipeline B/C, sem aprovação comercial); grupo 4 = `bug`
+(Pipeline B, direto). Nenhum requer escalonamento a Luiz Eduardo, exceto a
+confirmação assíncrona de RN-12 (não bloqueia o restante da entrega).

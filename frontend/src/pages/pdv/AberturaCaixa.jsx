@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Unlock } from 'lucide-react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { Unlock, User as UserIcon, Clock } from 'lucide-react'
 import api from '../../api/client.js'
 import { extractErrorMessage } from '../../utils/errors.js'
 import Button from '../../components/ui/Button.jsx'
@@ -12,7 +12,13 @@ import useAuthStore from '../../stores/authStore.js'
  */
 export default function AberturaCaixa() {
   const navigate = useNavigate()
+  const location = useLocation()
   const user = useAuthStore((s) => s.user)
+
+  // RF-21 — data/hora fixada no mount (tela é um gate rápido, não um dashboard)
+  const [dataHoraAtual] = useState(() =>
+    new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+  )
 
   const [contas, setContas] = useState([])
   const [conta, setConta] = useState('')
@@ -42,6 +48,16 @@ export default function AberturaCaixa() {
       mostrarToast(extractErrorMessage(err, 'Erro ao carregar dados.'), 'error')
     }).finally(() => setLoadingContas(false))
   }, [])
+
+  // RF-23 — mensagem amigável vinda do redirecionamento de sessão encerrada
+  // (FrenteDeCaixa navega pra aqui com state.mensagem em vez de exibir o
+  // erro cru do backend)
+  useEffect(() => {
+    if (location.state?.mensagem) {
+      mostrarToast(location.state.mensagem, 'error')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state])
 
   const validar = () => {
     const e = {}
@@ -121,6 +137,16 @@ export default function AberturaCaixa() {
             </p>
           </div>
 
+          {/* RF-21 — operador logado + data/hora atual */}
+          <div className="flex items-center justify-center gap-4 text-xs text-gray-500 pb-4 mb-4 border-b border-gray-100">
+            <span className="flex items-center gap-1 truncate max-w-[140px]">
+              <UserIcon size={12} /> {user?.nome_completo || user?.email || 'Operador'}
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock size={12} /> {dataHoraAtual}
+            </span>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Conta */}
             <div>
@@ -145,7 +171,7 @@ export default function AberturaCaixa() {
             {/* Valor de abertura */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Valor de abertura <span className="text-red-500">*</span>
+                Valor de Abertura (Fundo de Troco) <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"

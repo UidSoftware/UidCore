@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  Search, ScanLine, PackageSearch, User, UserX,
+  Search, ScanLine, Camera, PackageSearch, User, UserX,
   CheckCircle2, ArrowDownCircle, ArrowUpCircle, Lock,
 } from 'lucide-react'
 import api from '../../api/client.js'
@@ -11,6 +11,7 @@ import Card from '../../components/ui/Card.jsx'
 import CarrinhoItem from './components/CarrinhoItem.jsx'
 import SplitPagamento from './components/SplitPagamento.jsx'
 import ModalSangriaSuprimento from './components/ModalSangriaSuprimento.jsx'
+import ModalScannerCamera from './components/ModalScannerCamera.jsx'
 
 const BRL = (v) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -54,6 +55,7 @@ export default function FrenteDeCaixa() {
   // ── UI ───────────────────────────────────────────────────────────────────
   const [finalizando, setFinalizando] = useState(false)
   const [modalSangria, setModalSangria] = useState(false)
+  const [modalCamera, setModalCamera] = useState(false)
   const [toast, setToast] = useState(null)
 
   const mostrarToast = (msg, tipo = 'success') => {
@@ -92,9 +94,17 @@ export default function FrenteDeCaixa() {
       setVenda(data)
       setItens([])
     } catch (err) {
+      // RF-23 — sessão encerrada entre o carregamento e a criação da venda:
+      // redireciona para abertura em vez de exibir o texto cru do backend.
+      if (err?.response?.data?.sessao_caixa) {
+        navigate('/pdv/abertura', {
+          state: { mensagem: 'Sua sessão de caixa foi encerrada. Abra o caixa novamente.' },
+        })
+        return
+      }
       mostrarToast(extractErrorMessage(err, 'Erro ao criar venda.'), 'error')
     }
-  }, [sessao])
+  }, [sessao, navigate])
 
   useEffect(() => {
     if (sessao && !venda) {
@@ -163,6 +173,35 @@ export default function FrenteDeCaixa() {
       setSalvandoItem(false)
     }
   }
+
+  // ── RF-17: Enter no campo de busca com match exato de codigo_barras ───────
+  const handleBuscaKeyDown = (e) => {
+    if (e.key !== 'Enter') return
+    const exatos = resultadosBusca.filter((p) => p.codigo_barras === busca.trim())
+    if (exatos.length === 1) {
+      adicionarProduto(exatos[0])
+    }
+    // RN-09: múltiplos resultados ou nenhum match exato — mantém dropdown clicável
+  }
+
+  // ── RF-19: código decodificado via câmera busca direto na API (resposta
+  // instantânea, sem esperar o debounce de 300ms) e aplica o mesmo match
+  // exato do RF-17 ──────────────────────────────────────────────────────────
+  const handleCodigoEscaneado = useCallback(async (codigo) => {
+    setModalCamera(false)
+    setBusca(codigo)
+    try {
+      const { data } = await api.get(`/produtos/produtos/?search=${encodeURIComponent(codigo)}&page_size=10`)
+      const lista = data.results || data || []
+      setResultadosBusca(lista)
+      const exatos = lista.filter((p) => p.codigo_barras === codigo)
+      if (exatos.length === 1) {
+        adicionarProduto(exatos[0])
+      }
+    } catch {
+      setResultadosBusca([])
+    }
+  }, [adicionarProduto])
 
   // ── Alterar quantidade de item ────────────────────────────────────────────
   const handleQuantidade = async (itemId, novaQtd) => {
@@ -323,6 +362,7 @@ export default function FrenteDeCaixa() {
                     type="text"
                     value={busca}
                     onChange={(e) => setBusca(e.target.value)}
+                    onKeyDown={handleBuscaKeyDown}
                     placeholder="Buscar por nome ou código de barras..."
                     className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
                     autoFocus
@@ -335,6 +375,14 @@ export default function FrenteDeCaixa() {
                   title="Focar para leitura de código de barras"
                 >
                   <ScanLine size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModalCamera(true)}
+                  className="p-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors"
+                  title="Escanear com câmera"
+                >
+                  <Camera size={16} />
                 </button>
               </div>
 
@@ -377,12 +425,12 @@ export default function FrenteDeCaixa() {
           {/* Carrinho */}
           <Card title="Carrinho">
             {itensAtivos.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="text-center py-6">
                 <PackageSearch size={32} className="mx-auto text-gray-300 mb-2" />
                 <p className="text-sm text-gray-400">Carrinho vazio — busque um produto acima</p>
               </div>
             ) : (
-              <div>
+              <div className="max-h-[420px] overflow-y-auto">
                 {itensAtivos.map((item) => (
                   <CarrinhoItem
                     key={item.id}
@@ -547,6 +595,18 @@ export default function FrenteDeCaixa() {
           onSucesso={() => {
             setModalSangria(false)
             mostrarToast('Movimento registrado com sucesso!')
+          }}
+        />
+      )}
+
+      {/* Modal escanear com câmera (RF-18/19/20) */}
+      {modalCamera && (
+        <ModalScannerCamera
+          onClose={() => setModalCamera(false)}
+          onDetectado={handleCodigoEscaneado}
+          onPermissaoNegada={() => {
+            setModalCamera(false)
+            mostrarToast('Permissão de câmera negada. Você pode continuar digitando ou usando o leitor físico.', 'error')
           }}
         />
       )}
