@@ -306,8 +306,9 @@ export default function FrenteDeCaixa() {
     setBuscaCliente('')
     try {
       await api.patch(`/pdv/vendas/${venda.id}/`, { cliente: cliente.id })
-    } catch {
-      // falha silenciosa — campo opcional
+    } catch (err) {
+      mostrarToast(extractErrorMessage(err, 'Erro ao vincular cliente.'), 'error')
+      setClienteSelecionado(null)
     }
   }
 
@@ -316,8 +317,8 @@ export default function FrenteDeCaixa() {
     setClienteSelecionado(null)
     try {
       await api.patch(`/pdv/vendas/${venda.id}/`, { cliente: null })
-    } catch {
-      // falha silenciosa
+    } catch (err) {
+      mostrarToast(extractErrorMessage(err, 'Erro ao desvincular cliente.'), 'error')
     }
   }
 

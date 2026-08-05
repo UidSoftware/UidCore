@@ -19,6 +19,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
+from clientes.models import Cliente
 from financeiro.models import Categoria, Conta, Receita
 from pagamentos.models import MetodoPagamento, NomeMetodoPagamento
 from produtos.models import Produto
@@ -71,6 +72,10 @@ def _criar_categoria():
         nome='Vendas PDV', tipo='ENTRADA',
     )
     return cat
+
+
+def _criar_cliente(nome='Cliente Teste PDV'):
+    return Cliente.objects.create(nome_razao_social=nome)
 
 
 # ---------------------------------------------------------------------------
@@ -420,6 +425,70 @@ class VendaAPITest(PDVAPITestBase):
         self.client.credentials()
         resp = self.client.get('/api/v1/pdv/vendas/')
         self.assertEqual(resp.status_code, 401)
+
+    # ── Testes de PATCH (RF-17 post-fix Manutenção #22) ─────────────────────
+
+    def test_vincular_cliente_via_patch(self):
+        """PATCH /vendas/{id}/ {cliente: id} vincula cliente à venda ABERTA."""
+        venda = self._criar_venda()
+        cliente = _criar_cliente()
+
+        resp = self.client.patch(
+            f'/api/v1/pdv/vendas/{venda["id"]}/',
+            {'cliente': cliente.id},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data['cliente'], cliente.id)
+        self.assertEqual(resp.data['cliente_nome'], cliente.nome_razao_social)
+
+        # Confirmar no banco
+        Venda.objects.get(pk=venda['id'], cliente=cliente)  # não levanta DoesNotExist
+
+    def test_desvincular_cliente_via_patch(self):
+        """PATCH /vendas/{id}/ {cliente: null} desvincula cliente da venda."""
+        venda = self._criar_venda()
+        cliente = _criar_cliente()
+
+        # Vincular primeiro
+        self.client.patch(
+            f'/api/v1/pdv/vendas/{venda["id"]}/',
+            {'cliente': cliente.id},
+            format='json',
+        )
+
+        # Desvincular
+        resp = self.client.patch(
+            f'/api/v1/pdv/vendas/{venda["id"]}/',
+            {'cliente': None},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertIsNone(resp.data['cliente'])
+
+        venda_db = Venda.objects.get(pk=venda['id'])
+        self.assertIsNone(venda_db.cliente)
+
+    def test_editar_quantidade_item_via_patch(self):
+        """PATCH /vendas/{id}/itens/{item_id}/ edita quantidade e recalcula valor_total."""
+        venda = self._criar_venda()
+        resp_item = self._adicionar_item(venda['id'], qtd='1')
+        self.assertEqual(resp_item.status_code, 201, resp_item.data)
+        item_id = resp_item.data['id']
+
+        preco_unitario = self.produto.preco_venda  # Decimal('10.00')
+
+        resp = self.client.patch(
+            f'/api/v1/pdv/vendas/{venda["id"]}/itens/{item_id}/',
+            {'quantidade': '3'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(Decimal(resp.data['quantidade']), Decimal('3'))
+
+        # valor_total da venda deve ter sido recalculado: 3 x R$10 = R$30
+        venda_detail = self.client.get(f'/api/v1/pdv/vendas/{venda["id"]}/')
+        self.assertEqual(Decimal(venda_detail.data['valor_total']), preco_unitario * 3)
 
 
 class VendaEstornoReceitaAPITest(PDVAPITestBase):

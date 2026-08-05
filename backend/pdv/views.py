@@ -161,7 +161,11 @@ class VendaViewSet(ModelViewSet):
     filterset_fields = ['status', 'operador', 'cliente', 'sessao_caixa']
     search_fields = ['numero']
     ordering_fields = ['data_hora', 'valor_total']
-    http_method_names = ['get', 'post', 'head', 'options', 'delete']
+    # 'patch' necessário para:
+    #   PATCH /vendas/{id}/ → partial_update (vincular/desvincular cliente)
+    #   PATCH /vendas/{id}/itens/{item_id}/ → editar_item action
+    # Sem 'patch' aqui o DRF bloqueia com 405 antes de rotear qualquer action.
+    http_method_names = ['get', 'post', 'patch', 'head', 'options', 'delete']
 
     def get_queryset(self):
         return (
@@ -169,6 +173,31 @@ class VendaViewSet(ModelViewSet):
             .select_related('sessao_caixa__conta', 'cliente', 'operador')
             .prefetch_related('itens__produto', 'pagamentos__metodo', 'pagamentos__conta')
         )
+
+    def partial_update(self, request, *args, **kwargs):
+        """
+        PATCH /api/v1/pdv/vendas/{id}/ — apenas o campo `cliente` é editável
+        diretamente (vincular/desvincular cliente na venda ABERTA).
+
+        Todos os demais campos da Venda só mudam via actions dedicadas
+        (finalizar, cancelar, movimento...). Whitelist explícita para impedir
+        mutações acidentais de status, operador, sessao_caixa etc.
+        """
+        CAMPOS_EDITAVEIS = {'cliente'}
+        payload = {k: v for k, v in request.data.items() if k in CAMPOS_EDITAVEIS}
+        if not payload and 'cliente' not in request.data:
+            return Response(
+                {'detalhe': 'Nenhum campo editavel fornecido. Apenas "cliente" e permitido.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        # Inclui explicitamente 'cliente' mesmo que seja null (desvincular)
+        if 'cliente' in request.data:
+            payload['cliente'] = request.data['cliente']
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=payload, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(updated_by=request.user)
+        return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         """
