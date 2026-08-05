@@ -122,7 +122,7 @@ export default function FrenteDeCaixa() {
     debounceRef.current = setTimeout(async () => {
       setBuscando(true)
       try {
-        const { data } = await api.get(`/produtos/produtos/?search=${encodeURIComponent(busca)}&page_size=10`)
+        const { data } = await api.get(`/produtos/?search=${encodeURIComponent(busca)}&page_size=10`)
         setResultadosBusca(data.results || data || [])
       } catch {
         setResultadosBusca([])
@@ -141,7 +141,7 @@ export default function FrenteDeCaixa() {
     }
     const t = setTimeout(async () => {
       try {
-        const { data } = await api.get(`/clientes/clientes/?search=${encodeURIComponent(buscaCliente)}&page_size=10`)
+        const { data } = await api.get(`/clientes/?search=${encodeURIComponent(buscaCliente)}&page_size=10`)
         setResultadosCliente(data.results || data || [])
       } catch {
         setResultadosCliente([])
@@ -198,7 +198,7 @@ export default function FrenteDeCaixa() {
 
     setBuscando(true)
     try {
-      const { data } = await api.get(`/produtos/produtos/?search=${encodeURIComponent(termo)}&page_size=10`)
+      const { data } = await api.get(`/produtos/?search=${encodeURIComponent(termo)}&page_size=10`)
       const lista = data.results || data || []
       setResultadosBusca(lista)
       const exatos = lista.filter((p) => p.codigo_barras === termo)
@@ -220,7 +220,7 @@ export default function FrenteDeCaixa() {
     setModalCamera(false)
     setBusca(codigo)
     try {
-      const { data } = await api.get(`/produtos/produtos/?search=${encodeURIComponent(codigo)}&page_size=10`)
+      const { data } = await api.get(`/produtos/?search=${encodeURIComponent(codigo)}&page_size=10`)
       const lista = data.results || data || []
       setResultadosBusca(lista)
       const exatos = lista.filter((p) => p.codigo_barras === codigo)
