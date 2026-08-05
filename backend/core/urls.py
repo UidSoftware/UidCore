@@ -21,4 +21,5 @@ urlpatterns = [
     path('api/v1/agendamento/', include('agendamento.urls')),
     path('api/v1/portal/', include('portal.urls')),
     path('api/v1/financeiro/', include('financeiro.urls')),
+    path('api/v1/pdv/', include('pdv.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

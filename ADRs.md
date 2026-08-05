@@ -540,3 +540,311 @@ Nota: UidCore nao implementa PWA — diferente de outros projetos Uid.
 
 Next.js SSR: overhead desnecessario para sistema interno autenticado.
 base: '/<rota>/' no Vite: necessario apenas se o sistema nao for servido na raiz.
+
+---
+
+## ADR-015: App `pdv` Separado de `vendas`
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md
+
+### Contexto
+
+O app `vendas` ja existe em producao com `Orcamento`/`Pedido`/`ItemPedido` —
+fluxo de encomenda/orcamento B2B (`Pedido.status`: PENDENTE→CONFIRMADO→
+EM_PRODUCAO→ENTREGUE). Nao debita estoque, nao gera `Receita`/`LivroCaixa`,
+nao tem sessao de caixa. O cliente pediu um modulo de frente de caixa/PDV para
+venda de balcao a vista, com baixa de estoque sincrona, split de pagamento e
+geracao automatica de lancamento financeiro — ciclo de vida e regras de negocio
+incompativeis com o de `Pedido`.
+
+### Decisao
+
+Criar app Django novo `pdv`, com models proprios (`SessaoCaixa`,
+`MovimentoCaixa`, `Venda`, `ItemVenda`, `PagamentoVenda`, `RecebivelCartao`),
+prefixo de tabela `pdv_*`. `vendas` permanece inalterado.
+
+### Consequencias
+
+Facilita: dois dominios de negocio com ciclos de vida diferentes (encomenda
+vs. venda instantanea) evoluem independentemente; nenhuma migration cruzada
+retroativa em `vendas`.
+Compromete: dois conceitos de "venda" no sistema (`vendas.Pedido` e
+`pdv.Venda`) — nomenclatura exige atencao do dev para nao confundir; UI/menu
+deve deixar claro que sao fluxos diferentes (Sidebar: PDV entre Vendas e
+Financeiro, nao dentro do mesmo item de menu).
+
+### Alternativas descartadas
+
+Adicionar models de PDV dentro de `vendas`: misturaria `Pedido.status`
+(fluxo de dias/semanas) com `Venda.status` (decidido em minutos no balcao) no
+mesmo app, dificultando manutencao e leitura do codigo por dominio.
+
+---
+
+## ADR-016: `EstornoReceita` como Mecanismo Generico do `financeiro`
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md — Ponto 2 da spec
+
+### Contexto
+
+`Despesa.estornar` (ADR-007) so suporta estorno **total e unico** — nao serve
+para devolucao parcial de item de venda (devolver 2 de 5 unidades, ou devolver
+so 1 item entre varios de uma mesma `Venda`, em momentos diferentes). `Receita`
+nao tinha nenhum mecanismo de estorno ate esta manutencao.
+
+### Decisao
+
+Novo model `EstornoReceita` (`fin_estorno_receita`) no app `financeiro` — nao
+no `pdv` — com FK obrigatoria para `Receita` e FK **opcional** nullable
+`item_venda` para `pdv.ItemVenda` (`on_delete=SET_NULL`). `Receita` ganha
+`estornado`/`data_estorno`/`motivo_estorno` (compat de nomenclatura com
+`Despesa`, mas semantica diferente: aqui significa "saldo esgotado", nao
+"existe estorno") + properties `saldo_disponivel`/`valor_estornado_total`.
+Uma `Receita` pode ter **N** `EstornoReceita` (parciais, em datas diferentes).
+
+### Consequencias
+
+Facilita: mecanismo reutilizavel para qualquer estorno parcial de receita no
+sistema, nao so PDV (ex.: devolucao de mensalidade futura). Endpoint
+`POST /financeiro/receitas/{id}/estornar/` funciona sozinho, sem depender do
+app `pdv` existir.
+Compromete: a migration de `financeiro` que cria `EstornoReceita.item_venda`
+depende do model `pdv.ItemVenda` ja estar declarado no codigo (nao
+necessariamente migrado) — gerar `makemigrations pdv` antes de
+`makemigrations financeiro` nesta manutencao, unica vez.
+
+### Alternativas descartadas
+
+Campo `item_venda` obrigatorio (not null): acoplaria `financeiro` a `pdv` como
+dependencia hard, impedindo estorno de receita sem origem em venda de PDV
+(ex.: estorno de receita financeira/mensalidade).
+Reusar `Despesa.estornar` como está (booleano unico): nao representa estorno
+parcial nem multiplos estornos sobre a mesma receita — teria exigido reescrever
+`Despesa` tambem, fora do escopo desta manutencao.
+
+---
+
+## ADR-017: DRE Abate Estorno de Receita no Mes da Receita Original
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md Secao 6.9 — spec Secao 5.5
+
+### Contexto
+
+`calcular_dre_mes()` filtra `Despesa` por `estornado=False` (exclui despesa
+estornada do DRE do mes original de `pagamento`, retroativamente, toda vez que
+o relatorio e recalculado) mas nao tinha filtro equivalente para `Receita`
+porque o campo nao existia. Assim que `EstornoReceita` passa a existir, o DRE
+fica incorreto se `calcular_dre_mes` nao for atualizado.
+
+Duas opcoes eram possiveis: (1) abater no mes da receita original
+(`recebimento`), ou (2) abater como linha separada no mes em que o estorno
+aconteceu (`data_estorno`).
+
+### Decisao
+
+**Opcao 1** — abater no mes da receita original. `calcular_dre_mes(ano, mes)`
+subtrai `Sum(EstornoReceita.valor)` de `receita_operacional`/
+`receita_financeira` filtrando `EstornoReceita.receita.recebimento` no
+`ano`/`mes` do parametro, nao `EstornoReceita.data_estorno`. Mantem o mesmo
+espirito ja implementado para `Despesa.estornado` (que tambem "desaparece"
+retroativamente do mes original quando a query e refeita).
+
+### Consequencias
+
+Facilita: DRE de qualquer mes, mesmo fechado, sempre reflete o resultado real
+daquele mes — consistente com o CFO as a Service (visao historica confiavel).
+Simetria com o comportamento ja existente de `Despesa`.
+Compromete: DRE de um mes ja fechado "muda" quando uma venda antiga e
+devolvida meses depois — comportamento aceito e documentado (mesmo trade-off
+que ja existe hoje para estorno de `Despesa`).
+
+### Alternativas descartadas
+
+Opcao 2 (linha negativa no mes do estorno): mais simples de implementar mas
+diverge do padrao ja em uso para `Despesa`, criando duas semanticas diferentes
+de "estorno" dentro do mesmo relatorio.
+
+---
+
+## ADR-018: Mapeamento `MetodoPagamento` → `Conta` via Campo Direto
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md — achado A4
+
+### Contexto
+
+`MetodoPagamento` (app `pagamentos`) e apenas um catalogo de nomes (`choices`)
+— nao existe hoje nenhum mapeamento "forma de pagamento → conta de destino".
+Sem isso, ao finalizar uma venda no PDV nao ha como saber automaticamente qual
+`Conta` creditar por forma de pagamento no split.
+
+### Decisao
+
+Adicionar `MetodoPagamento.conta_padrao` (FK `financeiro.Conta`, null=True,
+`on_delete=SET_NULL`) e `MetodoPagamento.taxa_percentual_padrao`
+(`DecimalField`, null=True, RF-18 Should). Resolucao em `pdv.services.
+finalizar_venda`: usa `conta` do payload se informada, senao
+`metodo.conta_padrao`; se nenhum dos dois existir, erro 400 (RF-14 Must =
+selecao manual sempre disponivel como fallback).
+
+Pre-requisito puramente tecnico — nao depende de aprovacao comercial, e a
+unica forma de o PDV saber o que fazer com cada forma de pagamento.
+
+### Consequencias
+
+Facilita: configuracao opcional (Tela 7, Should) reduz cliques no dia a dia do
+operador sem bloquear a entrega — sem a config, o operador so escolhe a conta
+manualmente no split, PDV continua funcional.
+Compromete: campo `null=True` significa que, sem configuracao, TODA venda com
+aquele metodo exige selecao manual — UX pior ate o cliente configurar.
+
+### Alternativas descartadas
+
+Tabela de mapeamento separada (`ConfiguracaoMetodoPagamento`): mais "correto"
+para representar 1:N (metodo pode ter contas diferentes por regra), mas
+nenhum requisito da spec pede 1:N — campo direto e a solucao minima suficiente
+(YAGNI), condizente com "Should" (RF-14/RF-18) e nao "Must" complexo.
+
+---
+
+## ADR-019: `RecebivelCartao` Acoplado a Conciliacao Existente, Sem Sistema Paralelo
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md Secao 6.6 — spec Secao 6 (Ponto 3)
+
+### Contexto
+
+Pagamento em cartao de credito tem taxa de maquininha e prazo de liquidacao —
+o dinheiro nao cai na conta na hora da venda. O sistema ja tem
+`ConciliacaoExtrato`/`ItemConciliacao` (ADR-009) para reconciliar extrato
+bancario com o sistema; a tentacao seria criar um fluxo de recebivel
+paralelo com sua propria tela de "confirmar recebimento".
+
+### Decisao
+
+`RecebivelCartao` (`pdv_recebivel_cartao`) nasce `PREVISTO` junto com uma
+`Receita status=PENDENTE` na finalizacao da venda — nenhum `LivroCaixa` nasce
+ainda (o signal `receita_para_livro_caixa` so dispara com `status=RECEBIDO`,
+comportamento ja existente, zero codigo novo). A liquidacao acontece
+**exclusivamente** via `ConciliacaoViewSet.confirmar_item` — estendida para
+aceitar `recebivel_cartao_id` opcional no payload: quando presente, marca
+`Receita.status=RECEBIDO` (dispara o signal existente → `LivroCaixa` nasce
+sozinho) e `RecebivelCartao.status=LIQUIDADO`. Reaproveita `Receita.desconto`
+existente para representar a taxa da maquininha — sem campo novo em `Receita`.
+
+### Consequencias
+
+Facilita: um unico fluxo de conciliacao no sistema todo, auditavel, sem
+duplicidade de UI/logica. `RecebivelCartao` nunca vira `RECEBIDO` sozinho por
+data (RN-06) — sempre exige confirmacao humana via conciliacao, evitando
+marcar como recebido algo que nao caiu de fato.
+Compromete: liquidacao de cartao de credito fica dependente do fluxo de
+Conciliacao Bancaria ja existente — se o cliente nao fizer upload de extrato
+regularmente, `RecebivelCartao` fica `PREVISTO` indefinidamente (aceitavel,
+e o comportamento correto ate o extrato confirmar).
+
+### Alternativas descartadas
+
+Tela/endpoint dedicado para "confirmar recebimento de cartao" sem depender do
+extrato bancario: mais rapido para o operador mas reintroduz o risco que
+ADR-009 ja eliminou (marcar como recebido sem confirmacao real do banco).
+
+---
+
+## ADR-020: Lock de Concorrencia por Conta E por Produto na Finalizacao de Venda
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md Secao 6.2 — spec Secao 13 (Riscos)
+
+### Contexto
+
+ADR-006 ja garante exclusao mutua por `Conta` via `pg_advisory_xact_lock`. O
+PDV introduz um recurso concorrente novo que o financeiro nao tinha:
+`Produto.quantidade_estoque`, debitado por vendas em caixas/sessoes
+diferentes ao mesmo tempo. Duas vendas simultaneas do mesmo produto em caixas
+diferentes podem gerar race condition sem lock adicional.
+
+### Decisao
+
+`services.finalizar_venda` (e `cancelar_venda`) adquirem
+`pg_advisory_xact_lock` da `Conta` da sessao de caixa **e**, em seguida, um
+lock por `Produto.id` de cada item da venda — sempre em **ordem crescente de
+id**, nunca na ordem em que os itens foram adicionados ao carrinho. Mesma
+transacao, mesmo padrao de `cursor.execute('SELECT pg_advisory_xact_lock(%s)',
+[id])` ja usado em `ContaViewSet.transferir` (que ja lockava 2 contas em
+sequencia).
+
+### Consequencias
+
+Facilita: zero race condition de estoque entre vendas concorrentes no mesmo
+produto, mesmo em caixas diferentes.
+Compromete: custo adicional de N locks por venda (N = produtos distintos no
+carrinho) — aceitavel para volume de PDV de MEI/PME. Ordem crescente de id e
+**obrigatoria** — lock em ordem arbitraria entre duas transacoes concorrentes
+com itens sobrepostos em ordem diferente pode deadlockar.
+
+### Alternativas descartadas
+
+`select_for_update()` simples sem advisory lock: protege a leitura mas nao
+serializa as duas transacoes completas (uma pode ler estoque valido antes da
+outra commitar seu debito) — mesmo raciocinio ja registrado em ADR-006 para
+contas, aplicado agora a produtos.
+
+---
+
+## ADR-021: Finalizacao de Venda via `services.py` Procedural, Nao via Signal Django
+
+**Status:** Accepted
+**Data:** 2026-08-04
+**Referencia:** Manutencao #15 / Blueprint_PDV.md Secao 6 — spec Secao 4/6
+
+### Contexto
+
+O sistema ja tem dois estilos de efeito colateral: signals `post_save`
+(`aporte_para_livro_caixa`, `receita_para_livro_caixa`, `despesa_para_livro_caixa`
+— efeito sempre igual, sem dado externo ao objeto salvo) e funcoes
+procedurais dentro de `transaction.atomic()` em actions de ViewSet
+(`ContaViewSet.transferir`, `DespesaViewSet.estornar_despesa`,
+`ConciliacaoViewSet.confirmar_item` — quando o efeito depende de dado do
+payload da requisicao ou precisa abortar antes do commit). A finalizacao de
+venda do PDV precisa: (a) taxa/prazo do cartao vindos do payload, que nao sao
+campo persistido em `PagamentoVenda`; (b) abortar com erro 400 legivel se
+qualquer item nao tiver estoque, antes de debitar qualquer coisa.
+
+### Decisao
+
+`pdv.services.finalizar_venda/cancelar_venda/devolver_item` sao funcoes
+procedurais chamadas pelas actions do `VendaViewSet`, dentro de
+`transaction.atomic()` com advisory lock (ADR-020) — **nao** signals
+`post_save` em `PagamentoVenda`/`ItemVenda`. O unico ponto onde um signal
+Django ja existente participa e passivo: `receita_para_livro_caixa`
+(`financeiro/signals.py`), que dispara sozinho quando a `Receita` criada pelo
+service tem `status=RECEBIDO` — nenhum codigo novo de geracao de `LivroCaixa`
+foi escrito para o PDV.
+
+### Consequencias
+
+Facilita: validacao com abort limpo antes do commit (RF-07); dados do payload
+(taxa/prazo) ficam disponiveis onde sao usados, sem gambiarra de atributo
+transiente em instancia de model; consistente com o padrao ja dominante no
+sistema para operacoes financeiras multi-passo.
+Compromete: mais codigo explicito em `services.py` em vez de "magico" via
+signal — decisao consciente de legibilidade sobre concisao, mesmo trade-off
+ja aceito em `transferir`/`estornar_despesa`.
+
+### Alternativas descartadas
+
+`post_save` em `PagamentoVenda` para criar `Receita`/`RecebivelCartao`:
+exigiria armazenar taxa/prazo em campos nullable de `PagamentoVenda` so para
+o signal ler (rejeitado pela propria spec do Analista, Secao 4.5) ou atributo
+transiente nao persistido (fragil, quebra se o save() vier de outro caminho
+como admin do Django ou fixture de teste).

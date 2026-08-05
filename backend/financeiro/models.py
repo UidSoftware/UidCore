@@ -115,6 +115,9 @@ class Receita(BaseModel):
     status = models.CharField(max_length=20, choices=StatusReceita.choices, default='PENDENTE')
     referencia_mes = models.DateField(null=True, blank=True)
     observacoes = models.TextField(blank=True)
+    estornado = models.BooleanField(default=False)
+    data_estorno = models.DateField(null=True, blank=True)
+    motivo_estorno = models.TextField(blank=True)
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+',
@@ -128,8 +131,48 @@ class Receita(BaseModel):
         self.valor_liquido = self.valor_bruto - (self.desconto or Decimal('0'))
         super().save(*args, **kwargs)
 
+    @property
+    def valor_estornado_total(self):
+        from django.db.models import Sum as _Sum
+        return self.estornos.aggregate(v=_Sum('valor'))['v'] or Decimal('0')
+
+    @property
+    def saldo_disponivel(self):
+        return self.valor_liquido - self.valor_estornado_total
+
     def __str__(self):
         return f'{self.descricao} — R$ {self.valor_liquido}'
+
+
+class EstornoReceita(BaseModel):
+    """
+    Estorno parcial ou total de uma Receita.
+    Mecanismo generico do modulo financeiro — nao depende do PDV,
+    mas pode ser vinculado a um ItemVenda via item_venda (FK opcional).
+    estornado=True na Receita pai significa saldo_disponivel <= 0 (esgotado),
+    nao apenas "existe estorno" (diferente da semantica de Despesa.estornado).
+    """
+    receita = models.ForeignKey(
+        Receita, on_delete=models.PROTECT, related_name='estornos',
+    )
+    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    motivo = models.TextField()
+    data_estorno = models.DateField()
+    item_venda = models.ForeignKey(
+        'pdv.ItemVenda', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='estornos',
+    )
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+',
+    )
+
+    class Meta:
+        db_table = 'fin_estorno_receita'
+        ordering = ['-data_estorno']
+
+    def __str__(self):
+        return f'Estorno R${self.valor} — {self.receita.descricao}'
 
 
 class TipoDespesa(models.TextChoices):

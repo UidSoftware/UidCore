@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import Aporte, Categoria, Conta, Despesa, LivroCaixa, Receita
+from .models import Aporte, Categoria, Conta, Despesa, EstornoReceita, LivroCaixa, Receita
 
 
 class CategoriaSerializer(serializers.ModelSerializer):
@@ -112,6 +112,15 @@ class LivroCaixaSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'criado_em', 'saldo_anterior', 'saldo_atual', 'estornado', 'estorno_de',
         ]
+
+
+class EstornoReceitaSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
+
+    class Meta:
+        model = EstornoReceita
+        fields = ['id', 'receita', 'valor', 'motivo', 'data_estorno', 'item_venda', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 # --- Conciliacao Bancaria ---

@@ -21,7 +21,7 @@ from .models import (
 )
 from .serializers import (
     AporteSerializer, CategoriaSerializer, ContaSerializer,
-    DespesaSerializer, LivroCaixaSerializer, ReceitaSerializer,
+    DespesaSerializer, EstornoReceitaSerializer, LivroCaixaSerializer, ReceitaSerializer,
 )
 from .relatorios import (
     calcular_balanco, calcular_dre_mes, calcular_fluxo_projetado,
@@ -182,6 +182,29 @@ class ReceitaViewSet(ModelViewSet):
         receita.status = 'RECEBIDO'
         receita.save()
         return Response(ReceitaSerializer(receita).data)
+
+    @action(detail=True, methods=['post'], url_path='estornar', permission_classes=[IsAdmin])
+    def estornar(self, request, pk=None):
+        from financeiro.services import estornar_receita
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+        receita = self.get_object()
+        valor_str = request.data.get('valor')
+        motivo = request.data.get('motivo', '')
+        data_estorno_str = request.data.get('data_estorno') or date.today().isoformat()
+        valor = Decimal(str(valor_str)) if valor_str else receita.saldo_disponivel
+        try:
+            data_estorno = date.fromisoformat(data_estorno_str)
+        except ValueError:
+            return Response({'data_estorno': 'Data invalida.'}, status=400)
+        try:
+            estorno = estornar_receita(
+                receita, valor, motivo,
+                data_estorno=data_estorno,
+                usuario=request.user,
+            )
+        except DRFValidationError as e:
+            return Response(e.detail, status=400)
+        return Response(EstornoReceitaSerializer(estorno).data, status=201)
 
 
 class DespesaViewSet(ModelViewSet):

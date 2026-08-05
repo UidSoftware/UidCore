@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.db.models import Sum, Q, Count
 
-from .models import Aporte, Categoria, Conta, Despesa, LivroCaixa, Receita
+from .models import Aporte, Categoria, Conta, Despesa, EstornoReceita, LivroCaixa, Receita
 
 
 def _saldo_total_contas():
@@ -58,6 +58,17 @@ def calcular_dre_mes(ano, mes):
         v=Sum('valor_bruto'))['v'] or Decimal('0')
     receita_financeira = rec_qs.filter(tipo='RECEITA_FINANCEIRA').aggregate(
         v=Sum('valor_bruto'))['v'] or Decimal('0')
+    # Abater estornos do periodo (ocorridos no mes reduzem a receita do DRE — ADR-017)
+    total_estornos = EstornoReceita.objects.filter(
+        data_estorno__year=ano,
+        data_estorno__month=mes,
+    ).aggregate(v=Sum('valor'))['v'] or Decimal('0')
+    if total_estornos > 0:
+        abate_op = min(total_estornos, receita_operacional)
+        receita_operacional -= abate_op
+        restante = total_estornos - abate_op
+        receita_financeira = max(Decimal('0'), receita_financeira - restante)
+
     receita_bruta = receita_operacional + receita_financeira
     descontos = rec_qs.aggregate(v=Sum('desconto'))['v'] or Decimal('0')
     receita_liquida = receita_bruta - descontos
@@ -109,13 +120,23 @@ def calcular_balanco(data_ref=None):
     if data_ref is None:
         data_ref = date.today()
 
+    mes_ref = date(data_ref.year, data_ref.month, 1)
+
     saldo_caixa = _saldo_total_contas()
 
     # Contas a receber/pagar precisam incluir PENDENTE e ATRASADO — um
     # recebível/pagável em atraso continua sendo um recebível/pagável,
     # só que vencido; excluir ATRASADO subestimava o balanço.
+    #
+    # Regime de competência: só reconhece a Despesa/Receita no Balanço a
+    # partir do mês de referência dela (referencia_mes <= mes_ref) —
+    # compromisso contratual futuro (ex.: parcela de dezembro cadastrada
+    # hoje) não é dívida/prejuízo do mês corrente. calcular_fluxo_projetado()
+    # não é afetado — usa vencimento diretamente, pergunta diferente (quando
+    # o caixa sai/entra, não quando a obrigação foi incorrida).
     contas_a_receber = Receita.objects.filter(
         is_active=True, status__in=['PENDENTE', 'ATRASADO'],
+        referencia_mes__lte=mes_ref,
     ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
 
     ativo_circulante = saldo_caixa + contas_a_receber
@@ -123,6 +144,7 @@ def calcular_balanco(data_ref=None):
 
     contas_a_pagar = Despesa.objects.filter(
         is_active=True, status__in=['PENDENTE', 'ATRASADO'], estornado=False,
+        referencia_mes__lte=mes_ref,
     ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
 
     emprestimos = Aporte.objects.filter(
@@ -141,12 +163,13 @@ def calcular_balanco(data_ref=None):
     # Lucros acumulados em regime de competência (não de caixa), pra bater
     # com contas_a_receber/contas_a_pagar acima (também competência) — regime
     # de caixa aqui deixava a equação Ativo = Passivo + PL sem fechar sempre
-    # que existisse qualquer receita/despesa pendente ou atrasada.
+    # que existisse qualquer receita/despesa pendente ou atrasada. Mesmo
+    # corte por referencia_mes aplicado aqui, pelo mesmo motivo.
     total_receitas = Receita.objects.filter(
-        is_active=True,
+        is_active=True, referencia_mes__lte=mes_ref,
     ).exclude(status='CANCELADO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
     total_despesas = Despesa.objects.filter(
-        is_active=True, estornado=False,
+        is_active=True, estornado=False, referencia_mes__lte=mes_ref,
     ).exclude(status='CANCELADO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
     lucros_acumulados = total_receitas - total_despesas
 
