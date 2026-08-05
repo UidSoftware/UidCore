@@ -382,7 +382,8 @@ export default function FrenteDeCaixa() {
         {/* Coluna esquerda: busca + carrinho */}
         <div className="flex-1 space-y-4 min-w-0">
           {/* Busca de produto */}
-          <Card>
+          {/* ⚠️ div manual (sem Card) — overflow-hidden do Card cortava o dropdown absolute */}
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4">
             <div className="relative">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
@@ -450,7 +451,7 @@ export default function FrenteDeCaixa() {
                 </div>
               )}
             </div>
-          </Card>
+          </div>
 
           {/* Carrinho */}
           <Card title="Carrinho">
