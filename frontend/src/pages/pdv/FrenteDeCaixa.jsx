@@ -479,7 +479,7 @@ export default function FrenteDeCaixa() {
         {/* Coluna direita: cliente + resumo + pagamento */}
         <div className="w-full md:w-80 lg:w-96 space-y-4 md:sticky md:top-4 shrink-0">
           {/* Cliente */}
-          <Card>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4">
             <div className="space-y-2">
               {!clienteSelecionado ? (
                 <div className="flex items-center justify-between">
@@ -501,7 +501,7 @@ export default function FrenteDeCaixa() {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-sm text-gray-900">
                     <User size={16} className="text-primary-600" />
-                    <span className="font-medium">{clienteSelecionado.nome}</span>
+                    <span className="font-medium">{clienteSelecionado.nome_razao_social}</span>
                   </div>
                   <button
                     type="button"
@@ -532,7 +532,7 @@ export default function FrenteDeCaixa() {
                           onClick={() => vincularCliente(c)}
                           className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
                         >
-                          {c.nome}
+                          {c.nome_razao_social}
                         </button>
                       ))}
                     </div>
@@ -547,7 +547,7 @@ export default function FrenteDeCaixa() {
                 </div>
               )}
             </div>
-          </Card>
+          </div>
 
           {/* Resumo de valores */}
           <Card>

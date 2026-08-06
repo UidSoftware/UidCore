@@ -58,7 +58,7 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
       {/* Grid de chips de métodos disponíveis */}
       <div>
         <p className="text-xs font-medium text-gray-500 mb-2">Adicionar forma de pagamento</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2">
           {metodos.map((m) => (
             <button
               key={m.id}
