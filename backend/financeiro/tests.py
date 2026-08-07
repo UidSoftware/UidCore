@@ -790,3 +790,180 @@ class DashboardSaldoInlineRemovidoTest(TestCase):
             source,
             "Bloco inline de saldo ainda presente em dashboard_financeiro()",
         )
+
+
+class BalancoReferenciaMesFuturoTest(TestCase):
+    """
+    Manutencao #14 — Regime de competencia temporal no Balanco Patrimonial.
+
+    calcular_balanco(data_ref) so deve reconhecer Despesas/Receitas cujo
+    referencia_mes <= mes_ref. Compromisso contratual futuro (ex.: parcela
+    de dezembro cadastrada hoje) nao e divida/direito do mes corrente —
+    regime de competencia de verdade so reconhece a obrigacao no mes em que
+    o servico e prestado/consumido.
+
+    Sem esse corte, uma despesa recorrente cadastrada hoje com parcelas ate
+    dezembro infla artificialmente o Passivo Circulante e os lucros_acumulados
+    negativos — pode assustar o cliente com Runway/patrimonio liquido piores
+    do que a realidade.
+
+    calcular_fluxo_projetado() NAO e afetado por esta correcao — usa
+    vencimento dentro de janelas de dias (0-30/31-60/61-90), pergunta
+    diferente (quando o caixa sai/entra, nao quando a obrigacao foi incorrida).
+    """
+
+    def setUp(self):
+        self.conta = Conta.objects.create(
+            nome='Conta Teste Manutencao14',
+            tipo='CORRENTE',
+            saldo_inicial=Decimal('0'),
+        )
+        hoje = date.today()
+        self.mes_atual = date(hoje.year, hoje.month, 1)
+        # 3 meses no futuro — garante que nunca confunde com o mes corrente
+        mes_futuro_month = hoje.month + 3
+        mes_futuro_year = hoje.year
+        if mes_futuro_month > 12:
+            mes_futuro_month -= 12
+            mes_futuro_year += 1
+        self.mes_futuro = date(mes_futuro_year, mes_futuro_month, 1)
+
+    def test_ca_m14_01_despesa_futura_nao_aparece_em_contas_a_pagar(self):
+        """
+        CA-M14-01: Despesa PENDENTE com referencia_mes 3 meses no futuro
+        NAO deve aparecer em contas_a_pagar do balanco do mes atual.
+        """
+        from .relatorios import calcular_balanco
+        Despesa.objects.create(
+            descricao='Aluguel Dezembro (cadastrado em agosto)',
+            tipo='FIXA',
+            valor_bruto=Decimal('3000.00'),
+            conta=self.conta,
+            status='PENDENTE',
+            referencia_mes=self.mes_futuro,
+            vencimento=self.mes_futuro,
+        )
+        balanco = calcular_balanco()  # data_ref = hoje (mes atual)
+        self.assertEqual(
+            balanco['passivo']['circulante']['contas_a_pagar'],
+            Decimal('0'),
+            'Despesa de mes futuro nao deveria inflar contas_a_pagar do balanco atual',
+        )
+
+    def test_ca_m14_02_despesa_futura_nao_reduz_lucros_acumulados(self):
+        """
+        CA-M14-02: Despesa PENDENTE com referencia_mes futuro NAO deve
+        reduzir lucros_acumulados do balanco do mes atual.
+        """
+        from .relatorios import calcular_balanco
+        Despesa.objects.create(
+            descricao='Parcela Dezembro (cadastrada em agosto)',
+            tipo='FIXA',
+            valor_bruto=Decimal('5000.00'),
+            conta=self.conta,
+            status='PENDENTE',
+            referencia_mes=self.mes_futuro,
+            vencimento=self.mes_futuro,
+        )
+        balanco = calcular_balanco()
+        # Sem nenhuma receita, lucros_acumulados deve ser 0 (nao negativo pela despesa futura)
+        self.assertEqual(
+            balanco['patrimonio_liquido']['lucros_acumulados'],
+            Decimal('0'),
+            'Despesa de mes futuro nao deveria reduzir lucros_acumulados do balanco atual',
+        )
+
+    def test_ca_m14_03_despesa_futura_aparece_com_data_ref_futura(self):
+        """
+        CA-M14-03: A mesma Despesa PENDENTE com referencia_mes futuro DEVE
+        aparecer em contas_a_pagar quando calcular_balanco() e chamado com
+        data_ref no mes de referencia da despesa.
+        """
+        from .relatorios import calcular_balanco
+        Despesa.objects.create(
+            descricao='Aluguel Futuro',
+            tipo='FIXA',
+            valor_bruto=Decimal('3000.00'),
+            conta=self.conta,
+            status='PENDENTE',
+            referencia_mes=self.mes_futuro,
+            vencimento=self.mes_futuro,
+        )
+        # Balanco do mes futuro — despesa deve aparecer
+        balanco_futuro = calcular_balanco(data_ref=self.mes_futuro)
+        self.assertEqual(
+            balanco_futuro['passivo']['circulante']['contas_a_pagar'],
+            Decimal('3000.00'),
+            'Despesa deveria aparecer em contas_a_pagar quando data_ref alcanca o mes de referencia',
+        )
+
+    def test_ca_m14_04_despesa_mes_atual_ainda_aparece(self):
+        """
+        CA-M14-04: Despesa PENDENTE com referencia_mes no mes atual
+        DEVE aparecer normalmente em contas_a_pagar (corte nao remove o presente).
+        """
+        from .relatorios import calcular_balanco
+        Despesa.objects.create(
+            descricao='Despesa Mes Atual',
+            tipo='VARIAVEL',
+            valor_bruto=Decimal('1500.00'),
+            conta=self.conta,
+            status='PENDENTE',
+            referencia_mes=self.mes_atual,
+            vencimento=self.mes_atual,
+        )
+        balanco = calcular_balanco()
+        self.assertEqual(
+            balanco['passivo']['circulante']['contas_a_pagar'],
+            Decimal('1500.00'),
+        )
+
+    def test_ca_m14_05_receita_futura_nao_aparece_em_contas_a_receber(self):
+        """
+        CA-M14-05: Receita PENDENTE com referencia_mes 3 meses no futuro
+        NAO deve aparecer em contas_a_receber do balanco atual.
+        """
+        from .relatorios import calcular_balanco
+        Receita.objects.create(
+            descricao='Mensalidade Dezembro (cadastrada em agosto)',
+            tipo='MENSALIDADE',
+            valor_bruto=Decimal('2000.00'),
+            conta=self.conta,
+            status='PENDENTE',
+            referencia_mes=self.mes_futuro,
+            vencimento=self.mes_futuro,
+        )
+        balanco = calcular_balanco()
+        self.assertEqual(
+            balanco['ativo']['circulante']['contas_a_receber'],
+            Decimal('0'),
+            'Receita de mes futuro nao deveria inflar contas_a_receber do balanco atual',
+        )
+
+    def test_ca_m14_06_equacao_ok_com_despesa_futura(self):
+        """
+        CA-M14-06: equacao_ok deve permanecer True mesmo com Despesa futura
+        registrada — nao entra nem no passivo nem nos lucros_acumulados,
+        entao Ativo = Passivo + PL continua fechando.
+
+        setUp usa saldo_inicial=0 exatamente para garantir que a equacao
+        parte zerada e balanceada — so a Despesa futura poderia quebrá-la
+        se fosse incluída indevidamente em um dos lados (ex: passivo sem
+        entrar em lucros_acumulados). Com o filtro referencia_mes__lte=mes_ref,
+        ela nao entra em nenhum dos lados, entao 0 = 0 + 0 continua valendo.
+        """
+        from .relatorios import calcular_balanco
+        Despesa.objects.create(
+            descricao='Parcela Futura',
+            tipo='FIXA',
+            valor_bruto=Decimal('2000.00'),
+            conta=self.conta,
+            status='PENDENTE',
+            referencia_mes=self.mes_futuro,
+            vencimento=self.mes_futuro,
+        )
+        balanco = calcular_balanco()
+        self.assertTrue(
+            balanco['equacao_ok'],
+            'equacao_ok deve ser True — Ativo = Passivo + PL sem a despesa futura',
+        )
