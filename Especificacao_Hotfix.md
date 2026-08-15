@@ -1,258 +1,245 @@
-# Especificação — Manutenção #32 (revisão 2)
-**Elaborado por:** Analista (MODO HOTFIX — reanálise após rascunho anterior)
+# Especificação — Manutenção #33
+**Elaborado por:** Analista (MODO HOTFIX)
 **Data:** 2026-08-15
 **Sistema:** UidCore (OS #7)
-**Solicitação original:** "Em novo orcamento e novo pedido vincular campo produtos aos produtos do banco de dados igual em pdv."
+**Solicitação original:** "Dentro do módulo RH, trocar tudo que é 'Funcionarios'/'Funcionário' por 'Colaboradores'/'Colaborador' — tanto no backend quanto no frontend."
 
-**Contexto adicional do Planner (repassado nesta rodada):**
-> Backend: ItemOrcamento e ItemPedido já têm ForeignKey para produtos.Produto.
-> Serializers: produto (writable) e produto_nome (read-only) já presentes.
-> Frontend Vendas.jsx: ProdutoAutocomplete e SecaoItens já existem, buscam /api/v1/produtos/.
-> Manutenção 12 corrigiu race conditions mas usuário reporta que **ainda não funciona
-> igual ao PDV**.
+**Contexto adicional do Planner (repassado nesta rodada, usado como base — não
+re-investigado do zero):** backend já renomeado (model, serializer, viewset, url,
+migration), apenas o frontend (`Rh.jsx`) ainda usa os nomes antigos.
 
 ---
 
-## ⚠️ Estado encontrado no repositório antes de qualquer trabalho novo
+## Classificação
 
-`git status` mostra **alterações não commitadas** em `frontend/src/pages/Vendas.jsx` e
-neste mesmo `Especificacao_Hotfix.md` — ou seja, já existia um primeiro ciclo desta
-mesma Manutenção #32 que chegou a ser parcialmente executado (Analista + Loom) mas
-nunca foi commitado, nunca passou por Sentinel, nunca foi deployado.
-
-O que já está implementado no working tree (não commitado):
-- `ProdutoAutocomplete` (usado dentro de cada linha de item) ganhou `position: fixed`
-  com coordenadas calculadas via `getBoundingClientRect()` (comentários `// Fix M32`
-  no código) — corrige o dropdown sendo cortado pelo `overflow-y-auto` do `Modal`,
-  mesmo padrão de bug já visto em PDV nas Manutenções #23 e #24.
-
-**Forge/Loom: revisar `git diff -- frontend/src/pages/Vendas.jsx` antes de começar.**
-Esse fix de posicionamento é válido e deve ser **mantido e commitado** junto com o
-trabalho desta revisão — não descartar, não refazer do zero.
-
-Esse fix sozinho, porém, **não resolve a reclamação do usuário**. Ele corrige um bug de
-CSS, mas o usuário está comparando o *fluxo de uso*, não o CSS. A causa raiz real está
-descrita abaixo.
+```
+tipo: melhoria_ux (rename de nomenclatura de domínio — sem mudança de regra de negócio)
+sistema: UidCore
+caminho_afetado: módulo RH — backend/rh/* (já concluído) + frontend/src/pages/Rh.jsx (pendente)
+complexidade: baixa
+requer_aprovacao_comercial: false
+```
 
 ---
 
-## Diagnóstico — por que "ainda não funciona igual ao PDV"
+## Diagnóstico confirmado (leitura direta dos arquivos)
 
-### Backend: confirmado correto, sem alteração necessária
-- `ProdutoViewSet.search_fields = ['nome', 'codigo_barras']` — mesmo endpoint usado
-  pelo PDV (`GET /api/v1/produtos/?search=<termo>`).
-- `ItemOrcamento.produto` / `ItemPedido.produto` são FK `null=True, blank=True` para
-  `produtos.Produto`.
-- `ItemOrcamentoSerializer` / `ItemPedidoSerializer` expõem `produto` (writable, é o
-  FK id) e `produto_nome` (read-only, `source='produto.nome'`).
-- `ProdutoSerializer` já retorna `quantidade_estoque`, `codigo_barras`, `preco_venda` —
-  os mesmos campos que o PDV consome.
+### Backend — 100% renomeado, nenhuma ação necessária nesta manutenção
 
-**Conclusão: o vínculo com o banco de dados já funciona tecnicamente.** Um produto
-selecionado no autocomplete de Vendas.jsx é salvo com o `produto_id` correto — os
-testes de API (CA-03/CA-04 abaixo) confirmam isso. O problema não é "não vincula ao
-banco", é "a experiência de buscar/selecionar não é igual ao PDV".
+Confirmado lendo `backend/rh/serializers.py`, `backend/rh/urls.py`,
+`backend/rh/migrations/0003_rename_funcionario_to_colaborador.py` e
+`backend/rh/tests.py`:
 
-### Comparação estrutural real: Vendas.jsx vs PDV (FrenteDeCaixa.jsx)
+- Model: `Colaborador` (não mais `Funcionario`)
+- `ColaboradorSerializer` expõe `cargo_nome`, `regime_label` — sem qualquer traço de
+  `funcionario`
+- `FolhaPagamentoSerializer` e `RegistroFeriasSerializer` expõem o campo FK como
+  `colaborador` (writable) e `colaborador_nome` (read-only, `source='colaborador.nome'`)
+  — **não** `funcionario`/`funcionario_nome`
+- `ColaboradorViewSet` registrado em `backend/rh/urls.py` na rota
+  `router.register(r'colaboradores', views.ColaboradorViewSet, basename='colaborador')`
+  → endpoint real: **`/api/v1/rh/colaboradores/`**
+- Migration `0003_rename_funcionario_to_colaborador.py` presente com `RenameModel`,
+  `AlterModelTable` (`rh_funcionario` → `rh_colaborador`), `AlterField` do
+  `related_name` (`funcionarios` → `colaboradores`) e `RenameField` em
+  `FolhaPagamento.funcionario` → `colaborador` e `RegistroFerias.funcionario` →
+  `colaborador` — sem perda de dados (rename puro de tabela/coluna)
+- `backend/rh/tests.py` já usa `Colaborador`, `_make_colaborador()`,
+  `ColaboradorModelTest`, `ColaboradorAPITest`, e chama
+  `/api/v1/rh/colaboradores/` nos testes de API — nenhuma referência residual a
+  `funcionario`/`Funcionario` encontrada no arquivo
 
-| Aspecto | PDV — `FrenteDeCaixa.jsx` | Vendas.jsx (atual) |
-|---|---|---|
-| Ponto de entrada da busca | Campo único, fixo, sempre visível no topo da tela | É preciso clicar **"+ Adicionar Item" primeiro** para abrir uma linha vazia — só então aparece um campo de busca, um por linha |
-| Resultado da busca | Nome + preço + **estoque** (`quantidade_estoque`), badge "Sem estoque" | Nome + preço apenas — sem indicador de estoque |
-| Ação ao selecionar | Clique adiciona **direto ao carrinho** (a linha nasce junto com a seleção) | Clique só **preenche os campos de uma linha que já precisava existir antes** |
-| Atalho de teclado | Enter com match exato de `codigo_barras` adiciona sem clique (RF-17) | Não existe — só funciona com clique do mouse |
-| Tamanho mínimo de busca | Qualquer texto não vazio dispara a busca | Exige 2+ caracteres |
+**Ação do Forge nesta manutenção:** apenas confirmar que a migration
+`0003_rename_funcionario_to_colaborador.py` foi de fato **aplicada** no banco de
+produção (`python manage.py showmigrations rh` ou equivalente via container) antes do
+Sentinel validar. Não escrever código novo de backend — o rename já está completo.
 
-**Causa raiz real:** não é (só) o dropdown cortado — é o **modelo de interação**.
-No PDV: *buscar → clicar → já está na lista*. Em Vendas: *criar linha vazia → buscar
-dentro dela → clicar*. Um usuário que conhece o PDV e vai usar Orçamento/Pedido sente
-que o produto "não vincula direto", porque a busca não é o primeiro passo do fluxo —
-é um passo escondido dentro de uma linha que ele precisa saber criar antes.
+### Frontend — pendente, único arquivo afetado: `frontend/src/pages/Rh.jsx`
 
----
-
-## Escopo da correção
-
-**Tipo de manutenção:** `melhoria_ux` (a funcionalidade existe e tecnicamente
-funciona — o problema é o padrão de interação divergente do PDV, já reportado mais de
-uma vez pelo mesmo cliente)
-
-**Complexidade:** `media` — um arquivo frontend, sem mudança de contrato de API, mas
-com reestruturação de componente (novo ponto de entrada de busca dentro de
-`SecaoItens`)
-
-**Aprovação comercial:** não requer
+Lido o arquivo inteiro (160 linhas). Todas as ocorrências de nomenclatura antiga estão
+concentradas neste arquivo, na aba de Colaboradores e nas duas telas dependentes
+(Folha de Pagamento e Férias, que referenciam colaborador via FK).
 
 ---
 
 ## Requisitos Funcionais
 
-### RF-01 (Must) — Commitar e validar o fix de posicionamento já rascunhado
-Manter o `position: fixed` + `getBoundingClientRect()` já presente no working tree do
-`ProdutoAutocomplete`. Não é trabalho novo — é validar que o rascunho não commitado
-está correto e incluí-lo nesta entrega.
-
-**CA-01:** Modal "Novo Orçamento" → dentro de uma linha de item → digitar no campo
-Produto → dropdown aparece **completo e clicável**, sem corte pelo Modal.
-**CA-02:** Mesmo comportamento em "Novo Pedido".
-
-### RF-02 (Must) — Campo "Buscar produto" no topo da seção Itens
-Adicionar, dentro de `SecaoItens`, um campo de busca único acima da lista de itens —
-mesmo padrão visual/comportamental do campo de busca do PDV: ícone de lupa, debounce
-300ms, **sem mínimo de caracteres** (dispara com qualquer texto não vazio, igual ao
-PDV — hoje o `ProdutoAutocomplete` de linha exige 2+ caracteres, mantém assim só para
-o autocomplete de linha existente, mas o campo novo segue o padrão do PDV), dropdown
-com nome + preço + **estoque** (`quantidade_estoque`), badge "Sem estoque" quando
-`quantidade_estoque <= 0` (mesmo texto e classes usadas em `FrenteDeCaixa.jsx`).
-
-**CA-03:** Buscar um produto existente no campo novo retorna resultados com nome,
-preço e indicador de estoque.
-
-### RF-03 (Must) — Selecionar no campo novo cria a linha automaticamente
-Ao clicar em um resultado do campo de busca do RF-02, uma nova linha de item deve ser
-adicionada **automaticamente** a `itens`, já preenchida:
-```js
-{
-  produto: produto.id,
-  produto_nome: produto.nome,
-  descricao: produto.nome,
-  quantidade: 1,
-  valor_unitario: String(produto.preco_venda || 0),
-  valor_total: (1 * (produto.preco_venda || 0)).toFixed(2),
-}
 ```
-Sem precisar clicar em "+ Adicionar Item" antes. Esse é o comportamento que espelha o
-PDV: buscar → clicar → item já está na lista.
+RF-01 (Must) - A aba do módulo RH atualmente rotulada "Funcionários" deve passar a
+               se chamar "Colaboradores" — label visível e key interna do TABS.
+RF-02 (Must) - O card/listagem de Colaboradores deve usar resource, título, texto do
+               botão de criação e texto de lista vazia com "Colaborador(es)" em vez
+               de "Funcionário(s)".
+RF-03 (Must) - O endpoint consumido pelo frontend para CRUD de colaboradores deve
+               apontar para /api/v1/rh/colaboradores/ (não mais /rh/funcionarios).
+RF-04 (Must) - As telas de Folha de Pagamento e Férias devem exibir a coluna/campo
+               relacionado ao colaborador com label "Colaborador" (não
+               "Funcionário"), consumindo o campo colaborador_nome do backend
+               (não mais funcionario_nome).
+RF-05 (Must) - Os formulários de criação/edição de Folha de Pagamento e Férias devem
+               enviar o campo colaborador (não funcionario) ao backend, com o
+               select-remote apontando para o endpoint rh/colaboradores.
+RF-06 (Should) - Nenhuma string visível ao usuário no módulo RH deve conter
+                 "Funcionário"/"Funcionários" após a mudança (varredura completa do
+                 arquivo, não só os campos citados no diagnóstico).
+```
 
-**CA-04:** Clicar num resultado do campo de busca novo cria uma linha de item
-preenchida (produto, nome, quantidade 1, valor unitário do produto, total calculado)
-sem nenhuma ação manual adicional.
-**CA-05:** Ao salvar o orçamento/pedido, o item criado assim é persistido via API com
-`produto` (FK) e `produto_nome` corretos (`GET /api/v1/vendas/orcamentos/{id}/itens/`
-e `GET /api/v1/vendas/pedidos/{id}/itens/`).
+## Regras de Negócio
 
-### RF-04 (Should) — Manter "+ Adicionar Item" para linha manual/avulsa
-Não remover o botão "+ Adicionar Item" — ele continua sendo o caminho para criar uma
-linha **sem produto vinculado** (item de descrição livre, ex: "Frete", "Serviço
-avulso"). O campo de busca do RF-02 é um atalho, não uma substituição.
-
-**CA-06:** Clicar em "+ Adicionar Item" continua criando uma linha vazia editável
-manualmente, como hoje.
-
-### RF-05 (Should) — Manter o autocomplete por linha para troca de produto
-O `ProdutoAutocomplete` já existente (corrigido pelo RF-01) continua disponível
-**dentro de cada linha**, permitindo trocar o produto vinculado de uma linha já
-criada — inclusive linhas criadas manualmente pelo RF-04 ou já persistidas (edição de
-orçamento/pedido existente).
-
-**CA-07:** Numa linha já criada, buscar e selecionar outro produto pelo autocomplete
-da própria linha continua funcionando (fluxo atual preservado).
-**CA-08:** Editar um orçamento/pedido já existente (itens com `id`, vindos da API)
-continua funcionando sem regressão — nem o RF-02/03 nem o RF-01 alteram esse fluxo.
-
-### RF-06 (Could) — Atalho de teclado (paridade com RF-17 do PDV)
-Enter no campo de busca do RF-02, com match exato de `codigo_barras`, adiciona o item
-direto — mesmo padrão do RF-17 do PDV (`FrenteDeCaixa.jsx`, `handleBuscaKeyDown`).
-Nice-to-have — não bloqueia a entrega desta manutenção se não houver tempo.
+```
+RN-01 - Rename é puramente de apresentação e de payload (label + nome de campo) —
+        nenhuma regra de cálculo, validação ou fluxo existente pode mudar de
+        comportamento (salário líquido, cálculo de dias de férias, soft delete,
+        unicidade de CPF permanecem exatamente como estão).
+RN-02 - O `key` interno da aba pode ser renomeado (ex.: 'funcionarios' →
+        'colaboradores') desde que a condição de renderização (`tab === '...'`) seja
+        atualizada de forma consistente — não há persistência de estado de aba entre
+        sessões, então não há risco de migração de dado de UI.
+```
 
 ---
 
-## Requisitos Não Funcionais
+## Especificação técnica — Frontend (Loom)
 
-- **RNF-01** — Sem alteração de backend, sem migration, sem endpoint novo. Endpoint
-  `/api/v1/produtos/` já é o mesmo consumido pelo PDV — nenhuma mudança de contrato.
-- **RNF-02** — Sem regressão nos 182 testes Django (backend intocado).
-- **RNF-03** — `npm run build` limpo, 0 erros.
-- **RNF-04** — Dark mode preservado — reutilizar os tokens `navy-*`/`violet-*` já
-  usados no restante de `Vendas.jsx` e em `FrenteDeCaixa.jsx` (não criar cores novas).
-- **RNF-05** — Fluxo de edição de orçamento/pedido já existente (itens já persistidos
-  com `id`, carregados via `GET .../itens/`) deve continuar funcionando sem regressão.
+Arquivo único: `frontend/src/pages/Rh.jsx`. Trocar **todas** as ocorrências abaixo
+(varredura RF-06 — não limitar aos pontos listados se houver outra ocorrência de
+"funcionario"/"Funcionário" no arquivo):
+
+### 1. Array `TABS` (linha 5)
+```diff
+- { key: 'funcionarios', label: 'Funcionários' },
++ { key: 'colaboradores', label: 'Colaboradores' },
+```
+
+### 2. Estado inicial da aba (linha 31)
+```diff
+- const [tab, setTab] = useState('funcionarios')
++ const [tab, setTab] = useState('colaboradores')
+```
+
+### 3. Condição de renderização da aba (linha 56)
+```diff
+- {tab === 'funcionarios' && (
++ {tab === 'colaboradores' && (
+```
+
+### 4. Bloco `ResourceCrud` de Colaboradores (linhas 57–83)
+```diff
+  <ResourceCrud
+-   resource="rh/funcionarios"
+-   title="Funcionários"
+-   createLabel="+ Novo Funcionário"
++   resource="rh/colaboradores"
++   title="Colaboradores"
++   createLabel="+ Novo Colaborador"
+    emptyIcon="👔"
+-   emptyText="Nenhum funcionário encontrado."
++   emptyText="Nenhum colaborador encontrado."
+    titleField="nome"
+    ...
+```
+(campos internos deste bloco — `nome`, `cpf`, `email`, `cargo`, `regime`,
+`salario_atual`, `data_admissao`, `data_demissao`, `observacoes` — **não mudam**,
+já são neutros em relação ao nome da entidade)
+
+### 5. Bloco `ResourceCrud` de Folha de Pagamento (linhas 107–132)
+```diff
+  columns={[
+-   { key: 'funcionario_nome', label: 'Funcionário' },
++   { key: 'colaborador_nome', label: 'Colaborador' },
+    ...
+  ]}
+  fields={[
+-   { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome' },
++   { name: 'colaborador', label: 'Colaborador', type: 'select-remote', endpoint: 'rh/colaboradores', labelField: 'nome' },
+    ...
+  ]}
+- emptyForm={{ funcionario: '', mes_referencia: '', salario_bruto: '', descontos: '0', status: 'ABERTA', observacoes: '' }}
++ emptyForm={{ colaborador: '', mes_referencia: '', salario_bruto: '', descontos: '0', status: 'ABERTA', observacoes: '' }}
+```
+```diff
+- titleField="funcionario_nome"
++ titleField="colaborador_nome"
+```
+
+### 6. Bloco `ResourceCrud` de Férias (linhas 134–157)
+```diff
+- titleField="funcionario_nome"
++ titleField="colaborador_nome"
+  columns={[
+-   { key: 'funcionario_nome', label: 'Funcionário' },
++   { key: 'colaborador_nome', label: 'Colaborador' },
+    ...
+  ]}
+  fields={[
+-   { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome' },
++   { name: 'colaborador', label: 'Colaborador', type: 'select-remote', endpoint: 'rh/colaboradores', labelField: 'nome' },
+    ...
+  ]}
+- emptyForm={{ funcionario: '', data_inicio: '', data_fim: '', status: 'AGENDADO' }}
++ emptyForm={{ colaborador: '', data_inicio: '', data_fim: '', status: 'AGENDADO' }}
+```
+
+### Fora do escopo (não tocar)
+- `emptyIcon="👔"` (emoji da aba de Colaboradores) — mantido, é decisão de projeto já
+  documentada (DIV-UI03, ver histórico de Manutenção #9/#10), não faz parte do pedido
+- Título e subtítulo da página ("Recursos Humanos", "Cadastro, folha de pagamento,
+  férias, admissão/demissão") — não mencionam "Funcionário", não precisam mudar
+- Abas "Cargos" e demais campos de `Cargo` — não referenciam colaborador, sem alteração
+- Qualquer outro arquivo do projeto — a busca do Planner e a leitura do Analista
+  confirmaram que `Rh.jsx` é o único ponto do frontend com nomenclatura antiga
+  relacionada a este módulo
 
 ---
 
-## Spec técnica frontend — detalhada
+## Especificação técnica — Backend (Forge)
 
-**Arquivo único:** `frontend/src/pages/Vendas.jsx`
+Nenhum código a escrever. Única verificação obrigatória antes do Sentinel:
 
-1. **Manter** o `ProdutoAutocomplete` como está no working tree atual (já com
-   `position: fixed`, `calcularPosicao`, `inputRef`, listeners de `scroll`/`resize`) —
-   isso resolve RF-01. Não reescrever esse componente além de revisão/validação.
-
-2. **Novo componente** dentro de `SecaoItens`, acima de `{itens.map(...)}` — pode se
-   chamar `BuscaProdutoRapida` — inspirado diretamente no bloco de busca de
-   `FrenteDeCaixa.jsx` (linhas ~384–454 do arquivo lido nesta análise):
-   - `useState` para `busca`, `resultados`, `buscando`
-   - `useEffect` com debounce 300ms chamando
-     `GET /api/v1/produtos/?search=<termo>&page_size=10` (mesmo endpoint, campos já
-     vêm prontos do `ProdutoSerializer` — nenhuma mudança de backend necessária)
-   - Dropdown com `nome`, `BRL(preco_venda)`, e bloco de estoque:
-     `parseFloat(p.quantidade_estoque || 0) <= 0` → badge vermelho "Sem estoque"
-     (mesmas classes Tailwind usadas no PDV); caso contrário mostrar
-     `{p.quantidade_estoque} {p.unidade_base}` em cinza — texto apenas informativo,
-     **não bloqueia adicionar** (diferente do PDV: orçamento/pedido não debita
-     estoque, é só um documento comercial — ver "Fora do escopo").
-
-3. **Callback de seleção:** `onAdicionar(produto)` chamado pelo componente novo deve
-   invocar uma função nova em `SecaoItens`, ex. `adicionarItemComProduto(produto)`,
-   que faz `setItens(prev => [...prev, { ... })` conforme o objeto especificado no
-   RF-03.
-
-4. **Posicionamento do componente novo:** logo abaixo do cabeçalho "Itens" / botão
-   "+ Adicionar Item" (que continua existindo, RF-04), acima da lista de linhas já
-   adicionadas — mesmo lugar visual que o campo de busca ocupa no topo do PDV.
-
-5. **Reaproveitar** `BRL()` já definido no topo do arquivo — não duplicar.
+```
+FORGE-01 - Confirmar que a migration 0003_rename_funcionario_to_colaborador.py
+           está aplicada no banco (ambiente de teste e, após deploy, produção).
+           Se estiver pendente, aplicar (`python manage.py migrate rh`) — não
+           editar o arquivo de migration, ele já está correto.
+```
 
 ---
 
-## Fora do escopo (explicitamente)
+## Critérios de Aceite (para o Sentinel)
 
-- Débito/reserva de estoque a partir de Orçamento ou Pedido — isso só acontece no PDV
-  (`adicionarProduto` do PDV cria a venda e o item já debitam via backend do módulo
-  `pdv`). Orçamento e Pedido são documentos comerciais, não movimentam estoque — o
-  indicador "Sem estoque" no RF-02 é só informativo.
-- Leitor de câmera / scanner físico em Orçamento/Pedido — fora do escopo. O RF-06
-  (Could) cobre apenas o atalho de teclado por match exato, não a câmera.
-- Qualquer alteração em `frontend/src/pages/pdv/**` — o PDV está funcionando, é usado
-  aqui só como referência de padrão a seguir.
-- Persistência incremental por item (POST imediato a cada item, como o PDV faz) —
-  fora de escopo nesta rodada. Orçamento/Pedido novos ainda não têm `id` até o
-  formulário ser submetido, então os itens continuam sendo acumulados em estado local
-  e enviados em lote no `handleSubmit` (comportamento atual mantido, RNF-05).
-
----
-
-## Riscos e dependências
-
-- **Trabalho não commitado já existe no working tree** (`Vendas.jsx` e este próprio
-  `Especificacao_Hotfix.md`) — Forge/Loom deve rodar `git diff -- frontend/src/pages/Vendas.jsx`
-  antes de começar, para não perder o fix de posicionamento (RF-01) já rascunhado nem
-  duplicar esforço.
-- Existe um arquivo **untracked** `backend/test_whitelist_pdv.py` solto no repositório
-  (resíduo já documentado da Manutenção #22, no histórico do `CLAUDE.md` do projeto) —
-  não faz parte deste escopo, não tocar.
-- Esta é a **segunda vez** que este mesmo pedido chega à esteira (o rascunho anterior
-  só cobria RF-01) — recomenda-se ao Sentinel validar explicitamente o fluxo completo
-  ponta a ponta (criar orçamento novo, buscar produto pelo campo novo, confirmar item
-  criado automaticamente, salvar, conferir via API) antes de aprovar, para evitar uma
-  terceira rodada pela mesma reclamação.
+```
+CA-01 - Aba do módulo RH exibe "Colaboradores" (não "Funcionários")
+CA-02 - Botão de criação exibe "+ Novo Colaborador"
+CA-03 - Lista vazia exibe "Nenhum colaborador encontrado."
+CA-04 - Listagem/criação/edição/exclusão de colaborador funciona via
+        GET/POST/PATCH/DELETE em /api/v1/rh/colaboradores/ (sem 404, sem chamada
+        residual a /rh/funcionarios/)
+CA-05 - Tela de Folha de Pagamento exibe coluna "Colaborador" e o formulário de
+        criação usa select-remote apontando para rh/colaboradores, salvando
+        corretamente o campo colaborador (FK)
+CA-06 - Tela de Férias exibe coluna "Colaborador" e o formulário de criação usa
+        select-remote apontando para rh/colaboradores, salvando corretamente o
+        campo colaborador (FK)
+CA-07 - grep -in "funcionario" em frontend/src/pages/Rh.jsx retorna vazio após a
+        alteração (varredura completa, RF-06)
+CA-08 - Suite backend/rh/tests.py continua 100% passando (já usa nomenclatura
+        Colaborador — não deve haver regressão, backend não é alterado nesta
+        manutenção além da verificação FORGE-01)
+CA-09 - Nenhuma regressão em Cargo (aba e CRUD não tocados por esta manutenção)
+```
 
 ---
 
-## Critérios de aceite — checklist Sentinel
+## Observações finais do Analista
 
-- [ ] CA-01: dropdown do `ProdutoAutocomplete` (dentro da linha) aparece completo, sem
-      corte, em Orçamento
-- [ ] CA-02: idem em Pedido
-- [ ] CA-03: campo de busca novo (RF-02) retorna nome, preço e estoque
-- [ ] CA-04: clicar num resultado do campo novo cria linha de item já preenchida, sem
-      precisar de "+ Adicionar Item" antes
-- [ ] CA-05: item criado assim é persistido com `produto` (FK) e `produto_nome`
-      corretos via API, tanto em Orçamento quanto em Pedido
-- [ ] CA-06: "+ Adicionar Item" continua criando linha manual sem produto
-- [ ] CA-07: autocomplete de linha (RF-05) continua permitindo trocar produto de uma
-      linha já criada
-- [ ] CA-08: edição de orçamento/pedido existente sem regressão
-- [ ] RNF-01: 182 testes Django passando (backend intocado)
-- [ ] RNF-02: `npm run build` limpo
-- [ ] RNF-03: dark mode preservado (tokens navy/violet)
+- Este é um rename simples de UI + payload, sem risco de regra de negócio — mas o
+  pipeline completo (Forge confirma migration → Loom altera `Rh.jsx` → Sentinel roda
+  suite + valida CA-01 a CA-09 → Pilot deploya) deve ser seguido normalmente. Tamanho
+  pequeno não dispensa nenhuma etapa da esteira.
+- Não há lacuna a confirmar com o cliente — o pedido é objetivo e o diagnóstico do
+  Planner already cobre 100% dos pontos de mudança necessários no frontend.
+
+---
+
+➡️ **Planner: rotear para Pipeline C (feature/rename pequena) — Forge (verificação de
+migration) + Loom (Rh.jsx) em paralelo → Sentinel → Pilot.**
