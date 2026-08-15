@@ -25,12 +25,12 @@ class RegimeTrabalhista(models.TextChoices):
     SOCIO   = 'SOCIO',   'Socio'
 
 
-class Funcionario(BaseModel):
+class Colaborador(BaseModel):
     nome           = models.CharField(max_length=255, blank=True)
     cpf            = models.CharField(max_length=11, unique=True, null=True, blank=True)
     email          = models.EmailField(blank=True)
     cargo          = models.ForeignKey(
-        Cargo, null=True, blank=True, on_delete=models.PROTECT, related_name='funcionarios',
+        Cargo, null=True, blank=True, on_delete=models.PROTECT, related_name='colaboradores',
     )
     data_admissao  = models.DateField(null=True, blank=True)
     data_demissao  = models.DateField(null=True, blank=True)
@@ -41,7 +41,7 @@ class Funcionario(BaseModel):
     observacoes    = models.TextField(blank=True)
 
     class Meta:
-        db_table = 'rh_funcionario'
+        db_table = 'rh_colaborador'
         ordering = ['nome']
 
     def __str__(self):
@@ -55,8 +55,8 @@ class StatusFolha(models.TextChoices):
 
 
 class FolhaPagamento(BaseModel):
-    funcionario    = models.ForeignKey(
-        Funcionario, null=True, blank=True, on_delete=models.PROTECT, related_name='folhas',
+    colaborador    = models.ForeignKey(
+        Colaborador, null=True, blank=True, on_delete=models.PROTECT, related_name='folhas',
     )
     mes_referencia = models.DateField(null=True, blank=True)
     salario_bruto  = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -76,7 +76,7 @@ class FolhaPagamento(BaseModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.funcionario} — {self.mes_referencia.strftime("%m/%Y")}'
+        return f'{self.colaborador} — {self.mes_referencia.strftime("%m/%Y")}'
 
 
 class StatusFerias(models.TextChoices):
@@ -86,8 +86,8 @@ class StatusFerias(models.TextChoices):
 
 
 class RegistroFerias(BaseModel):
-    funcionario = models.ForeignKey(
-        Funcionario, null=True, blank=True, on_delete=models.PROTECT, related_name='ferias',
+    colaborador = models.ForeignKey(
+        Colaborador, null=True, blank=True, on_delete=models.PROTECT, related_name='ferias',
     )
     data_inicio = models.DateField(null=True, blank=True)
     data_fim    = models.DateField(null=True, blank=True)
@@ -106,4 +106,4 @@ class RegistroFerias(BaseModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f'{self.funcionario} — {self.data_inicio} a {self.data_fim}'
+        return f'{self.colaborador} — {self.data_inicio} a {self.data_fim}'
