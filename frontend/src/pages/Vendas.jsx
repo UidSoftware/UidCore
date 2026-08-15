@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Trash2 } from 'lucide-react'
+import { Trash2, Search } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -45,14 +45,45 @@ function ProdutoAutocomplete({ value, onChange, onSelect, onInvalidate }) {
   const [opcoes, setOpcoes] = useState([])
   const [aberto, setAberto] = useState(false)
   const [erroBusca, setErroBusca] = useState(null)
+  const [dropdownStyle, setDropdownStyle] = useState({})
   const debounceRef = useRef(null)
   const abortRef = useRef(null)   // Fix 1: AbortController para cancelar requests anteriores
   const selecionadoRef = useRef(false) // Fix 3: rastreia se ha produto selecionado vinculado
   const wrapRef = useRef(null)
+  const inputRef = useRef(null)   // Fix M32: ref no input para getBoundingClientRect
 
   useEffect(() => {
     setQuery(value || '')
   }, [value])
+
+  // Fix M32: calcula posicao fixed para escapar overflow do Modal
+  const calcularPosicao = useCallback(() => {
+    if (!inputRef.current) return
+    const rect = inputRef.current.getBoundingClientRect()
+    setDropdownStyle({
+      position: 'fixed',
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      zIndex: 9999,
+    })
+  }, [])
+
+  // Recalcula ao abrir o dropdown
+  useEffect(() => {
+    if (aberto) calcularPosicao()
+  }, [aberto, calcularPosicao])
+
+  // Reposiciona ao rolar ou redimensionar enquanto dropdown esta aberto
+  useEffect(() => {
+    if (!aberto) return
+    window.addEventListener('scroll', calcularPosicao, true)
+    window.addEventListener('resize', calcularPosicao)
+    return () => {
+      window.removeEventListener('scroll', calcularPosicao, true)
+      window.removeEventListener('resize', calcularPosicao)
+    }
+  }, [aberto, calcularPosicao])
 
   const buscar = (termo) => {
     clearTimeout(debounceRef.current)
@@ -120,6 +151,7 @@ function ProdutoAutocomplete({ value, onChange, onSelect, onInvalidate }) {
     <div ref={wrapRef} className="relative">
       <label className="text-sm font-medium text-gray-700 block mb-1 dark:text-slate-300">Produto</label>
       <input
+        ref={inputRef}
         type="text"
         value={query}
         onChange={handleInput}
@@ -130,8 +162,12 @@ function ProdutoAutocomplete({ value, onChange, onSelect, onInvalidate }) {
       {erroBusca && (
         <p className="text-xs text-red-600 mt-1 dark:text-red-400">{erroBusca}</p>
       )}
+      {/* Fix M32: position fixed para escapar overflow-y-auto do Modal — dropdown nao e mais clipado */}
       {aberto && opcoes.length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
+        <div
+          style={dropdownStyle}
+          className="bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-none"
+        >
           {opcoes.map((p) => (
             <button
               key={p.id}
@@ -149,12 +185,207 @@ function ProdutoAutocomplete({ value, onChange, onSelect, onInvalidate }) {
   )
 }
 
+// --- Busca rapida de produto (RF-02/RF-03/RF-06 — Manutencao 32) ---
+// Campo unico acima da lista de itens, mesmo padrao do PDV (FrenteDeCaixa.jsx):
+// buscar -> clicar -> item ja entra na lista, sem precisar de "+ Adicionar Item" antes.
+function BuscaProdutoRapida({ onAdicionar }) {
+  const [buscaRapida, setBuscaRapida] = useState('')
+  const [resultadosRapida, setResultadosRapida] = useState([])
+  const [buscandoRapida, setBuscandoRapida] = useState(false)
+  const [dropdownStyleRapida, setDropdownStyleRapida] = useState({})
+  const buscaRapidaRef = useRef(null)
+  const wrapRef = useRef(null)
+  const debounceRef = useRef(null)
+  const abortRef = useRef(null)
+
+  const abertoRapida = resultadosRapida.length > 0 || buscandoRapida
+
+  // Mesma tecnica de posicionamento do ProdutoAutocomplete (Fix M32) — escapa o
+  // overflow-y-auto do Modal.
+  const calcularPosicaoRapida = useCallback(() => {
+    if (!buscaRapidaRef.current) return
+    const rect = buscaRapidaRef.current.getBoundingClientRect()
+    setDropdownStyleRapida({
+      position: 'fixed',
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: rect.width,
+      zIndex: 9999,
+    })
+  }, [])
+
+  useEffect(() => {
+    if (abertoRapida) calcularPosicaoRapida()
+  }, [abertoRapida, calcularPosicaoRapida])
+
+  useEffect(() => {
+    if (!abertoRapida) return
+    window.addEventListener('scroll', calcularPosicaoRapida, true)
+    window.addEventListener('resize', calcularPosicaoRapida)
+    return () => {
+      window.removeEventListener('scroll', calcularPosicaoRapida, true)
+      window.removeEventListener('resize', calcularPosicaoRapida)
+    }
+  }, [abertoRapida, calcularPosicaoRapida])
+
+  const dispararBusca = useCallback((termo) => {
+    if (abortRef.current) abortRef.current.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    return api.get('/produtos/', { params: { search: termo, page_size: 10 }, signal: controller.signal })
+  }, [])
+
+  // RF-02: sem minimo de caracteres — dispara com qualquer texto nao vazio (diferente
+  // do ProdutoAutocomplete de linha, que exige 2+).
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    if (!buscaRapida.trim()) {
+      setResultadosRapida([])
+      setBuscandoRapida(false)
+      return
+    }
+    debounceRef.current = setTimeout(() => {
+      setBuscandoRapida(true)
+      dispararBusca(buscaRapida.trim())
+        .then((r) => setResultadosRapida(r.data.results || r.data || []))
+        .catch((err) => {
+          if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') return
+          setResultadosRapida([])
+        })
+        .finally(() => setBuscandoRapida(false))
+    }, 300)
+    return () => clearTimeout(debounceRef.current)
+  }, [buscaRapida, dispararBusca])
+
+  const handleSelecionarRapida = (produto) => {
+    if (abortRef.current) abortRef.current.abort()
+    onAdicionar(produto)
+    setBuscaRapida('')
+    setResultadosRapida([])
+    setBuscandoRapida(false)
+  }
+
+  // RF-06 (Could): Enter com match exato de codigo_barras adiciona direto — mesmo
+  // padrao de handleBuscaKeyDown em FrenteDeCaixa.jsx.
+  const handleKeyDownRapida = async (e) => {
+    if (e.key !== 'Enter') return
+    const termo = buscaRapida.trim()
+    if (!termo) return
+
+    const exatosAtuais = resultadosRapida.filter((p) => p.codigo_barras === termo)
+    if (exatosAtuais.length === 1) {
+      handleSelecionarRapida(exatosAtuais[0])
+      return
+    }
+
+    clearTimeout(debounceRef.current)
+    setBuscandoRapida(true)
+    try {
+      const r = await dispararBusca(termo)
+      const lista = r.data.results || r.data || []
+      setResultadosRapida(lista)
+      const exatos = lista.filter((p) => p.codigo_barras === termo)
+      if (exatos.length === 1) {
+        handleSelecionarRapida(exatos[0])
+      }
+    } catch (err) {
+      if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') return
+      setResultadosRapida([])
+    } finally {
+      setBuscandoRapida(false)
+    }
+  }
+
+  // Fechar ao clicar fora — mesmo padrao do ProdutoAutocomplete
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        if (abortRef.current) abortRef.current.abort()
+        setResultadosRapida([])
+        setBuscandoRapida(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={wrapRef} className="relative mb-3">
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none" />
+        <input
+          ref={buscaRapidaRef}
+          type="text"
+          value={buscaRapida}
+          onChange={(e) => setBuscaRapida(e.target.value)}
+          onKeyDown={handleKeyDownRapida}
+          placeholder="Buscar produto para adicionar..."
+          className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
+          autoComplete="off"
+        />
+      </div>
+      {abertoRapida && (
+        <div
+          style={dropdownStyleRapida}
+          className="bg-white rounded-lg shadow-lg border border-gray-200 max-h-64 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-none"
+        >
+          {buscandoRapida && (
+            <div className="px-4 py-3 text-sm text-gray-400 dark:text-slate-500 text-center">Buscando...</div>
+          )}
+          {!buscandoRapida && resultadosRapida.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onMouseDown={() => handleSelecionarRapida(p)}
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left transition-colors dark:hover:bg-navy-700 dark:border-navy-700"
+            >
+              <div className={parseFloat(p.quantidade_estoque || 0) <= 0 ? 'opacity-50' : ''}>
+                <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{p.nome}</p>
+                {p.codigo_barras && (
+                  <p className="text-xs text-gray-400 dark:text-slate-500">{p.codigo_barras}</p>
+                )}
+              </div>
+              <div className="text-right shrink-0 ml-3">
+                <p className="text-sm font-mono font-medium text-gray-900 dark:text-slate-100">{BRL(p.preco_venda)}</p>
+                {parseFloat(p.quantidade_estoque || 0) <= 0 ? (
+                  <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
+                    Sem estoque
+                  </span>
+                ) : (
+                  <p className="text-xs text-gray-400 dark:text-slate-500">{p.quantidade_estoque} {p.unidade_base}</p>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // --- Secao de Itens ---
 function SecaoItens({ itens, setItens }) {
   const totalGeral = itens.reduce((s, it) => s + (Number(it.valor_total) || 0), 0)
 
   const addItem = () => {
     setItens((prev) => [...prev, { ...EMPTY_ITEM }])
+  }
+
+  // RF-03: selecionar no campo de busca rapida cria a linha ja preenchida,
+  // sem precisar clicar em "+ Adicionar Item" antes — espelha o fluxo do PDV.
+  const adicionarItemComProduto = (produto) => {
+    const preco = Number(produto.preco_venda || 0)
+    setItens((prev) => [
+      ...prev,
+      {
+        produto: produto.id,
+        produto_nome: produto.nome,
+        descricao: produto.nome,
+        quantidade: 1,
+        valor_unitario: String(preco),
+        valor_total: Number((1 * preco).toFixed(2)),
+      },
+    ])
   }
 
   const removeItem = (idx) => {
@@ -221,6 +452,8 @@ function SecaoItens({ itens, setItens }) {
           + Adicionar Item
         </button>
       </div>
+
+      <BuscaProdutoRapida onAdicionar={adicionarItemComProduto} />
 
       {itens.length === 0 && (
         <p className="text-xs text-gray-400 dark:text-slate-500">Nenhum item adicionado.</p>

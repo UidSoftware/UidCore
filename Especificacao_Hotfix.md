@@ -1,253 +1,258 @@
-# Especificacao Hotfix — Manutencao #31 UidCore
+# Especificação — Manutenção #32 (revisão 2)
+**Elaborado por:** Analista (MODO HOTFIX — reanálise após rascunho anterior)
+**Data:** 2026-08-15
+**Sistema:** UidCore (OS #7)
+**Solicitação original:** "Em novo orcamento e novo pedido vincular campo produtos aos produtos do banco de dados igual em pdv."
 
-**Elaborado por:** Analista (MODO manutencao — MODO ESTEIRA EM FILA, etapa ORDEM_CRIADA)
-**Data:** 2026-08-14
-**Atualizado em:** 2026-08-14 (re-execucao ORDEM_CRIADA — verificacao pos-Loom)
-**Sistema:** UidCore
-**Modulo:** Tema visual (frontend) — Dark Mode + Toggle Dia/Noite
-**Tipo:** `feature_pequena` (mudanca de UI/tema, sem alteracao de modelo de dados ou regra de negocio backend)
-**Complexidade:** media (volume alto de arquivos tocados — todos os componentes de UI — mas mudanca mecanica, sem risco de dado)
-**requer_aprovacao_comercial:** false (ajuste de UX dentro do sistema ja contratado, nao amplia escopo de contrato)
-**Fontes lidas:** CLAUDE.md do projeto, `design_system.md`, `frontend/tailwind.config.js`,
-`frontend/index.html`, `frontend/src/index.css`, `frontend/src/hooks/useTheme.js`,
-`frontend/src/components/layout/Sidebar.jsx`, `frontend/src/components/layout/Header.jsx`,
-`frontend/src/components/layout/AppLayout.jsx`, `frontend/src/components/ui/*`,
-`Especificacao_UI_Hotfix.md` (Brush, mesma data), `git status`
+**Contexto adicional do Planner (repassado nesta rodada):**
+> Backend: ItemOrcamento e ItemPedido já têm ForeignKey para produtos.Produto.
+> Serializers: produto (writable) e produto_nome (read-only) já presentes.
+> Frontend Vendas.jsx: ProdutoAutocomplete e SecaoItens já existem, buscam /api/v1/produtos/.
+> Manutenção 12 corrigiu race conditions mas usuário reporta que **ainda não funciona
+> igual ao PDV**.
 
 ---
 
-## 0) Estado real do working tree (verificado nesta execucao)
+## ⚠️ Estado encontrado no repositório antes de qualquer trabalho novo
 
-Esta instancia do Analista verificou o working tree antes de escrever a spec.
-O quadro real ao entrar no estagio ORDEM_CRIADA:
+`git status` mostra **alterações não commitadas** em `frontend/src/pages/Vendas.jsx` e
+neste mesmo `Especificacao_Hotfix.md` — ou seja, já existia um primeiro ciclo desta
+mesma Manutenção #32 que chegou a ser parcialmente executado (Analista + Loom) mas
+nunca foi commitado, nunca passou por Sentinel, nunca foi deployado.
 
-### Infraestrutura de dark mode: JA IMPLEMENTADA CORRETAMENTE
+O que já está implementado no working tree (não commitado):
+- `ProdutoAutocomplete` (usado dentro de cada linha de item) ganhou `position: fixed`
+  com coordenadas calculadas via `getBoundingClientRect()` (comentários `// Fix M32`
+  no código) — corrige o dropdown sendo cortado pelo `overflow-y-auto` do `Modal`,
+  mesmo padrão de bug já visto em PDV nas Manutenções #23 e #24.
 
-| Arquivo | Estado | Verificacao |
+**Forge/Loom: revisar `git diff -- frontend/src/pages/Vendas.jsx` antes de começar.**
+Esse fix de posicionamento é válido e deve ser **mantido e commitado** junto com o
+trabalho desta revisão — não descartar, não refazer do zero.
+
+Esse fix sozinho, porém, **não resolve a reclamação do usuário**. Ele corrige um bug de
+CSS, mas o usuário está comparando o *fluxo de uso*, não o CSS. A causa raiz real está
+descrita abaixo.
+
+---
+
+## Diagnóstico — por que "ainda não funciona igual ao PDV"
+
+### Backend: confirmado correto, sem alteração necessária
+- `ProdutoViewSet.search_fields = ['nome', 'codigo_barras']` — mesmo endpoint usado
+  pelo PDV (`GET /api/v1/produtos/?search=<termo>`).
+- `ItemOrcamento.produto` / `ItemPedido.produto` são FK `null=True, blank=True` para
+  `produtos.Produto`.
+- `ItemOrcamentoSerializer` / `ItemPedidoSerializer` expõem `produto` (writable, é o
+  FK id) e `produto_nome` (read-only, `source='produto.nome'`).
+- `ProdutoSerializer` já retorna `quantidade_estoque`, `codigo_barras`, `preco_venda` —
+  os mesmos campos que o PDV consome.
+
+**Conclusão: o vínculo com o banco de dados já funciona tecnicamente.** Um produto
+selecionado no autocomplete de Vendas.jsx é salvo com o `produto_id` correto — os
+testes de API (CA-03/CA-04 abaixo) confirmam isso. O problema não é "não vincula ao
+banco", é "a experiência de buscar/selecionar não é igual ao PDV".
+
+### Comparação estrutural real: Vendas.jsx vs PDV (FrenteDeCaixa.jsx)
+
+| Aspecto | PDV — `FrenteDeCaixa.jsx` | Vendas.jsx (atual) |
 |---|---|---|
-| `tailwind.config.js` | Modificado (nao commitado) | `darkMode: 'class'` ✅, navy hex exatos do cliente ✅, violet ✅ |
-| `frontend/index.html` | Modificado (nao commitado) | Script anti-FOUC: `if (t !== 'light') classList.add('dark')` ← dark e o default ✅ |
-| `frontend/src/hooks/useTheme.js` | Novo (untracked) | `useState(() => document.documentElement.classList.contains('dark'))` — sincroniza com o script do html antes do React montar ✅ |
+| Ponto de entrada da busca | Campo único, fixo, sempre visível no topo da tela | É preciso clicar **"+ Adicionar Item" primeiro** para abrir uma linha vazia — só então aparece um campo de busca, um por linha |
+| Resultado da busca | Nome + preço + **estoque** (`quantidade_estoque`), badge "Sem estoque" | Nome + preço apenas — sem indicador de estoque |
+| Ação ao selecionar | Clique adiciona **direto ao carrinho** (a linha nasce junto com a seleção) | Clique só **preenche os campos de uma linha que já precisava existir antes** |
+| Atalho de teclado | Enter com match exato de `codigo_barras` adiciona sem clique (RF-17) | Não existe — só funciona com clique do mouse |
+| Tamanho mínimo de busca | Qualquer texto não vazio dispara a busca | Exige 2+ caracteres |
 
-**Hex da escala navy verificados contra o pedido do cliente:**
-
-| Token | Pedido | Implementado | Status |
-|---|---|---|---|
-| navy-950 | `#0a0f1e` | `#0a0f1e` | ✅ bate |
-| navy-900 | `#0f1729` | `#0f1729` | ✅ bate |
-| navy-800 | `#1a2540` | `#1a2540` | ✅ bate |
-| navy-700 | `#232f4d` | `#232f4d` | ✅ bate |
-
-**Nota:** o token `primary` (azul) NAO foi recalibrado para roxo — estrategia adotada foi criar
-escala `violet` paralela e usar `dark:bg-violet-*` / `dark:text-violet-*` nos componentes.
-Funcionalmente equivalente ao pedido, mais limpo para nao quebrar o light mode que ja usa
-`primary-600` em todo lugar.
-
-### Componentes e paginas: TODOS IMPLEMENTADOS (nao commitados)
-
-38 arquivos modificados com `dark:` aplicado — verificado em `git status` (re-verificacao pos-Loom).
-A cobertura foi verificada com `grep -c "dark:"` por arquivo.
-
-**Ja implementados (em working tree, pendentes de commit):**
-- Todos os componentes base: `AppLayout`, `Header`, `Sidebar`, `Card`, `Button`, `Input`,
-  `Select`, `Modal`, `Loading`, `Pagination`, `ResourceCrud`
-- Paginas com cobertura adequada: `Login`, `Dashboard`, `Financeiro` (162 ocorrencias),
-  `Clientes`, `Fornecedores`, `Vendas`, `Produtos`, `Conciliacao`, `Agendamento`,
-  `Pagamentos`, `Administrativo`, `Rh`, `Portal`
-- PDV COMPLETO: `AberturaCaixa`, `FechamentoCaixa`, `HistoricoVendas`,
-  `FrenteDeCaixa` (39 ocorrencias), `RelatorioSessoesCaixa` (89 ocorrencias),
-  `CarrinhoItem`, `ModalSangriaSuprimento`, `ModalScannerCamera`, `ResumoSessao`, `SplitPagamento`
-
-**IMPLEMENTACAO CONCLUIDA — 0 arquivos pendentes de dark mode**
-
-**Unico item restante antes do commit:**
-1. `design_system.md` — registrar paleta nova e reverter decisao arquitetural b)
-   ("UidCore usa tema claro... como padrao") para ("UidCore usa tema escuro como padrao,
-   a partir da Manutencao #31 — pedido do cliente 2026-08-14")
-   Verificado: 0 ocorrencias de navy/dark/violet no design_system.md atual.
+**Causa raiz real:** não é (só) o dropdown cortado — é o **modelo de interação**.
+No PDV: *buscar → clicar → já está na lista*. Em Vendas: *criar linha vazia → buscar
+dentro dela → clicar*. Um usuário que conhece o PDV e vai usar Orçamento/Pedido sente
+que o produto "não vincula direto", porque a busca não é o primeiro passo do fluxo —
+é um passo escondido dentro de uma linha que ele precisa saber criar antes.
 
 ---
 
-## 1) Contexto
+## Escopo da correção
 
-Sistema em producao com tema claro (`bg-gray-50`, paleta azul `primary-600 #2563eb`),
-documentado em `design_system.md` (secao b) como divergencia proposital do padrao escuro
-da Uid. Usuario reportou que o sistema esta "muito claro" e pediu tema escuro com paleta
-especifica (60% azul marinho / 30% roxo / 10% vermelho), com toggle dia/noite e **escuro
-como padrao na primeira visita** — o oposto do que estava documentado como decisao
-arquitetural ate agora.
+**Tipo de manutenção:** `melhoria_ux` (a funcionalidade existe e tecnicamente
+funciona — o problema é o padrão de interação divergente do PDV, já reportado mais de
+uma vez pelo mesmo cliente)
 
-**Nota sobre o conflito Brush x cliente:** a `Especificacao_UI_Hotfix.md` (Brush, mesma data)
-especificou light como padrao, citando a decisao arquitetural anterior. O pedido do cliente
-**E o proprio ADR que substitui essa decisao** — dark como padrao e o criterio de aceite
-explicitamente pedido e deve prevalecer. A implementacao atual do `index.html`/`useTheme.js`
-ja reflete o criterio correto (dark como default).
+**Complexidade:** `media` — um arquivo frontend, sem mudança de contrato de API, mas
+com reestruturação de componente (novo ponto de entrada de busca dentro de
+`SecaoItens`)
+
+**Aprovação comercial:** não requer
 
 ---
 
-## 2) Requisitos Funcionais
+## Requisitos Funcionais
 
-### RF-01 — Nova paleta de cores (tailwind.config.js)
+### RF-01 (Must) — Commitar e validar o fix de posicionamento já rascunhado
+Manter o `position: fixed` + `getBoundingClientRect()` já presente no working tree do
+`ProdutoAutocomplete`. Não é trabalho novo — é validar que o rascunho não commitado
+está correto e incluí-lo nesta entrega.
 
-**JA IMPLEMENTADA** em working tree. Tokens verificados:
+**CA-01:** Modal "Novo Orçamento" → dentro de uma linha de item → digitar no campo
+Produto → dropdown aparece **completo e clicável**, sem corte pelo Modal.
+**CA-02:** Mesmo comportamento em "Novo Pedido".
 
-| Token | Uso | Status |
-|---|---|---|
-| `navy-950` `#0a0f1e` | fundo da aplicacao | ✅ implementado |
-| `navy-900` `#0f1729` | sidebar, header | ✅ implementado |
-| `navy-800` `#1a2540` | superficies/cards | ✅ implementado |
-| `navy-700` `#232f4d` | bordas em fundo escuro | ✅ implementado |
-| `violet-700` `#6d28d9` | hover de acao | ✅ implementado |
-| `violet-600` `#7c3aed` | botao primario, tab ativa | ✅ implementado |
-| `violet-500` `#8b5cf6` | referencia intermediaria | ✅ implementado |
-| `violet-400` `#a78bfa` | link/texto de destaque em dark | ✅ implementado |
-| `red-600` `#dc2626` | danger/erro (uso restrito) | mantido — nenhum uso de vermelho fora de erro/perigo confirmado |
+### RF-02 (Must) — Campo "Buscar produto" no topo da seção Itens
+Adicionar, dentro de `SecaoItens`, um campo de busca único acima da lista de itens —
+mesmo padrão visual/comportamental do campo de busca do PDV: ícone de lupa, debounce
+300ms, **sem mínimo de caracteres** (dispara com qualquer texto não vazio, igual ao
+PDV — hoje o `ProdutoAutocomplete` de linha exige 2+ caracteres, mantém assim só para
+o autocomplete de linha existente, mas o campo novo segue o padrão do PDV), dropdown
+com nome + preço + **estoque** (`quantidade_estoque`), badge "Sem estoque" quando
+`quantidade_estoque <= 0` (mesmo texto e classes usadas em `FrenteDeCaixa.jsx`).
 
-**Loom NAO precisa alterar `tailwind.config.js`** — esta correto.
+**CA-03:** Buscar um produto existente no campo novo retorna resultados com nome,
+preço e indicador de estoque.
 
-### RF-02 — Migrar fundo/texto/superficies para o tema escuro
-
-**PARCIALMENTE IMPLEMENTADA** em working tree.
-
-Mapeamento completo de tokens ja especificado em `Especificacao_UI_Hotfix.md` secao 2 e 3.
-O que esta feito: ver secao 0 acima.
-
-**IMPLEMENTACAO CONCLUIDA** (verificado pos-Loom em 2026-08-14):
-
-#### FrenteDeCaixa.jsx (646 linhas) — IMPLEMENTADO
-39 ocorrencias de `dark:` confirmadas via `grep -c`. Tela principal do PDV coberta.
-
-#### RelatorioSessoesCaixa.jsx (506 linhas) — IMPLEMENTADO
-89 ocorrencias de `dark:` confirmadas via `grep -c`. Relatorio de sessoes coberto.
-
-### RF-03 — Toggle dia/noite
-
-**JA IMPLEMENTADO** em working tree:
-- Botao no Header com emoji sol/lua (☀️ quando dark, 🌙 quando light) ✅
-- `darkMode: 'class'` no Tailwind ✅
-- `localStorage` key `uidcore-theme` com persistencia ✅
-- **Tema padrao ESCURO** na primeira visita (sem localStorage previo) ✅
-  - `index.html`: `if (t !== 'light') classList.add('dark')` — correto
-  - `useTheme.js`: le estado inicial da classe ja aplicada no `<html>` — correto
-
-**Loom NAO precisa alterar** `index.html`, `useTheme.js` ou `Header.jsx` —
-os tres estao corretos.
-
-### RF-04 — Fontes (verificado, sem pendencia)
-
-- Google Fonts carregado em `index.html` (Plus Jakarta Sans + DM Sans) ✅
-- `tailwind.config.js` com `fontFamily.sans`/`body` corretos ✅
-- Nenhum Inter/Roboto/Arial em uso ✅
-- Divergencia nao-bloqueante registrada: DM Sans baixada mas nunca aplicada
-  (100% do texto usa Plus Jakarta Sans via `body { font-family }` em `index.css`) —
-  fora do escopo deste hotfix, registrado para proxima sprint.
-
----
-
-## 3) Regras de Negocio / UX
-
-- RN-01 — O sistema deve nascer em modo escuro para qualquer usuario que nunca alterou a
-  preferencia (primeiro acesso, cache limpo, ou navegador anonimo).
-- RN-02 — A escolha de tema e por navegador/dispositivo (via `localStorage`), nao por
-  usuario/conta.
-- RN-03 — Nenhuma tela pode ficar com texto ilegivel (contraste abaixo de AA — minimo 4.5:1)
-  em nenhum dos dois temas. Telas prioritarias: Login, Dashboard, Financeiro (incluindo
-  graficos), PDV/Frente de Caixa, Clientes, Agendamento.
-- RN-04 — O emoji sol/lua no toggle e uma decisao de produto deliberada — NUNCA substituir
-  por icone Lucide, mesmo que o resto do sistema use Lucide.
-- RN-05 — Os DOIS temas (claro existente + escuro novo) continuam funcionais. Nenhuma
-  classe light deve ser removida — apenas `dark:` adicionado em paralelo.
-
----
-
-## 4) Telas afetadas — status atual
-
-| Tela | Estado atual | Acao Loom |
-|---|---|---|
-| Login | Implementado (modificado, nao commitado) | verificar contraste |
-| Dashboard | Implementado (modificado, nao commitado) | verificar KPI cards |
-| Financeiro | Implementado (162 dark: classes, nao commitado) | verificar graficos |
-| PDV / Frente de Caixa | Implementado (39 dark:, nao commitado) | verificar contraste |
-| PDV / Relatorio Sessoes | Implementado (89 dark:, nao commitado) | verificar contraste |
-| PDV / outros (AberturaCaixa, FechamentoCaixa, HistoricoVendas) | Implementados | verificar |
-| PDV / componentes | Implementados (CarrinhoItem, SplitPagamento, etc.) | verificar |
-| Clientes | Implementado | verificar |
-| Agendamento | Implementado | verificar |
-| Sidebar / Header / AppLayout | Implementados, revisados — corretos | nenhuma |
-| design_system.md | Desatualizado — ainda registra "light como padrao" | **ATUALIZAR** |
-
----
-
-## 5) Spec Frontend — o que Loom precisa fazer
-
-**Nao alterar** (ja correto):
-- `tailwind.config.js` — tokens e darkMode corretos
-- `index.html` — script anti-FOUC correto (dark como default)
-- `frontend/src/hooks/useTheme.js` — correto
-- `frontend/src/components/layout/Header.jsx` — toggle correto
-- `frontend/src/components/layout/AppLayout.jsx` — correto
-- `frontend/src/components/layout/Sidebar.jsx` — correto
-- `frontend/src/components/ui/*` — todos corretos
-- Todas as paginas ja modificadas — verificar contraste, nao reescrever
-
-**IMPLEMENTACAO CONCLUIDA (pos-Loom, verificado 2026-08-14):**
-- Todos os componentes base: corretos
-- Todas as paginas (incluindo PDV completo): corretos
-- FrenteDeCaixa.jsx: 39 dark: ✅
-- RelatorioSessoesCaixa.jsx: 89 dark: ✅
-
-**UNICO ITEM RESTANTE (Loom deve fazer antes do commit):**
-1. `design_system.md` — secao b: reverter "light como padrao arquitetural" para
-   "dark como padrao a partir da Manutencao #31 (pedido do cliente, 2026-08-14)"
-   e documentar paleta navy/violet com os hex exatos
-
-**COMMITAR (Loom ou Pilot, apos design_system.md atualizado):**
-2. Commit unico com todos os arquivos modificados (38 arquivos) +
-   frontend/src/hooks/useTheme.js (novo, untracked) + design_system.md.
-   Mensagem sugerida:
-   `feat(frontend): dark mode completo + toggle dia/noite — Manutencao 31`
-
-**NAO ALTERAR:**
-- Nenhum arquivo de backend (`backend/`)
-- `Especificacao_Hotfix.md` e `Especificacao_UI_Hotfix.md` (documentos de especificacao)
-- `CLAUDE.md` (sera atualizado pelo Pilot apos deploy)
-
----
-
-## 6) Criterios de Aceite (Sentinel testa de verdade, nao so le codigo)
-
-- [ ] CA-01 — App abre em modo **escuro** por padrao em aba anonima (sem localStorage)
-- [ ] CA-02 — Toggle alterna claro/escuro e persiste apos F5 (reload da pagina)
-- [ ] CA-03 — Login: texto legivel nos dois temas; gradiente funcional em dark
-- [ ] CA-04 — Dashboard: KPI cards, tabelas e graficos legiveis em dark
-- [ ] CA-05 — Financeiro: graficos de barra (green-400/red-400) legiveis em navy; badges de status corretos
-- [ ] CA-06 — PDV / Frente de Caixa: nenhum texto branco sobre fundo branco; dropdowns de resultado visiveis; inputs legiveis em dark
-- [ ] CA-07 — Clientes e Agendamento: tabelas e formularios legiveis em dark
-- [ ] CA-08 — `npm run build` limpo, 0 erros
-- [ ] CA-09 — Testes Django: mesma contagem passando que antes (mudanca e so frontend)
-- [ ] CA-10 — Hex dos tokens navy confirmados em tailwind.config.js: 950/#0a0f1e, 900/#0f1729, 800/#1a2540, 700/#232f4d
-- [ ] CA-11 — `design_system.md` atualizado: paleta nova documentada + dark como default
-
-**Reprovacao automatica do Sentinel em qualquer um dos itens acima.**
-
----
-
-## Passagem de bastao
-
+### RF-03 (Must) — Selecionar no campo novo cria a linha automaticamente
+Ao clicar em um resultado do campo de busca do RF-02, uma nova linha de item deve ser
+adicionada **automaticamente** a `itens`, já preenchida:
+```js
+{
+  produto: produto.id,
+  produto_nome: produto.nome,
+  descricao: produto.nome,
+  quantidade: 1,
+  valor_unitario: String(produto.preco_venda || 0),
+  valor_total: (1 * (produto.preco_venda || 0)).toFixed(2),
+}
 ```
-✅ Analise concluida (atualizada pos-Loom) — UidCore (Manutencao #31, Dark Mode)
-   tipo: feature_pequena
-   descricao_tecnica: dark mode com paleta navy/roxo (60/30), toggle sol/lua,
-     escuro como padrao na primeira visita
-   estado_implementacao: COMPLETO (38 arquivos modificados + useTheme.js novo)
-   pendente_antes_do_commit: design_system.md (secao b desatualizada — 0 navy/dark no arquivo)
-   requer_aprovacao_comercial: false
+Sem precisar clicar em "+ Adicionar Item" antes. Esse é o comportamento que espelha o
+PDV: buscar → clicar → item já está na lista.
 
-➡️  Loom: atualizar design_system.md (secao b, paleta nova, dark como default),
-    depois commitar TUDO (38 modificados + useTheme.js untracked + design_system.md)
-    num commit unico. NÃO alterar nenhum .jsx — ja corretos.
+**CA-04:** Clicar num resultado do campo de busca novo cria uma linha de item
+preenchida (produto, nome, quantidade 1, valor unitário do produto, total calculado)
+sem nenhuma ação manual adicional.
+**CA-05:** Ao salvar o orçamento/pedido, o item criado assim é persistido via API com
+`produto` (FK) e `produto_nome` corretos (`GET /api/v1/vendas/orcamentos/{id}/itens/`
+e `GET /api/v1/vendas/pedidos/{id}/itens/`).
 
-➡️  Sentinel: validar 11 criterios de aceite (CA-01 a CA-11) — aprovacao bloqueia deploy.
-    Atencao especial: CA-11 (design_system.md atualizado) e CA-06 (PDV/FrenteDeCaixa
-    sem texto branco em fundo branco).
-```
+### RF-04 (Should) — Manter "+ Adicionar Item" para linha manual/avulsa
+Não remover o botão "+ Adicionar Item" — ele continua sendo o caminho para criar uma
+linha **sem produto vinculado** (item de descrição livre, ex: "Frete", "Serviço
+avulso"). O campo de busca do RF-02 é um atalho, não uma substituição.
+
+**CA-06:** Clicar em "+ Adicionar Item" continua criando uma linha vazia editável
+manualmente, como hoje.
+
+### RF-05 (Should) — Manter o autocomplete por linha para troca de produto
+O `ProdutoAutocomplete` já existente (corrigido pelo RF-01) continua disponível
+**dentro de cada linha**, permitindo trocar o produto vinculado de uma linha já
+criada — inclusive linhas criadas manualmente pelo RF-04 ou já persistidas (edição de
+orçamento/pedido existente).
+
+**CA-07:** Numa linha já criada, buscar e selecionar outro produto pelo autocomplete
+da própria linha continua funcionando (fluxo atual preservado).
+**CA-08:** Editar um orçamento/pedido já existente (itens com `id`, vindos da API)
+continua funcionando sem regressão — nem o RF-02/03 nem o RF-01 alteram esse fluxo.
+
+### RF-06 (Could) — Atalho de teclado (paridade com RF-17 do PDV)
+Enter no campo de busca do RF-02, com match exato de `codigo_barras`, adiciona o item
+direto — mesmo padrão do RF-17 do PDV (`FrenteDeCaixa.jsx`, `handleBuscaKeyDown`).
+Nice-to-have — não bloqueia a entrega desta manutenção se não houver tempo.
+
+---
+
+## Requisitos Não Funcionais
+
+- **RNF-01** — Sem alteração de backend, sem migration, sem endpoint novo. Endpoint
+  `/api/v1/produtos/` já é o mesmo consumido pelo PDV — nenhuma mudança de contrato.
+- **RNF-02** — Sem regressão nos 182 testes Django (backend intocado).
+- **RNF-03** — `npm run build` limpo, 0 erros.
+- **RNF-04** — Dark mode preservado — reutilizar os tokens `navy-*`/`violet-*` já
+  usados no restante de `Vendas.jsx` e em `FrenteDeCaixa.jsx` (não criar cores novas).
+- **RNF-05** — Fluxo de edição de orçamento/pedido já existente (itens já persistidos
+  com `id`, carregados via `GET .../itens/`) deve continuar funcionando sem regressão.
+
+---
+
+## Spec técnica frontend — detalhada
+
+**Arquivo único:** `frontend/src/pages/Vendas.jsx`
+
+1. **Manter** o `ProdutoAutocomplete` como está no working tree atual (já com
+   `position: fixed`, `calcularPosicao`, `inputRef`, listeners de `scroll`/`resize`) —
+   isso resolve RF-01. Não reescrever esse componente além de revisão/validação.
+
+2. **Novo componente** dentro de `SecaoItens`, acima de `{itens.map(...)}` — pode se
+   chamar `BuscaProdutoRapida` — inspirado diretamente no bloco de busca de
+   `FrenteDeCaixa.jsx` (linhas ~384–454 do arquivo lido nesta análise):
+   - `useState` para `busca`, `resultados`, `buscando`
+   - `useEffect` com debounce 300ms chamando
+     `GET /api/v1/produtos/?search=<termo>&page_size=10` (mesmo endpoint, campos já
+     vêm prontos do `ProdutoSerializer` — nenhuma mudança de backend necessária)
+   - Dropdown com `nome`, `BRL(preco_venda)`, e bloco de estoque:
+     `parseFloat(p.quantidade_estoque || 0) <= 0` → badge vermelho "Sem estoque"
+     (mesmas classes Tailwind usadas no PDV); caso contrário mostrar
+     `{p.quantidade_estoque} {p.unidade_base}` em cinza — texto apenas informativo,
+     **não bloqueia adicionar** (diferente do PDV: orçamento/pedido não debita
+     estoque, é só um documento comercial — ver "Fora do escopo").
+
+3. **Callback de seleção:** `onAdicionar(produto)` chamado pelo componente novo deve
+   invocar uma função nova em `SecaoItens`, ex. `adicionarItemComProduto(produto)`,
+   que faz `setItens(prev => [...prev, { ... })` conforme o objeto especificado no
+   RF-03.
+
+4. **Posicionamento do componente novo:** logo abaixo do cabeçalho "Itens" / botão
+   "+ Adicionar Item" (que continua existindo, RF-04), acima da lista de linhas já
+   adicionadas — mesmo lugar visual que o campo de busca ocupa no topo do PDV.
+
+5. **Reaproveitar** `BRL()` já definido no topo do arquivo — não duplicar.
+
+---
+
+## Fora do escopo (explicitamente)
+
+- Débito/reserva de estoque a partir de Orçamento ou Pedido — isso só acontece no PDV
+  (`adicionarProduto` do PDV cria a venda e o item já debitam via backend do módulo
+  `pdv`). Orçamento e Pedido são documentos comerciais, não movimentam estoque — o
+  indicador "Sem estoque" no RF-02 é só informativo.
+- Leitor de câmera / scanner físico em Orçamento/Pedido — fora do escopo. O RF-06
+  (Could) cobre apenas o atalho de teclado por match exato, não a câmera.
+- Qualquer alteração em `frontend/src/pages/pdv/**` — o PDV está funcionando, é usado
+  aqui só como referência de padrão a seguir.
+- Persistência incremental por item (POST imediato a cada item, como o PDV faz) —
+  fora de escopo nesta rodada. Orçamento/Pedido novos ainda não têm `id` até o
+  formulário ser submetido, então os itens continuam sendo acumulados em estado local
+  e enviados em lote no `handleSubmit` (comportamento atual mantido, RNF-05).
+
+---
+
+## Riscos e dependências
+
+- **Trabalho não commitado já existe no working tree** (`Vendas.jsx` e este próprio
+  `Especificacao_Hotfix.md`) — Forge/Loom deve rodar `git diff -- frontend/src/pages/Vendas.jsx`
+  antes de começar, para não perder o fix de posicionamento (RF-01) já rascunhado nem
+  duplicar esforço.
+- Existe um arquivo **untracked** `backend/test_whitelist_pdv.py` solto no repositório
+  (resíduo já documentado da Manutenção #22, no histórico do `CLAUDE.md` do projeto) —
+  não faz parte deste escopo, não tocar.
+- Esta é a **segunda vez** que este mesmo pedido chega à esteira (o rascunho anterior
+  só cobria RF-01) — recomenda-se ao Sentinel validar explicitamente o fluxo completo
+  ponta a ponta (criar orçamento novo, buscar produto pelo campo novo, confirmar item
+  criado automaticamente, salvar, conferir via API) antes de aprovar, para evitar uma
+  terceira rodada pela mesma reclamação.
+
+---
+
+## Critérios de aceite — checklist Sentinel
+
+- [ ] CA-01: dropdown do `ProdutoAutocomplete` (dentro da linha) aparece completo, sem
+      corte, em Orçamento
+- [ ] CA-02: idem em Pedido
+- [ ] CA-03: campo de busca novo (RF-02) retorna nome, preço e estoque
+- [ ] CA-04: clicar num resultado do campo novo cria linha de item já preenchida, sem
+      precisar de "+ Adicionar Item" antes
+- [ ] CA-05: item criado assim é persistido com `produto` (FK) e `produto_nome`
+      corretos via API, tanto em Orçamento quanto em Pedido
+- [ ] CA-06: "+ Adicionar Item" continua criando linha manual sem produto
+- [ ] CA-07: autocomplete de linha (RF-05) continua permitindo trocar produto de uma
+      linha já criada
+- [ ] CA-08: edição de orçamento/pedido existente sem regressão
+- [ ] RNF-01: 182 testes Django passando (backend intocado)
+- [ ] RNF-02: `npm run build` limpo
+- [ ] RNF-03: dark mode preservado (tokens navy/violet)
