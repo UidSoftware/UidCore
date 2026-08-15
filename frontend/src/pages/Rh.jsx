@@ -2,7 +2,7 @@ import { useState } from 'react'
 import ResourceCrud from '../components/ui/ResourceCrud.jsx'
 
 const TABS = [
-  { key: 'funcionarios', label: 'Funcionários' },
+  { key: 'colaboradores', label: 'Colaboradores' },
   { key: 'cargos', label: 'Cargos' },
   { key: 'folhas', label: 'Folha de Pagamento' },
   { key: 'ferias', label: 'Férias' },
@@ -28,7 +28,7 @@ const STATUS_FERIAS = [
 ]
 
 export default function Rh() {
-  const [tab, setTab] = useState('funcionarios')
+  const [tab, setTab] = useState('colaboradores')
 
   return (
     <div className="space-y-4">
@@ -53,13 +53,13 @@ export default function Rh() {
         ))}
       </div>
 
-      {tab === 'funcionarios' && (
+      {tab === 'colaboradores' && (
         <ResourceCrud
-          resource="rh/funcionarios"
-          title="Funcionários"
-          createLabel="+ Novo Funcionário"
+          resource="rh/colaboradores"
+          title="Colaboradores"
+          createLabel="+ Novo Colaborador"
           emptyIcon="👔"
-          emptyText="Nenhum funcionário encontrado."
+          emptyText="Nenhum colaborador encontrado."
           titleField="nome"
           columns={[
             { key: 'nome', label: 'Nome' },
@@ -111,23 +111,23 @@ export default function Rh() {
           createLabel="+ Nova Folha"
           emptyIcon="🧾"
           emptyText="Nenhuma folha encontrada."
-          titleField="funcionario_nome"
+          titleField="colaborador_nome"
           columns={[
-            { key: 'funcionario_nome', label: 'Funcionário' },
+            { key: 'colaborador_nome', label: 'Colaborador' },
             { key: 'mes_referencia', label: 'Mês', date: true },
             { key: 'salario_bruto', label: 'Bruto', money: true },
             { key: 'salario_liquido', label: 'Líquido', money: true },
             { key: 'status_label', label: 'Status', badge: true },
           ]}
           fields={[
-            { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome' },
+            { name: 'colaborador', label: 'Colaborador', type: 'select-remote', endpoint: 'rh/colaboradores', labelField: 'nome' },
             { name: 'mes_referencia', label: 'Mês de Referência', type: 'date' },
             { name: 'salario_bruto', label: 'Salário Bruto (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'descontos', label: 'Descontos (R$)', type: 'number', step: '0.01', min: '0' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_FOLHA },
             { name: 'observacoes', label: 'Observações', type: 'textarea' },
           ]}
-          emptyForm={{ funcionario: '', mes_referencia: '', salario_bruto: '', descontos: '0', status: 'ABERTA', observacoes: '' }}
+          emptyForm={{ colaborador: '', mes_referencia: '', salario_bruto: '', descontos: '0', status: 'ABERTA', observacoes: '' }}
         />
       )}
 
@@ -138,21 +138,21 @@ export default function Rh() {
           createLabel="+ Novo Registro"
           emptyIcon="🏖️"
           emptyText="Nenhum registro de férias encontrado."
-          titleField="funcionario_nome"
+          titleField="colaborador_nome"
           columns={[
-            { key: 'funcionario_nome', label: 'Funcionário' },
+            { key: 'colaborador_nome', label: 'Colaborador' },
             { key: 'data_inicio', label: 'Início', date: true },
             { key: 'data_fim', label: 'Fim', date: true },
             { key: 'dias', label: 'Dias' },
             { key: 'status_label', label: 'Status', badge: true },
           ]}
           fields={[
-            { name: 'funcionario', label: 'Funcionário', type: 'select-remote', endpoint: 'rh/funcionarios', labelField: 'nome' },
+            { name: 'colaborador', label: 'Colaborador', type: 'select-remote', endpoint: 'rh/colaboradores', labelField: 'nome' },
             { name: 'data_inicio', label: 'Data de Início', type: 'date' },
             { name: 'data_fim', label: 'Data de Fim', type: 'date' },
             { name: 'status', label: 'Status', type: 'select', options: STATUS_FERIAS },
           ]}
-          emptyForm={{ funcionario: '', data_inicio: '', data_fim: '', status: 'AGENDADO' }}
+          emptyForm={{ colaborador: '', data_inicio: '', data_fim: '', status: 'AGENDADO' }}
         />
       )}
     </div>
