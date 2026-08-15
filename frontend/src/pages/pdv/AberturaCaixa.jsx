@@ -93,13 +93,13 @@ export default function AberturaCaixa() {
   if (loadingContas) {
     return (
       <div className="flex items-center justify-center min-h-64">
-        <p className="text-gray-400 text-sm">Carregando...</p>
+        <p className="text-gray-400 text-sm dark:text-slate-500">Carregando...</p>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4 py-8 dark:bg-navy-950">
       {toast && (
         <div className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white ${
           toast.tipo === 'error' ? 'bg-red-600' : 'bg-accent-600'
@@ -111,16 +111,16 @@ export default function AberturaCaixa() {
       <div className="w-full max-w-md">
         {/* Aviso de sessão ativa em outra conta */}
         {sessaoAtiva && (
-          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm px-4 py-3">
+          <div className="mb-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-700 text-sm px-4 py-3 dark:bg-blue-950/40 dark:border-blue-800 dark:text-blue-300">
             <p className="font-medium">Você já tem uma sessão aberta.</p>
-            <p className="mt-1 text-blue-600">
+            <p className="mt-1 text-blue-600 dark:text-blue-400">
               Conta: {sessaoAtiva.conta_nome || `#${sessaoAtiva.conta}`} · Aberta às{' '}
               {new Date(sessaoAtiva.data_abertura).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
             </p>
             <button
               type="button"
               onClick={() => navigate('/pdv')}
-              className="mt-2 text-primary-600 text-sm font-medium hover:underline"
+              className="mt-2 text-primary-600 text-sm font-medium hover:underline dark:text-violet-400"
             >
               Ir para o caixa aberto
             </button>
@@ -128,17 +128,17 @@ export default function AberturaCaixa() {
         )}
 
         {/* Card de abertura */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
           <div className="text-center mb-6">
-            <Unlock size={32} className="mx-auto text-primary-600 mb-3" />
-            <h1 className="text-xl font-bold text-gray-900">Abrir Caixa</h1>
-            <p className="text-sm text-gray-500 mt-1">
+            <Unlock size={32} className="mx-auto text-primary-600 mb-3 dark:text-violet-400" />
+            <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Abrir Caixa</h1>
+            <p className="text-sm text-gray-500 mt-1 dark:text-slate-400">
               Selecione a conta e informe o valor de abertura
             </p>
           </div>
 
           {/* RF-21 — operador logado + data/hora atual */}
-          <div className="flex items-center justify-center gap-4 text-xs text-gray-500 pb-4 mb-4 border-b border-gray-100">
+          <div className="flex items-center justify-center gap-4 text-xs text-gray-500 pb-4 mb-4 border-b border-gray-100 dark:text-slate-400 dark:border-navy-700">
             <span className="flex items-center gap-1 truncate max-w-[140px]">
               <UserIcon size={12} /> {user?.nome_completo || user?.email || 'Operador'}
             </span>
@@ -150,14 +150,14 @@ export default function AberturaCaixa() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Conta */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Conta <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+                Conta <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <select
                 value={conta}
                 onChange={(e) => { setConta(e.target.value); setErrors((prev) => ({ ...prev, conta: undefined })) }}
-                className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
-                  errors.conta ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'
+                className={`w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors dark:text-slate-100 dark:focus:ring-violet-500 ${
+                  errors.conta ? 'border-red-500 bg-red-50 dark:border-red-500 dark:bg-red-950/40' : 'border-gray-300 bg-white dark:border-navy-500 dark:bg-navy-800'
                 }`}
               >
                 <option value="">Selecione...</option>
@@ -165,13 +165,13 @@ export default function AberturaCaixa() {
                   <option key={c.id} value={c.id}>{c.nome}</option>
                 ))}
               </select>
-              {errors.conta && <p className="mt-1 text-xs text-red-600">{errors.conta}</p>}
+              {errors.conta && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.conta}</p>}
             </div>
 
             {/* Valor de abertura */}
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Valor de Abertura (Fundo de Troco) <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-gray-700 mb-1 dark:text-slate-300">
+                Valor de Abertura (Fundo de Troco) <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <input
                 type="number"
@@ -180,11 +180,11 @@ export default function AberturaCaixa() {
                 value={valorAbertura}
                 onChange={(e) => setValorAbertura(e.target.value)}
                 placeholder="0,00"
-                className={`w-full rounded-lg border px-3 py-2 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors ${
-                  errors.valorAbertura ? 'border-red-500 bg-red-50' : 'border-gray-300 bg-white'
+                className={`w-full rounded-lg border px-3 py-2 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors dark:text-slate-100 dark:focus:ring-violet-500 ${
+                  errors.valorAbertura ? 'border-red-500 bg-red-50 dark:border-red-500 dark:bg-red-950/40' : 'border-gray-300 bg-white dark:border-navy-500 dark:bg-navy-800'
                 }`}
               />
-              {errors.valorAbertura && <p className="mt-1 text-xs text-red-600">{errors.valorAbertura}</p>}
+              {errors.valorAbertura && <p className="mt-1 text-xs text-red-600 dark:text-red-400">{errors.valorAbertura}</p>}
             </div>
 
             <Button

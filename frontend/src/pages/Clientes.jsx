@@ -271,8 +271,8 @@ export default function Clientes() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Clientes</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Gerencie sua base de clientes</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Clientes</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Gerencie sua base de clientes</p>
         </div>
         <Button onClick={openNew}>+ Novo Cliente</Button>
       </div>
@@ -288,9 +288,9 @@ export default function Clientes() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="flex justify-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : clientes.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
           <span className="text-4xl">👥</span>
           <p className="text-sm">Nenhum cliente encontrado.</p>
         </div>
@@ -302,36 +302,36 @@ export default function Clientes() {
               <Card key={c.id}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{c.nome_razao_social}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{c.nome_razao_social}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">
                       {c.tipo_pessoa_display || c.tipo_pessoa} &middot; {c.documento || '—'}
                     </p>
                   </div>
                   {c.segmento_display && (
-                    <span className="shrink-0 text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium">
+                    <span className="shrink-0 text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium dark:bg-violet-900/30 dark:text-violet-300">
                       {c.segmento_display}
                     </span>
                   )}
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-gray-600">
+                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-gray-600 dark:text-slate-400">
                   {(c.cidade || c.estado) && (
                     <div>
-                      <span className="text-gray-400">Cidade/UF</span>
-                      <p className="font-medium text-gray-800">
+                      <span className="text-gray-400 dark:text-slate-500">Cidade/UF</span>
+                      <p className="font-medium text-gray-800 dark:text-slate-200">
                         {[c.cidade, c.estado].filter(Boolean).join(' / ')}
                       </p>
                     </div>
                   )}
                   {c.telefone && (
                     <div>
-                      <span className="text-gray-400">Telefone</span>
-                      <p className="font-medium text-gray-800">{c.telefone}</p>
+                      <span className="text-gray-400 dark:text-slate-500">Telefone</span>
+                      <p className="font-medium text-gray-800 dark:text-slate-200">{c.telefone}</p>
                     </div>
                   )}
                   {c.email && (
                     <div className="col-span-2">
-                      <span className="text-gray-400">E-mail</span>
-                      <p className="font-medium text-gray-800 truncate">{c.email}</p>
+                      <span className="text-gray-400 dark:text-slate-500">E-mail</span>
+                      <p className="font-medium text-gray-800 truncate dark:text-slate-200">{c.email}</p>
                     </div>
                   )}
                 </div>
@@ -349,42 +349,42 @@ export default function Clientes() {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Nome</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Tipo</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Documento</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Segmento</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Cidade/UF</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Contato</th>
-                      <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Ações</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Nome</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Tipo</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Documento</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Segmento</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Cidade/UF</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Contato</th>
+                      <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {clientes.map((c) => (
-                      <tr key={c.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[200px] truncate">
+                      <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
+                        <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[200px] truncate dark:text-slate-100">
                           {c.nome_razao_social}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">
                           {c.tipo_pessoa_display || c.tipo_pessoa}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{c.documento || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">{c.documento || '—'}</td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           {c.segmento_display ? (
-                            <span className="text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium">
+                            <span className="text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium dark:bg-violet-900/30 dark:text-violet-300">
                               {c.segmento_display}
                             </span>
                           ) : (
-                            <span className="text-gray-400">—</span>
+                            <span className="text-gray-400 dark:text-slate-500">—</span>
                           )}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">
                           {[c.cidade, c.estado].filter(Boolean).join(' / ') || '—'}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">
                           <div>{c.telefone || '—'}</div>
                           {c.email && (
-                            <div className="text-xs text-gray-400 truncate max-w-[160px]">{c.email}</div>
+                            <div className="text-xs text-gray-400 truncate max-w-[160px] dark:text-slate-500">{c.email}</div>
                           )}
                         </td>
                         <td className="px-6 py-3 text-right whitespace-nowrap">
@@ -415,15 +415,15 @@ export default function Clientes() {
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Segmented control PF/PJ */}
             <div>
-              <label className="text-sm font-medium text-gray-700 block mb-1.5">Tipo de Pessoa</label>
-              <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+              <label className="text-sm font-medium text-gray-700 block mb-1.5 dark:text-slate-300">Tipo de Pessoa</label>
+              <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit dark:border-navy-500">
                 <button
                   type="button"
                   onClick={() => handleTipoPessoa('PF')}
                   className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors ${
                     isPF
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                      ? 'bg-primary-600 text-white dark:bg-violet-600'
+                      : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700'
                   }`}
                 >
                   <User size={16} />
@@ -432,10 +432,10 @@ export default function Clientes() {
                 <button
                   type="button"
                   onClick={() => handleTipoPessoa('PJ')}
-                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300 ${
+                  className={`flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors border-l border-gray-300 dark:border-navy-500 ${
                     !isPF
-                      ? 'bg-primary-600 text-white'
-                      : 'bg-white text-gray-600 hover:bg-gray-50'
+                      ? 'bg-primary-600 text-white dark:bg-violet-600'
+                      : 'bg-white text-gray-600 hover:bg-gray-50 dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700'
                   }`}
                 >
                   <Building2 size={16} />
@@ -465,39 +465,39 @@ export default function Clientes() {
 
             {/* Card acionistas (somente PJ) */}
             {!isPF && (
-              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Socios / Acionistas</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Socios / Acionistas</h3>
                   <button
                     type="button"
                     onClick={addAcionista}
-                    className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors"
+                    className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors dark:text-violet-400 dark:hover:text-violet-300"
                   >
                     <Plus size={14} />
                     Adicionar Socio
                   </button>
                 </div>
                 {acionistas.length === 0 && (
-                  <p className="text-xs text-gray-400">Nenhum socio adicionado.</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Nenhum socio adicionado.</p>
                 )}
                 <div className="space-y-3">
                   {acionistas.map((ac, idx) => (
-                    <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+                    <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2 dark:bg-navy-800 dark:border-navy-600">
                       <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer">
+                        <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer dark:text-slate-400">
                           <input
                             type="radio"
                             name="acionista_principal"
                             checked={ac.principal}
                             onChange={() => setPrincipal(idx)}
-                            className="accent-primary-600"
+                            className="accent-primary-600 dark:accent-violet-600"
                           />
                           Principal
                         </label>
                         <button
                           type="button"
                           onClick={() => removeAcionista(idx)}
-                          className="text-red-400 hover:text-red-600 transition-colors"
+                          className="text-red-400 hover:text-red-600 transition-colors dark:text-red-400/70 dark:hover:text-red-400"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -681,14 +681,14 @@ export default function Clientes() {
             />
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observacoes</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observacoes</label>
               <textarea
                 name="observacoes"
                 value={form.observacoes}
                 onChange={handleChange}
                 rows={3}
                 placeholder="Informacoes adicionais..."
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors duration-150"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500 transition-colors duration-150"
               />
             </div>
 

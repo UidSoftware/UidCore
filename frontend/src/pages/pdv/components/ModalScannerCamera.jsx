@@ -67,8 +67,8 @@ export default function ModalScannerCamera({ onClose, onDetectado, onPermissaoNe
     return (
       <Modal title="Escanear código de barras" onClose={onClose} maxW="max-w-md">
         <div className="text-center py-8">
-          <AlertCircle size={20} className="mx-auto text-red-600 mb-2" />
-          <p className="text-sm text-gray-600">
+          <AlertCircle size={20} className="mx-auto text-red-600 mb-2 dark:text-red-400" />
+          <p className="text-sm text-gray-600 dark:text-slate-400">
             Câmera não suportada neste navegador.
             <br />
             Use o leitor físico ou digite o código manualmente.
@@ -93,11 +93,11 @@ export default function ModalScannerCamera({ onClose, onDetectado, onPermissaoNe
       </div>
       {status === 'iniciando' ? (
         <div className="flex items-center justify-center gap-2 py-4">
-          <Loader2 size={16} className="text-gray-500 animate-spin" />
-          <span className="text-sm text-gray-500">Iniciando câmera...</span>
+          <Loader2 size={16} className="text-gray-500 animate-spin dark:text-slate-400" />
+          <span className="text-sm text-gray-500 dark:text-slate-400">Iniciando câmera...</span>
         </div>
       ) : (
-        <p className="text-xs text-gray-500 text-center mt-3">
+        <p className="text-xs text-gray-500 text-center mt-3 dark:text-slate-400">
           Aponte a câmera para o código de barras do produto
         </p>
       )}

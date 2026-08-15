@@ -20,17 +20,17 @@ export default function Sidebar({ collapsed, onToggle }) {
   return (
     <aside
       className={`
-        flex flex-col bg-gray-900 text-white transition-all duration-300 ease-in-out
+        flex flex-col bg-gray-900 dark:bg-navy-900 text-white transition-all duration-300 ease-in-out
         ${collapsed ? 'w-16' : 'w-64'}
       `}
     >
-      <div className="flex items-center justify-between px-4 py-5 border-b border-gray-700 min-h-[64px]">
+      <div className="flex items-center justify-between px-4 py-5 border-b border-gray-700 dark:border-navy-600 min-h-[64px]">
         {!collapsed && (
           <span className="text-lg font-bold text-white tracking-tight">UidCore</span>
         )}
         <button
           onClick={onToggle}
-          className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+          className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-gray-700 dark:hover:bg-navy-700 transition-colors"
           aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -52,8 +52,8 @@ export default function Sidebar({ collapsed, onToggle }) {
               flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
               transition-colors duration-150
               ${isActive
-                ? 'bg-primary-600 text-white'
-                : 'text-gray-400 hover:bg-gray-700 hover:text-white'
+                ? 'bg-primary-600 dark:bg-violet-600 text-white'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-white dark:hover:bg-navy-700'
               }
             `}
             title={collapsed ? label : undefined}

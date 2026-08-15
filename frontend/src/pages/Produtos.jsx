@@ -243,8 +243,8 @@ export default function Produtos() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Produtos</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Gestao de estoque e catalogo de produtos</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Produtos</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Gestao de estoque e catalogo de produtos</p>
         </div>
         <Button onClick={openNew}>+ Novo Produto</Button>
       </div>
@@ -260,9 +260,9 @@ export default function Produtos() {
 
       {/* Content */}
       {loading ? (
-        <div className="flex justify-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="flex justify-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : produtos.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
           <span className="text-4xl">📦</span>
           <p className="text-sm">Nenhum produto encontrado.</p>
         </div>
@@ -274,25 +274,25 @@ export default function Produtos() {
               <Card key={p.id}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{p.nome}</p>
+                    <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{p.nome}</p>
                     {p.codigo_barras && (
-                      <p className="text-xs text-gray-500 mt-0.5">{p.codigo_barras}</p>
+                      <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">{p.codigo_barras}</p>
                     )}
                   </div>
                   <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-medium ${
-                    p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    p.is_active ? 'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400'
                   }`}>
                     {p.is_active ? 'Ativo' : 'Inativo'}
                   </span>
                 </div>
-                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-gray-600">
+                <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-gray-600 dark:text-slate-400">
                   <div>
-                    <span className="text-gray-400">Estoque</span>
-                    <p className="font-medium text-gray-800">{p.quantidade_estoque || 0} {p.unidade_base}</p>
+                    <span className="text-gray-400 dark:text-slate-500">Estoque</span>
+                    <p className="font-medium text-gray-800 dark:text-slate-200">{p.quantidade_estoque || 0} {p.unidade_base}</p>
                   </div>
                   <div>
-                    <span className="text-gray-400">Preco Venda</span>
-                    <p className="font-medium text-gray-800">{BRL(p.preco_venda)}</p>
+                    <span className="text-gray-400 dark:text-slate-500">Preco Venda</span>
+                    <p className="font-medium text-gray-800 dark:text-slate-200">{BRL(p.preco_venda)}</p>
                   </div>
                 </div>
                 <div className="mt-3 flex gap-2">
@@ -309,31 +309,31 @@ export default function Produtos() {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Nome</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Cod. Barras</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Estoque</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Preco Venda</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap">Status</th>
-                      <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Acoes</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Nome</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Cod. Barras</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Estoque</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Preco Venda</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Status</th>
+                      <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Acoes</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {produtos.map((p) => (
-                      <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                        <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[200px] truncate">
+                      <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
+                        <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[200px] truncate dark:text-slate-100">
                           {p.nome}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{p.codigo_barras || '—'}</td>
-                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">{p.codigo_barras || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">
                           {p.quantidade_estoque || 0} {p.unidade_base}
                         </td>
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap">
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap dark:text-slate-100">
                           {BRL(p.preco_venda)}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">
                           <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
-                            p.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            p.is_active ? 'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400'
                           }`}>
                             {p.is_active ? 'Ativo' : 'Inativo'}
                           </span>
@@ -436,20 +436,20 @@ export default function Produtos() {
             </div>
 
             {/* Secao Conversoes */}
-            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+            <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
               <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-gray-700">Conversoes de Unidade</h3>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Conversoes de Unidade</h3>
                 <button
                   type="button"
                   onClick={addConversao}
-                  className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors"
+                  className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors dark:text-violet-400 dark:hover:text-violet-300"
                 >
                   <Plus size={14} />
                   Adicionar Conversao
                 </button>
               </div>
               {conversoes.length === 0 && (
-                <p className="text-xs text-gray-400">Nenhuma conversao cadastrada. Ex.: CX = 30 UN</p>
+                <p className="text-xs text-gray-400 dark:text-slate-500">Nenhuma conversao cadastrada. Ex.: CX = 30 UN</p>
               )}
               <div className="space-y-2">
                 {conversoes.map((conv, idx) => (
@@ -476,7 +476,7 @@ export default function Produtos() {
                     <button
                       type="button"
                       onClick={() => removeConversao(idx)}
-                      className="mb-1 text-red-400 hover:text-red-600 transition-colors p-1"
+                      className="mb-1 text-red-400 hover:text-red-600 transition-colors p-1 dark:text-red-400/70 dark:hover:text-red-400"
                     >
                       <Trash2 size={16} />
                     </button>
@@ -487,16 +487,16 @@ export default function Produtos() {
 
             {/* Entradas de estoque (somente edicao) */}
             {editingId && (
-              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+              <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Entradas de Estoque</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Entradas de Estoque</h3>
                   {!novaEntrada && (
                     <button
                       type="button"
                       onClick={() =>
                         setNovaEntrada({ quantidade: '', unidade: form.unidade_base, nota_fiscal: '', observacoes: '' })
                       }
-                      className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors"
+                      className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors dark:text-violet-400 dark:hover:text-violet-300"
                     >
                       <Plus size={14} />
                       Registrar Entrada
@@ -506,7 +506,7 @@ export default function Produtos() {
 
                 {/* Formulario nova entrada */}
                 {novaEntrada && (
-                  <div className="bg-white rounded-lg border border-gray-200 p-3 mb-3 space-y-2">
+                  <div className="bg-white rounded-lg border border-gray-200 p-3 mb-3 space-y-2 dark:bg-navy-800 dark:border-navy-600">
                     <div className="grid grid-cols-2 gap-2">
                       <Input
                         label="Quantidade"
@@ -531,12 +531,12 @@ export default function Produtos() {
                       placeholder="NF-e 00001..."
                     />
                     <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-gray-600">Observacoes</label>
+                      <label className="text-xs font-medium text-gray-600 dark:text-slate-400">Observacoes</label>
                       <textarea
                         value={novaEntrada.observacoes}
                         onChange={(e) => setNovaEntrada((p) => ({ ...p, observacoes: e.target.value }))}
                         rows={2}
-                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
                       />
                     </div>
                     <div className="flex gap-2">
@@ -551,18 +551,18 @@ export default function Produtos() {
                 )}
 
                 {loadingEntradas ? (
-                  <p className="text-xs text-gray-400">Carregando entradas...</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Carregando entradas...</p>
                 ) : entradas.length === 0 ? (
-                  <p className="text-xs text-gray-400">Nenhuma entrada registrada.</p>
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Nenhuma entrada registrada.</p>
                 ) : (
                   <div className="space-y-1 max-h-40 overflow-y-auto">
                     {entradas.map((en, i) => (
-                      <div key={en.id || i} className="flex items-center justify-between text-xs py-1 border-b border-gray-100 last:border-0">
+                      <div key={en.id || i} className="flex items-center justify-between text-xs py-1 border-b border-gray-100 last:border-0 dark:border-navy-700">
                         <div className="min-w-0">
-                          <span className="font-medium text-gray-700">{en.quantidade} {en.unidade}</span>
-                          {en.nota_fiscal && <span className="text-gray-400 ml-1">({en.nota_fiscal})</span>}
+                          <span className="font-medium text-gray-700 dark:text-slate-300">{en.quantidade} {en.unidade}</span>
+                          {en.nota_fiscal && <span className="text-gray-400 ml-1 dark:text-slate-500">({en.nota_fiscal})</span>}
                         </div>
-                        <span className="text-gray-400 ml-2 shrink-0">
+                        <span className="text-gray-400 ml-2 shrink-0 dark:text-slate-500">
                           {en.created_at ? new Date(en.created_at).toLocaleDateString('pt-BR') : ''}
                         </span>
                       </div>
@@ -573,14 +573,14 @@ export default function Produtos() {
             )}
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observacoes</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observacoes</label>
               <textarea
                 name="observacoes"
                 value={form.observacoes}
                 onChange={handleChange}
                 rows={3}
                 placeholder="Informacoes adicionais..."
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors duration-150"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500 transition-colors duration-150"
               />
             </div>
 

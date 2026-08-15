@@ -5,3 +5,15 @@
 body {
   font-family: 'Plus Jakarta Sans', sans-serif;
 }
+
+/* Fix select options no Linux Chrome/Opera — sem isso a cor é ignorada */
+select option {
+  background-color: #1a2540;
+  color: #e2e8f0;
+}
+
+/* Modo claro — opções do select ficam com bg branco */
+html:not(.dark) select option {
+  background-color: #ffffff;
+  color: #111827;
+}

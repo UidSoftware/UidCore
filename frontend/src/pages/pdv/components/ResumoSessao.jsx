@@ -5,10 +5,10 @@ const BRL = (v) =>
 
 function KpiCard({ label, value, color = 'blue' }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-700',
-    green: 'bg-green-50 text-green-700',
-    red: 'bg-red-50 text-red-700',
-    yellow: 'bg-yellow-50 text-yellow-700',
+    blue: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
+    green: 'bg-green-50 text-green-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+    red: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300',
+    yellow: 'bg-yellow-50 text-yellow-700 dark:bg-amber-950/40 dark:text-amber-300',
   }
   return (
     <div className={`rounded-xl p-4 ${colors[color]}`}>
@@ -56,15 +56,15 @@ export default function ResumoSessao({ sessao, resumo = {} }) {
 
       {/* Vendas por forma de pagamento */}
       {(resumo.por_metodo || []).length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-          <div className="px-4 py-3 border-b border-gray-100">
-            <p className="text-sm font-semibold text-gray-700">Vendas por forma de pagamento</p>
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
+          <div className="px-4 py-3 border-b border-gray-100 dark:border-navy-700">
+            <p className="text-sm font-semibold text-gray-700 dark:text-slate-200">Vendas por forma de pagamento</p>
           </div>
           <div className="px-4 py-3 space-y-2">
             {resumo.por_metodo.map((m, i) => (
               <div key={i} className="flex justify-between items-center text-sm">
-                <span className="text-gray-600">{m.metodo_nome}</span>
-                <span className="font-mono font-medium text-gray-900">{BRL(m.total)}</span>
+                <span className="text-gray-600 dark:text-slate-400">{m.metodo_nome}</span>
+                <span className="font-mono font-medium text-gray-900 dark:text-slate-100">{BRL(m.total)}</span>
               </div>
             ))}
           </div>
@@ -73,21 +73,21 @@ export default function ResumoSessao({ sessao, resumo = {} }) {
 
       {/* Valor calculado e fechamento */}
       {status === 'FECHADA' && (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-4 space-y-3">
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-4 py-4 space-y-3 dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
           {valor_fechamento_calculado != null && (
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">Valor calculado em caixa</span>
-              <span className="font-mono font-medium text-gray-900 text-lg">{BRL(valor_fechamento_calculado)}</span>
+              <span className="text-sm text-gray-600 dark:text-slate-400">Valor calculado em caixa</span>
+              <span className="font-mono font-medium text-gray-900 text-lg dark:text-slate-100">{BRL(valor_fechamento_calculado)}</span>
             </div>
           )}
           {valor_fechamento_informado != null && (
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-600">Contagem física</span>
-              <span className="font-mono font-medium text-gray-900">{BRL(valor_fechamento_informado)}</span>
+              <span className="text-sm text-gray-600 dark:text-slate-400">Contagem física</span>
+              <span className="font-mono font-medium text-gray-900 dark:text-slate-100">{BRL(valor_fechamento_informado)}</span>
             </div>
           )}
           {diferenca != null && (
-            <div className={`flex justify-between items-center pt-2 border-t border-gray-100 ${temDiferenca ? 'text-red-700' : 'text-green-700'}`}>
+            <div className={`flex justify-between items-center pt-2 border-t border-gray-100 dark:border-navy-700 ${temDiferenca ? 'text-red-700 dark:text-red-400' : 'text-green-700 dark:text-emerald-400'}`}>
               <span className="text-sm font-medium flex items-center gap-1">
                 {temDiferenca ? <AlertTriangle size={14} /> : <CheckCircle size={14} />}
                 Diferença

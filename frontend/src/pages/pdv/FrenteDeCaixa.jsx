@@ -328,7 +328,7 @@ export default function FrenteDeCaixa() {
   if (loadingSessao) {
     return (
       <div className="flex items-center justify-center min-h-64">
-        <p className="text-gray-400 text-sm">Carregando...</p>
+        <p className="text-gray-400 dark:text-slate-500 text-sm">Carregando...</p>
       </div>
     )
   }
@@ -347,9 +347,9 @@ export default function FrenteDeCaixa() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Nova Venda</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Nova Venda</h1>
           {sessao && (
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
               Sessão #{sessao.id} · {sessao.conta_nome || `Conta #${sessao.conta}`} · Aberta às {formatarHora(sessao.data_abertura)}
             </p>
           )}
@@ -359,7 +359,7 @@ export default function FrenteDeCaixa() {
             <button
               type="button"
               onClick={() => setModalSangria(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700"
             >
               <ArrowDownCircle size={14} className="text-red-600" />
               <ArrowUpCircle size={14} className="text-green-600" />
@@ -369,7 +369,7 @@ export default function FrenteDeCaixa() {
           <button
             type="button"
             onClick={() => navigate('/pdv/fechamento')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm text-gray-700 hover:bg-gray-50 transition-colors dark:border-navy-600 dark:bg-navy-800 dark:text-slate-300 dark:hover:bg-navy-700"
           >
             <Lock size={14} />
             Fechar Caixa
@@ -383,11 +383,11 @@ export default function FrenteDeCaixa() {
         <div className="flex-1 space-y-4 min-w-0">
           {/* Busca de produto */}
           {/* ⚠️ div manual (sem Card) — overflow-hidden do Card cortava o dropdown absolute */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4 dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
             <div className="relative">
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none" />
                   <input
                     ref={buscaRef}
                     type="text"
@@ -395,14 +395,14 @@ export default function FrenteDeCaixa() {
                     onChange={(e) => setBusca(e.target.value)}
                     onKeyDown={handleBuscaKeyDown}
                     placeholder="Buscar por nome ou código de barras..."
-                    className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
                     autoFocus
                   />
                 </div>
                 <button
                   type="button"
                   onClick={() => buscaRef.current?.focus()}
-                  className="p-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors"
+                  className="p-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors dark:border-navy-600 dark:text-slate-400 dark:hover:bg-navy-700"
                   title="Focar para leitura de código de barras"
                 >
                   <ScanLine size={16} />
@@ -410,7 +410,7 @@ export default function FrenteDeCaixa() {
                 <button
                   type="button"
                   onClick={() => setModalCamera(true)}
-                  className="p-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors"
+                  className="p-2 rounded-lg border border-gray-300 text-gray-500 hover:bg-gray-50 transition-colors dark:border-navy-600 dark:text-slate-400 dark:hover:bg-navy-700"
                   title="Escanear com câmera"
                 >
                   <Camera size={16} />
@@ -419,31 +419,31 @@ export default function FrenteDeCaixa() {
 
               {/* Dropdown de resultados */}
               {(resultadosBusca.length > 0 || buscando) && (
-                <div className="absolute z-10 left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-64 overflow-y-auto">
+                <div className="absolute z-10 left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-64 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-navy-900/50">
                   {buscando && (
-                    <div className="px-4 py-3 text-sm text-gray-400 text-center">Buscando...</div>
+                    <div className="px-4 py-3 text-sm text-gray-400 dark:text-slate-500 text-center">Buscando...</div>
                   )}
                   {!buscando && resultadosBusca.map((p) => (
                     <button
                       key={p.id}
                       type="button"
                       onClick={() => adicionarProduto(p)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left transition-colors"
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left transition-colors dark:hover:bg-navy-700 dark:border-navy-700"
                     >
                       <div className={parseFloat(p.quantidade_estoque || 0) <= 0 ? 'opacity-50' : ''}>
-                        <p className="text-sm font-medium text-gray-900">{p.nome}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{p.nome}</p>
                         {p.codigo_barras && (
-                          <p className="text-xs text-gray-400">{p.codigo_barras}</p>
+                          <p className="text-xs text-gray-400 dark:text-slate-500">{p.codigo_barras}</p>
                         )}
                       </div>
                       <div className="text-right shrink-0 ml-3">
-                        <p className="text-sm font-mono font-medium text-gray-900">{BRL(p.preco_venda)}</p>
+                        <p className="text-sm font-mono font-medium text-gray-900 dark:text-slate-100">{BRL(p.preco_venda)}</p>
                         {parseFloat(p.quantidade_estoque || 0) <= 0 ? (
-                          <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800">
+                          <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
                             Sem estoque
                           </span>
                         ) : (
-                          <p className="text-xs text-gray-400">{p.quantidade_estoque} {p.unidade_base}</p>
+                          <p className="text-xs text-gray-400 dark:text-slate-500">{p.quantidade_estoque} {p.unidade_base}</p>
                         )}
                       </div>
                     </button>
@@ -458,7 +458,7 @@ export default function FrenteDeCaixa() {
             {itensAtivos.length === 0 ? (
               <div className="text-center py-6">
                 <PackageSearch size={32} className="mx-auto text-gray-300 mb-2" />
-                <p className="text-sm text-gray-400">Carrinho vazio — busque um produto acima</p>
+                <p className="text-sm text-gray-400 dark:text-slate-500">Carrinho vazio — busque um produto acima</p>
               </div>
             ) : (
               <div className="max-h-[420px] overflow-y-auto">
@@ -479,19 +479,19 @@ export default function FrenteDeCaixa() {
         {/* Coluna direita: cliente + resumo + pagamento */}
         <div className="w-full md:w-80 lg:w-96 space-y-4 md:sticky md:top-4 shrink-0">
           {/* Cliente */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4">
+          <div className="bg-white rounded-xl border border-gray-200 shadow-sm px-6 py-4 dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
             <div className="space-y-2">
               {!clienteSelecionado ? (
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm text-gray-500">
-                    <UserX size={16} className="text-gray-400" />
+                  <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-slate-400">
+                    <UserX size={16} className="text-gray-400 dark:text-slate-500" />
                     Consumidor Final
                   </div>
                   {!mostrarBuscaCliente && (
                     <button
                       type="button"
                       onClick={() => setMostrarBuscaCliente(true)}
-                      className="text-primary-600 text-xs font-medium hover:underline"
+                      className="text-primary-600 dark:text-violet-400 text-xs font-medium hover:underline"
                     >
                       Vincular cliente
                     </button>
@@ -499,14 +499,14 @@ export default function FrenteDeCaixa() {
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm text-gray-900">
-                    <User size={16} className="text-primary-600" />
+                  <div className="flex items-center gap-2 text-sm text-gray-900 dark:text-slate-100">
+                    <User size={16} className="text-primary-600 dark:text-violet-400" />
                     <span className="font-medium">{clienteSelecionado.nome_razao_social}</span>
                   </div>
                   <button
                     type="button"
                     onClick={desvincularCliente}
-                    className="text-gray-400 hover:text-red-600 text-xs transition-colors"
+                    className="text-gray-400 hover:text-red-600 text-xs transition-colors dark:text-slate-500 dark:hover:text-red-400"
                   >
                     Remover
                   </button>
@@ -521,16 +521,16 @@ export default function FrenteDeCaixa() {
                     value={buscaCliente}
                     onChange={(e) => setBuscaCliente(e.target.value)}
                     placeholder="Buscar cliente por nome..."
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
                   />
                   {resultadosCliente.length > 0 && (
-                    <div className="absolute z-10 left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-40 overflow-y-auto">
+                    <div className="absolute z-10 left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-200 max-h-40 overflow-y-auto dark:bg-navy-800 dark:border-navy-600">
                       {resultadosCliente.map((c) => (
                         <button
                           key={c.id}
                           type="button"
                           onClick={() => vincularCliente(c)}
-                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0"
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 border-b border-gray-100 last:border-0 text-gray-900 dark:text-slate-100 dark:hover:bg-navy-700 dark:border-navy-700"
                         >
                           {c.nome_razao_social}
                         </button>
@@ -540,7 +540,7 @@ export default function FrenteDeCaixa() {
                   <button
                     type="button"
                     onClick={() => { setMostrarBuscaCliente(false); setBuscaCliente('') }}
-                    className="mt-1 text-xs text-gray-400 hover:text-gray-600"
+                    className="mt-1 text-xs text-gray-400 hover:text-gray-600 dark:text-slate-500 dark:hover:text-slate-300"
                   >
                     Cancelar
                   </button>
@@ -552,19 +552,19 @@ export default function FrenteDeCaixa() {
           {/* Resumo de valores */}
           <Card>
             <div className="space-y-2">
-              <div className="flex justify-between text-sm text-gray-600">
+              <div className="flex justify-between text-sm text-gray-600 dark:text-slate-400">
                 <span>Subtotal</span>
                 <span className="font-mono">{BRL(venda?.subtotal || 0)}</span>
               </div>
               {parseFloat(venda?.desconto_total || 0) > 0 && (
-                <div className="flex justify-between text-sm text-gray-600">
+                <div className="flex justify-between text-sm text-gray-600 dark:text-slate-400">
                   <span>Desconto</span>
-                  <span className="font-mono text-red-600">- {BRL(venda?.desconto_total || 0)}</span>
+                  <span className="font-mono text-red-600 dark:text-red-400">- {BRL(venda?.desconto_total || 0)}</span>
                 </div>
               )}
-              <div className="border-t border-gray-100 pt-2 flex justify-between">
-                <span className="text-base font-bold text-gray-900">Total</span>
-                <span className="text-lg font-bold text-gray-900 font-mono">{BRL(total)}</span>
+              <div className="border-t border-gray-100 dark:border-navy-700 pt-2 flex justify-between">
+                <span className="text-base font-bold text-gray-900 dark:text-slate-100">Total</span>
+                <span className="text-lg font-bold text-gray-900 dark:text-slate-100 font-mono">{BRL(total)}</span>
               </div>
             </div>
           </Card>
@@ -598,11 +598,11 @@ export default function FrenteDeCaixa() {
       </div>
 
       {/* Barra fixa mobile */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-40 md:hidden">
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 z-40 md:hidden dark:bg-navy-900 dark:border-navy-700">
         <div className="flex items-center gap-3">
           <div className="flex-1">
-            <p className="text-xs text-gray-500">Total</p>
-            <p className="text-lg font-bold text-gray-900 font-mono">{BRL(total)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">Total</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100 font-mono">{BRL(total)}</p>
           </div>
           <Button
             variant="primary"

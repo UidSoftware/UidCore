@@ -72,11 +72,11 @@ const FORMA_PAGAMENTO = [
 ]
 
 const STATUS_BADGES = {
-  PENDENTE: 'bg-yellow-100 text-yellow-800',
-  RECEBIDO: 'bg-green-100 text-green-800',
-  PAGO: 'bg-green-100 text-green-800',
-  ATRASADO: 'bg-red-100 text-red-800',
-  CANCELADO: 'bg-gray-100 text-gray-600',
+  PENDENTE: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
+  RECEBIDO: 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  PAGO: 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  ATRASADO: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+  CANCELADO: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
 }
 
 const BRL = (v) =>
@@ -84,7 +84,7 @@ const BRL = (v) =>
 
 function Badge({ status }) {
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGES[status] || 'bg-gray-100 text-gray-600'}`}>
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGES[status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'}`}>
       {status}
     </span>
   )
@@ -118,8 +118,8 @@ export default function Financeiro() {
       )}
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Financeiro</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Gestão financeira completa</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Financeiro</h1>
+        <p className="text-sm text-gray-500 mt-0.5 dark:text-slate-500">Gestão financeira completa</p>
       </div>
 
       <div className="flex gap-1 overflow-x-auto pb-1">
@@ -129,8 +129,8 @@ export default function Financeiro() {
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
               tab === t.key
-                ? 'bg-primary-600 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                ? 'bg-primary-600 text-white dark:bg-violet-600'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700 dark:border-navy-600'
             }`}
           >
             {t.label}
@@ -154,31 +154,31 @@ export default function Financeiro() {
 function MesColapsavel({ mes, tipo, onEdit }) {
   const [aberto, setAberto] = useState(false)
   const isReceita = tipo === 'receita'
-  const colorClass = isReceita ? 'text-green-700' : 'text-red-700'
+  const colorClass = isReceita ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'
 
   return (
-    <div className="border-t border-gray-100">
+    <div className="border-t border-gray-100 dark:border-navy-700">
       <button
         type="button"
         onClick={() => setAberto((v) => !v)}
-        className="w-full flex justify-between items-center px-4 py-2 hover:bg-gray-50 transition-colors"
+        className="w-full flex justify-between items-center px-4 py-2 hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors"
       >
-        <span className="text-sm text-gray-700 font-medium">{mes.label}</span>
+        <span className="text-sm text-gray-700 font-medium dark:text-slate-300">{mes.label}</span>
         <div className="flex items-center gap-2">
           <span className={`text-sm font-semibold ${colorClass}`}>{BRL(mes.total)}</span>
-          {aberto ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+          {aberto ? <ChevronUp size={14} className="text-gray-400 dark:text-slate-500" /> : <ChevronDown size={14} className="text-gray-400 dark:text-slate-500" />}
         </div>
       </button>
       {aberto && (
         <div className="px-4 pb-2 space-y-1">
           {(!mes.itens || mes.itens.length === 0) ? (
-            <p className="text-xs text-gray-400">Nenhum lancamento neste mes.</p>
+            <p className="text-xs text-gray-400 dark:text-slate-500">Nenhum lancamento neste mes.</p>
           ) : (
             mes.itens.map((item) => (
-              <div key={item.id} className="flex justify-between items-center py-1 text-xs border-b border-gray-50 last:border-0">
+              <div key={item.id} className="flex justify-between items-center py-1 text-xs border-b border-gray-50 dark:border-navy-800 last:border-0">
                 <div className="min-w-0 flex-1">
-                  <p className="text-gray-800 truncate">{item.descricao}</p>
-                  <p className="text-gray-400">{item.data}</p>
+                  <p className="text-gray-800 truncate dark:text-slate-200">{item.descricao}</p>
+                  <p className="text-gray-400 dark:text-slate-500">{item.data}</p>
                 </div>
                 <div className="flex items-center gap-2 ml-2 shrink-0">
                   <span className={`font-semibold ${colorClass}`}>{BRL(item.valor_bruto)}</span>
@@ -186,7 +186,7 @@ function MesColapsavel({ mes, tipo, onEdit }) {
                     <button
                       type="button"
                       onClick={() => onEdit(item)}
-                      className="text-gray-400 hover:text-gray-700 transition-colors"
+                      className="text-gray-400 hover:text-gray-700 dark:text-slate-500 dark:hover:text-slate-300 transition-colors"
                       title="Editar"
                     >
                       <Edit size={14} />
@@ -219,8 +219,8 @@ function ResumoTab() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
-  if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar dados.</div>
+  if (loading) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Carregando...</div>
+  if (!data) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Erro ao carregar dados.</div>
 
   const despesasPorMes = data.despesas_pagas_por_mes || []
   const receitasPorMes = data.receitas_recebidas_por_mes || []
@@ -256,16 +256,16 @@ function ResumoTab() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card title="Receitas a Vencer (30 dias)">
           {data.receitas_vencer?.length === 0 ? (
-            <p className="text-sm text-gray-400">Nenhuma receita pendente.</p>
+            <p className="text-sm text-gray-400 dark:text-slate-500">Nenhuma receita pendente.</p>
           ) : (
             <div className="space-y-2">
               {data.receitas_vencer?.map((r, i) => (
                 <div key={i} className="flex justify-between items-center text-sm">
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-800 truncate">{r.descricao}</p>
-                    <p className="text-xs text-gray-400">{r.cliente__nome_razao_social || '—'} &middot; {r.vencimento}</p>
+                    <p className="font-medium text-gray-800 truncate dark:text-slate-200">{r.descricao}</p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500">{r.cliente__nome_razao_social || '—'} &middot; {r.vencimento}</p>
                   </div>
-                  <span className="font-semibold text-green-700 whitespace-nowrap ml-2">{BRL(r.valor_liquido)}</span>
+                  <span className="font-semibold text-green-700 whitespace-nowrap ml-2 dark:text-emerald-400">{BRL(r.valor_liquido)}</span>
                 </div>
               ))}
             </div>
@@ -274,16 +274,16 @@ function ResumoTab() {
 
         <Card title="Despesas a Vencer (30 dias)">
           {data.despesas_vencer?.length === 0 ? (
-            <p className="text-sm text-gray-400">Nenhuma despesa pendente.</p>
+            <p className="text-sm text-gray-400 dark:text-slate-500">Nenhuma despesa pendente.</p>
           ) : (
             <div className="space-y-2">
               {data.despesas_vencer?.map((d, i) => (
                 <div key={i} className="flex justify-between items-center text-sm">
                   <div className="min-w-0">
-                    <p className="font-medium text-gray-800 truncate">{d.descricao}</p>
-                    <p className="text-xs text-gray-400">{d.fornecedor || '—'} &middot; {d.vencimento}</p>
+                    <p className="font-medium text-gray-800 truncate dark:text-slate-200">{d.descricao}</p>
+                    <p className="text-xs text-gray-400 dark:text-slate-500">{d.fornecedor || '—'} &middot; {d.vencimento}</p>
                   </div>
-                  <span className="font-semibold text-red-700 whitespace-nowrap ml-2">{BRL(d.valor_liquido)}</span>
+                  <span className="font-semibold text-red-700 whitespace-nowrap ml-2 dark:text-red-400">{BRL(d.valor_liquido)}</span>
                 </div>
               ))}
             </div>
@@ -304,12 +304,12 @@ function ResumoTab() {
                     <div className="w-3 bg-green-400 rounded-t" style={{ height: `${hRec}%` }} title={BRL(m.receita)} />
                     <div className="w-3 bg-red-400 rounded-t" style={{ height: `${hDes}%` }} title={BRL(m.despesa)} />
                   </div>
-                  <span className="text-[10px] text-gray-500">{m.label}</span>
+                  <span className="text-[10px] text-gray-500 dark:text-slate-500">{m.label}</span>
                 </div>
               )
             })}
           </div>
-          <div className="flex gap-4 mt-2 text-xs text-gray-500">
+          <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-slate-500">
             <span className="flex items-center gap-1"><span className="w-2 h-2 bg-green-400 rounded-full" />Receita</span>
             <span className="flex items-center gap-1"><span className="w-2 h-2 bg-red-400 rounded-full" />Despesa</span>
           </div>
@@ -319,20 +319,20 @@ function ResumoTab() {
       {/* Cards colapsaveis Despesas/Receitas pagas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
         {/* Card Despesas Pagas */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
           <div
             className="flex justify-between items-center p-4 cursor-pointer select-none"
             onClick={() => toggleCard('despesas')}
           >
-            <h3 className="font-semibold text-red-700">Despesas Pagas</h3>
+            <h3 className="font-semibold text-red-700 dark:text-red-400">Despesas Pagas</h3>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-red-700">{BRL(totalDespesas)}</span>
-              {cardAberto.despesas ? <ChevronUp size={18} className="text-red-600" /> : <ChevronDown size={18} className="text-red-600" />}
+              <span className="font-bold text-red-700 dark:text-red-400">{BRL(totalDespesas)}</span>
+              {cardAberto.despesas ? <ChevronUp size={18} className="text-red-600 dark:text-red-400" /> : <ChevronDown size={18} className="text-red-600 dark:text-red-400" />}
             </div>
           </div>
           {cardAberto.despesas && (
             despesasPorMes.length === 0 ? (
-              <p className="px-4 pb-4 text-sm text-gray-400">Nenhuma despesa paga registrada.</p>
+              <p className="px-4 pb-4 text-sm text-gray-400 dark:text-slate-500">Nenhuma despesa paga registrada.</p>
             ) : (
               despesasPorMes.map((mes) => (
                 <MesColapsavel key={mes.mes} mes={mes} tipo="despesa" onEdit={handleEditItem} />
@@ -342,20 +342,20 @@ function ResumoTab() {
         </div>
 
         {/* Card Receitas Recebidas */}
-        <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+        <div className="bg-white rounded-lg border border-gray-200 shadow-sm dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
           <div
             className="flex justify-between items-center p-4 cursor-pointer select-none"
             onClick={() => toggleCard('receitas')}
           >
-            <h3 className="font-semibold text-green-700">Receitas Recebidas</h3>
+            <h3 className="font-semibold text-green-700 dark:text-emerald-400">Receitas Recebidas</h3>
             <div className="flex items-center gap-2">
-              <span className="font-bold text-green-700">{BRL(totalReceitas)}</span>
-              {cardAberto.receitas ? <ChevronUp size={18} className="text-green-600" /> : <ChevronDown size={18} className="text-green-600" />}
+              <span className="font-bold text-green-700 dark:text-emerald-400">{BRL(totalReceitas)}</span>
+              {cardAberto.receitas ? <ChevronUp size={18} className="text-green-600 dark:text-emerald-400" /> : <ChevronDown size={18} className="text-green-600 dark:text-emerald-400" />}
             </div>
           </div>
           {cardAberto.receitas && (
             receitasPorMes.length === 0 ? (
-              <p className="px-4 pb-4 text-sm text-gray-400">Nenhuma receita recebida registrada.</p>
+              <p className="px-4 pb-4 text-sm text-gray-400 dark:text-slate-500">Nenhuma receita recebida registrada.</p>
             ) : (
               receitasPorMes.map((mes) => (
                 <MesColapsavel key={mes.mes} mes={mes} tipo="receita" onEdit={handleEditItem} />
@@ -370,9 +370,9 @@ function ResumoTab() {
 
 function KpiCard({ label, value, color }) {
   const colors = {
-    blue: 'bg-blue-50 text-blue-700',
-    green: 'bg-green-50 text-green-700',
-    red: 'bg-red-50 text-red-700',
+    blue: 'bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300',
+    green: 'bg-green-50 text-green-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+    red: 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300',
   }
   return (
     <div className={`rounded-xl p-4 ${colors[color] || colors.blue}`}>
@@ -457,7 +457,7 @@ function ReceitasTab({ showToast, contasOptions }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-800">Contas a Receber</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Contas a Receber</h2>
         <Button onClick={openNew}>+ Nova Receita</Button>
       </div>
 
@@ -473,9 +473,9 @@ function ReceitasTab({ showToast, contasOptions }) {
       </Card>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 text-sm dark:text-slate-500">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhuma receita encontrada.</p></div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500"><p className="text-sm">Nenhuma receita encontrada.</p></div>
       ) : (
         <>
           {/* Mobile */}
@@ -484,14 +484,14 @@ function ReceitasTab({ showToast, contasOptions }) {
               <Card key={item.id}>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{item.descricao}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.tipo} &middot; {item.vencimento}</p>
+                    <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{item.descricao}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-500">{item.tipo} &middot; {item.vencimento}</p>
                   </div>
                   <Badge status={item.status} />
                 </div>
                 <div className="mt-2 flex justify-between items-center">
-                  <span className="text-lg font-bold text-green-700">{BRL(item.valor_liquido)}</span>
-                  <span className="text-xs text-gray-400">{item.conta_nome}</span>
+                  <span className="text-lg font-bold text-green-700 dark:text-emerald-400">{BRL(item.valor_liquido)}</span>
+                  <span className="text-xs text-gray-400 dark:text-slate-500">{item.conta_nome}</span>
                 </div>
                 <div className="mt-3 flex gap-2 flex-wrap">
                   {item.status === 'PENDENTE' && (
@@ -510,25 +510,25 @@ function ReceitasTab({ showToast, contasOptions }) {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Descrição</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Tipo</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Vencimento</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Conta</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Ações</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Descrição</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Tipo</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Valor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Vencimento</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Status</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Conta</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{item.descricao}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.tipo}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-green-700">{BRL(item.valor_liquido)}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.vencimento}</td>
+                      <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60">
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate dark:text-slate-100">{item.descricao}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.tipo}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-green-700 dark:text-emerald-400">{BRL(item.valor_liquido)}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.vencimento}</td>
                         <td className="px-4 py-3"><Badge status={item.status} /></td>
-                        <td className="px-4 py-3 text-gray-600">{item.conta_nome}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.conta_nome}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {item.status === 'PENDENTE' && (
@@ -563,9 +563,9 @@ function ReceitasTab({ showToast, contasOptions }) {
               <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observações</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observações</label>
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
@@ -658,7 +658,7 @@ function DespesasTab({ showToast, contasOptions }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-800">Contas a Pagar</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Contas a Pagar</h2>
         <Button onClick={openNew}>+ Nova Despesa</Button>
       </div>
 
@@ -674,9 +674,9 @@ function DespesasTab({ showToast, contasOptions }) {
       </Card>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 text-sm dark:text-slate-500">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhuma despesa encontrada.</p></div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500"><p className="text-sm">Nenhuma despesa encontrada.</p></div>
       ) : (
         <>
           {/* Mobile */}
@@ -685,16 +685,16 @@ function DespesasTab({ showToast, contasOptions }) {
               <Card key={item.id}>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{item.descricao}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.tipo} &middot; {item.vencimento}</p>
+                    <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{item.descricao}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-500">{item.tipo} &middot; {item.vencimento}</p>
                   </div>
                   <Badge status={item.status} />
                 </div>
                 <div className="mt-2 flex justify-between items-center">
-                  <span className="text-lg font-bold text-red-700">{BRL(item.valor_liquido)}</span>
-                  <span className="text-xs text-gray-400">{item.conta_nome}</span>
+                  <span className="text-lg font-bold text-red-700 dark:text-red-400">{BRL(item.valor_liquido)}</span>
+                  <span className="text-xs text-gray-400 dark:text-slate-500">{item.conta_nome}</span>
                 </div>
-                {item.fornecedor && <p className="text-xs text-gray-500 mt-1">{item.fornecedor}</p>}
+                {item.fornecedor && <p className="text-xs text-gray-500 mt-1 dark:text-slate-500">{item.fornecedor}</p>}
                 <div className="mt-3 flex gap-2 flex-wrap">
                   {item.status === 'PENDENTE' && (
                     <Button size="sm" onClick={() => marcarPago(item)}>Pagar</Button>
@@ -712,25 +712,25 @@ function DespesasTab({ showToast, contasOptions }) {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Descrição</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Tipo</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Vencimento</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Fornecedor</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Ações</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Descrição</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Tipo</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Valor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Vencimento</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Status</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Fornecedor</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate">{item.descricao}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.tipo}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-red-700">{BRL(item.valor_liquido)}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.vencimento}</td>
+                      <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60">
+                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[200px] truncate dark:text-slate-100">{item.descricao}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.tipo}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-red-700 dark:text-red-400">{BRL(item.valor_liquido)}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.vencimento}</td>
                         <td className="px-4 py-3"><Badge status={item.status} /></td>
-                        <td className="px-4 py-3 text-gray-600 max-w-[120px] truncate">{item.fornecedor || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 max-w-[120px] truncate dark:text-slate-400">{item.fornecedor || '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {item.status === 'PENDENTE' && (
@@ -767,9 +767,9 @@ function DespesasTab({ showToast, contasOptions }) {
             </div>
             <Select label="Forma de Pagamento" name="forma_pagamento" options={FORMA_PAGAMENTO} value={form.forma_pagamento} onChange={handleChange} />
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observações</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observações</label>
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
@@ -850,7 +850,7 @@ function ContasTab({ showToast }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-800">Contas Bancárias</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Contas Bancárias</h2>
         <Button onClick={openNew}>+ Nova Conta</Button>
       </div>
 
@@ -863,23 +863,23 @@ function ContasTab({ showToast }) {
       )}
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 text-sm dark:text-slate-500">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhuma conta cadastrada.</p></div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500"><p className="text-sm">Nenhuma conta cadastrada.</p></div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {items.map((item) => (
             <Card key={item.id}>
               <div className="flex justify-between items-start">
                 <div>
-                  <p className="font-semibold text-gray-900">{item.nome}</p>
-                  <p className="text-xs text-gray-500 mt-0.5">{item.tipo} {item.banco ? `— ${item.banco}` : ''}</p>
+                  <p className="font-semibold text-gray-900 dark:text-slate-100">{item.nome}</p>
+                  <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-500">{item.tipo} {item.banco ? `— ${item.banco}` : ''}</p>
                 </div>
               </div>
               {(item.agencia || item.numero) && (
-                <p className="text-xs text-gray-400 mt-1">Ag: {item.agencia || '—'} / CC: {item.numero || '—'}</p>
+                <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">Ag: {item.agencia || '—'} / CC: {item.numero || '—'}</p>
               )}
-              <p className="text-sm text-gray-600 mt-2">Saldo inicial: {BRL(item.saldo_inicial)}</p>
+              <p className="text-sm text-gray-600 mt-2 dark:text-slate-300">Saldo inicial: {BRL(item.saldo_inicial)}</p>
               <div className="mt-3 flex gap-2">
                 <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
                 <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
@@ -964,15 +964,15 @@ function DreTab() {
       .finally(() => setLoading(false))
   }, [ano, mes])
 
-  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
-  if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar DRE.</div>
+  if (loading) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Carregando...</div>
+  if (!data) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Erro ao carregar DRE.</div>
 
   const singleMonth = !!mes && data.dados
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-semibold text-gray-800">Demonstrativo de Resultado (DRE)</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Demonstrativo de Resultado (DRE)</h2>
         <div className="flex gap-2">
           <div className="w-28">
             <Select options={anoOpts} value={ano} onChange={(e) => setAno(e.target.value)} />
@@ -989,9 +989,9 @@ function DreTab() {
             {DRE_LINHAS.map((l) => {
               const val = Number(data.dados[l.key] || 0)
               return (
-                <div key={l.key} className={`flex justify-between py-1.5 px-2 rounded ${l.highlight ? 'bg-gray-50' : ''}`}>
-                  <span className={`text-sm ${l.bold ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{l.label}</span>
-                  <span className={`text-sm font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (val >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-800'}`}>
+                <div key={l.key} className={`flex justify-between py-1.5 px-2 rounded ${l.highlight ? 'bg-gray-50 dark:bg-navy-900/50' : ''}`}>
+                  <span className={`text-sm ${l.bold ? 'font-bold text-gray-900 dark:text-slate-100' : 'text-gray-600 dark:text-slate-400'}`}>{l.label}</span>
+                  <span className={`text-sm font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (val >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400') : 'text-gray-800 dark:text-slate-200'}`}>
                     {BRL(val)}
                   </span>
                 </div>
@@ -1000,23 +1000,23 @@ function DreTab() {
           </div>
 
           {(data.dados.receitas_por_categoria && Object.keys(data.dados.receitas_por_categoria).length > 0) && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <p className="text-sm font-semibold text-gray-700 mb-2">Receitas por Categoria</p>
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-navy-600">
+              <p className="text-sm font-semibold text-gray-700 mb-2 dark:text-slate-300">Receitas por Categoria</p>
               {Object.entries(data.dados.receitas_por_categoria).map(([cat, val]) => (
                 <div key={cat} className="flex justify-between py-1 px-2 text-sm">
-                  <span className="text-gray-600">{cat}</span>
-                  <span className="font-mono text-green-700">{BRL(val)}</span>
+                  <span className="text-gray-600 dark:text-slate-400">{cat}</span>
+                  <span className="font-mono text-green-700 dark:text-emerald-400">{BRL(val)}</span>
                 </div>
               ))}
             </div>
           )}
           {(data.dados.despesas_por_categoria && Object.keys(data.dados.despesas_por_categoria).length > 0) && (
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <p className="text-sm font-semibold text-gray-700 mb-2">Despesas por Categoria</p>
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-navy-600">
+              <p className="text-sm font-semibold text-gray-700 mb-2 dark:text-slate-300">Despesas por Categoria</p>
               {Object.entries(data.dados.despesas_por_categoria).map(([cat, val]) => (
                 <div key={cat} className="flex justify-between py-1 px-2 text-sm">
-                  <span className="text-gray-600">{cat}</span>
-                  <span className="font-mono text-red-700">{BRL(val)}</span>
+                  <span className="text-gray-600 dark:text-slate-400">{cat}</span>
+                  <span className="font-mono text-red-700 dark:text-red-400">{BRL(val)}</span>
                 </div>
               ))}
             </div>
@@ -1033,9 +1033,9 @@ function DreTab() {
               <Card key={i} title={m.mes}>
                 <div className="space-y-1">
                   {DRE_LINHAS.map((l) => (
-                    <div key={l.key} className={`flex justify-between py-1 ${l.highlight ? 'bg-gray-50 rounded px-1' : ''}`}>
-                      <span className={`text-xs ${l.bold ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{l.label}</span>
-                      <span className={`text-xs font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (Number(m[l.key] || 0) >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-800'}`}>
+                    <div key={l.key} className={`flex justify-between py-1 ${l.highlight ? 'bg-gray-50 rounded px-1 dark:bg-navy-900/50' : ''}`}>
+                      <span className={`text-xs ${l.bold ? 'font-bold text-gray-900 dark:text-slate-100' : 'text-gray-600 dark:text-slate-400'}`}>{l.label}</span>
+                      <span className={`text-xs font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (Number(m[l.key] || 0) >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400') : 'text-gray-800 dark:text-slate-200'}`}>
                         {BRL(m[l.key])}
                       </span>
                     </div>
@@ -1051,29 +1051,29 @@ function DreTab() {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-3 py-2 font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[160px]">Linha</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-3 py-2 font-semibold text-gray-600 sticky left-0 bg-gray-50 min-w-[160px] dark:text-slate-400 dark:bg-navy-900">Linha</th>
                       {data.meses?.map((m, i) => (
-                        <th key={i} className="text-right px-2 py-2 font-semibold text-gray-600 whitespace-nowrap">{MESES_SHORT[i]}</th>
+                        <th key={i} className="text-right px-2 py-2 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">{MESES_SHORT[i]}</th>
                       ))}
-                      <th className="text-right px-3 py-2 font-bold text-gray-800 bg-gray-100">Total</th>
+                      <th className="text-right px-3 py-2 font-bold text-gray-800 bg-gray-100 dark:text-slate-100 dark:bg-navy-900">Total</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {DRE_LINHAS.map((l) => (
-                      <tr key={l.key} className={l.highlight ? 'bg-gray-50' : 'hover:bg-gray-50'}>
-                        <td className={`px-3 py-2 sticky left-0 bg-white ${l.bold ? 'font-bold text-gray-900' : 'text-gray-600'} ${l.highlight ? '!bg-gray-50' : ''}`}>
+                      <tr key={l.key} className={l.highlight ? 'bg-gray-50 dark:bg-navy-900/50' : 'hover:bg-gray-50 dark:hover:bg-navy-700/60'}>
+                        <td className={`px-3 py-2 sticky left-0 bg-white dark:bg-navy-800 ${l.bold ? 'font-bold text-gray-900 dark:text-slate-100' : 'text-gray-600 dark:text-slate-400'} ${l.highlight ? '!bg-gray-50 dark:!bg-navy-900/50' : ''}`}>
                           {l.label}
                         </td>
                         {data.meses?.map((m, i) => {
                           const val = Number(m[l.key] || 0)
                           return (
-                            <td key={i} className={`px-2 py-2 text-right font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (val >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-700'}`}>
+                            <td key={i} className={`px-2 py-2 text-right font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (val >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400') : 'text-gray-700 dark:text-slate-300'}`}>
                               {BRL(val)}
                             </td>
                           )
                         })}
-                        <td className={`px-3 py-2 text-right font-mono font-bold bg-gray-100 ${l.highlight ? (Number(data.totais_ano?.[l.key] || 0) >= 0 ? 'text-green-700' : 'text-red-700') : 'text-gray-800'}`}>
+                        <td className={`px-3 py-2 text-right font-mono font-bold bg-gray-100 dark:bg-navy-900 ${l.highlight ? (Number(data.totais_ano?.[l.key] || 0) >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400') : 'text-gray-800 dark:text-slate-100'}`}>
                           {BRL(data.totais_ano?.[l.key])}
                         </td>
                       </tr>
@@ -1111,20 +1111,20 @@ function BalancoTab() {
       .finally(() => setLoading(false))
   }, [dataRef])
 
-  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
-  if (!data) return <div className="text-center py-12 text-gray-400">Erro ao carregar balanço.</div>
+  if (loading) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Carregando...</div>
+  if (!data) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Erro ao carregar balanço.</div>
 
   const BalancoRow = ({ label, value, bold, indent }) => (
     <div className={`flex justify-between py-1.5 ${indent ? 'pl-4' : ''}`}>
-      <span className={`text-sm ${bold ? 'font-bold text-gray-900' : 'text-gray-600'}`}>{label}</span>
-      <span className={`text-sm font-mono ${bold ? 'font-bold text-gray-900' : 'text-gray-700'}`}>{BRL(value)}</span>
+      <span className={`text-sm ${bold ? 'font-bold text-gray-900 dark:text-slate-100' : 'text-gray-600 dark:text-slate-400'}`}>{label}</span>
+      <span className={`text-sm font-mono ${bold ? 'font-bold text-gray-900 dark:text-slate-100' : 'text-gray-700 dark:text-slate-300'}`}>{BRL(value)}</span>
     </div>
   )
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
-        <h2 className="text-lg font-semibold text-gray-800">Balanço Patrimonial</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Balanço Patrimonial</h2>
         <div className="w-40">
           <Input type="date" value={dataRef} onChange={(e) => setDataRef(e.target.value)} />
         </div>
@@ -1133,11 +1133,11 @@ function BalancoTab() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card title="Ativo">
           <div className="space-y-1">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1">Circulante</p>
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1 dark:text-slate-500">Circulante</p>
             <BalancoRow label="Caixa e Equivalentes" value={data.ativo.circulante.caixa_equivalentes} indent />
             <BalancoRow label="Contas a Receber" value={data.ativo.circulante.contas_a_receber} indent />
             <BalancoRow label="Total Circulante" value={data.ativo.circulante.total} bold />
-            <div className="border-t border-gray-200 mt-2 pt-2">
+            <div className="border-t border-gray-200 mt-2 pt-2 dark:border-navy-600">
               <BalancoRow label="ATIVO TOTAL" value={data.ativo.total} bold />
             </div>
           </div>
@@ -1146,13 +1146,13 @@ function BalancoTab() {
         <div className="space-y-4">
           <Card title="Passivo">
             <div className="space-y-1">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1">Circulante</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-1 dark:text-slate-500">Circulante</p>
               <BalancoRow label="Contas a Pagar" value={data.passivo.circulante.contas_a_pagar} indent />
               <BalancoRow label="Total Circulante" value={data.passivo.circulante.total} bold />
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2">Exigível LP</p>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mt-2 dark:text-slate-500">Exigível LP</p>
               <BalancoRow label="Empréstimos" value={data.passivo.exigivel_lp.emprestimos} indent />
               <BalancoRow label="Total Exigível LP" value={data.passivo.exigivel_lp.total} bold />
-              <div className="border-t border-gray-200 mt-2 pt-2">
+              <div className="border-t border-gray-200 mt-2 pt-2 dark:border-navy-600">
                 <BalancoRow label="PASSIVO TOTAL" value={data.passivo.total} bold />
               </div>
             </div>
@@ -1162,7 +1162,7 @@ function BalancoTab() {
             <div className="space-y-1">
               <BalancoRow label="Capital / Aportes" value={data.patrimonio_liquido.capital_aportes} indent />
               <BalancoRow label="Lucros Acumulados" value={data.patrimonio_liquido.lucros_acumulados} indent />
-              <div className="border-t border-gray-200 mt-2 pt-2">
+              <div className="border-t border-gray-200 mt-2 pt-2 dark:border-navy-600">
                 <BalancoRow label="PL TOTAL" value={data.patrimonio_liquido.total} bold />
               </div>
             </div>
@@ -1173,7 +1173,7 @@ function BalancoTab() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard label="Ativo Total" value={BRL(data.total_ativo)} color="blue" />
         <KpiCard label="Passivo + PL" value={BRL(data.total_passivo_pl)} color="blue" />
-        <div className={`rounded-xl p-4 ${data.equacao_ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+        <div className={`rounded-xl p-4 ${data.equacao_ok ? 'bg-green-50 text-green-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300'}`}>
           <p className="text-xs font-medium opacity-70">Equação</p>
           <p className="text-lg font-bold mt-1">{data.equacao_ok ? 'OK — Balanceado' : 'Desequilíbrio!'}</p>
         </div>
@@ -1201,14 +1201,14 @@ function IndicadoresTab() {
       .finally(() => setLoading(false))
   }, [])
 
-  if (loading) return <div className="text-center py-12 text-gray-400">Carregando...</div>
-  if (!indicadores) return <div className="text-center py-12 text-gray-400">Erro ao carregar indicadores.</div>
+  if (loading) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Carregando...</div>
+  if (!indicadores) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Erro ao carregar indicadores.</div>
 
   const DeltaArrow = ({ value }) => {
     const v = Number(value || 0)
-    if (v === 0) return <span className="text-gray-400 text-xs">—</span>
+    if (v === 0) return <span className="text-gray-400 text-xs dark:text-slate-500">—</span>
     return (
-      <span className={`text-xs font-semibold ${v > 0 ? 'text-green-600' : 'text-red-600'}`}>
+      <span className={`text-xs font-semibold ${v > 0 ? 'text-green-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'}`}>
         {v > 0 ? '▲' : '▼'} {Math.abs(v).toFixed(1)}%
       </span>
     )
@@ -1216,24 +1216,24 @@ function IndicadoresTab() {
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-gray-800">Indicadores de CFO</h2>
+      <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Indicadores de CFO</h2>
 
       <Card title="Rentabilidade">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">Margem Líquida</p>
-            <p className="text-lg font-bold text-gray-900">{indicadores.margem_liquida}%</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Margem Líquida</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{indicadores.margem_liquida}%</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">EBITDA (mês)</p>
-            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.ebitda_mes)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">EBITDA (mês)</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(indicadores.ebitda_mes)}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">vs. Mês Anterior</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">vs. Mês Anterior</p>
             <DeltaArrow value={indicadores.var_mes_anterior} />
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">vs. Mesmo Mês (Ano Ant.)</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">vs. Mesmo Mês (Ano Ant.)</p>
             <DeltaArrow value={indicadores.var_ano_anterior} />
           </div>
         </div>
@@ -1242,16 +1242,16 @@ function IndicadoresTab() {
       <Card title="Operacional">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">Ponto de Equilíbrio</p>
-            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.ponto_equilibrio)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Ponto de Equilíbrio</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(indicadores.ponto_equilibrio)}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">Ticket Médio</p>
-            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.ticket_medio)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Ticket Médio</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(indicadores.ticket_medio)}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">MRR</p>
-            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.mrr)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">MRR</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(indicadores.mrr)}</p>
           </div>
         </div>
       </Card>
@@ -1259,18 +1259,18 @@ function IndicadoresTab() {
       <Card title="Liquidez & Sobrevivência">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">Saldo Total</p>
-            <p className="text-lg font-bold text-gray-900">{BRL(indicadores.saldo_total)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Saldo Total</p>
+            <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(indicadores.saldo_total)}</p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">Runway</p>
-            <p className={`text-lg font-bold ${Number(indicadores.runway_meses) >= 6 ? 'text-green-700' : Number(indicadores.runway_meses) >= 3 ? 'text-yellow-700' : 'text-red-700'}`}>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Runway</p>
+            <p className={`text-lg font-bold ${Number(indicadores.runway_meses) >= 6 ? 'text-green-700 dark:text-emerald-400' : Number(indicadores.runway_meses) >= 3 ? 'text-yellow-700 dark:text-amber-400' : 'text-red-700 dark:text-red-400'}`}>
               {indicadores.runway_meses} meses
             </p>
           </div>
           <div className="space-y-1">
-            <p className="text-xs text-gray-500">Resultado (mês)</p>
-            <p className={`text-lg font-bold ${Number(indicadores.resultado_mes) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Resultado (mês)</p>
+            <p className={`text-lg font-bold ${Number(indicadores.resultado_mes) >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
               {BRL(indicadores.resultado_mes)}
             </p>
           </div>
@@ -1281,8 +1281,8 @@ function IndicadoresTab() {
         <Card title="Fluxo de Caixa Projetado (90 dias)">
           <div className="space-y-3">
             <div className="flex justify-between items-center text-sm">
-              <span className="text-gray-600">Saldo Atual</span>
-              <span className="font-bold text-blue-700">{BRL(fluxo.saldo_atual)}</span>
+              <span className="text-gray-600 dark:text-slate-400">Saldo Atual</span>
+              <span className="font-bold text-blue-700 dark:text-blue-300">{BRL(fluxo.saldo_atual)}</span>
             </div>
 
             {fluxo.janelas?.map((j) => {
@@ -1293,9 +1293,9 @@ function IndicadoresTab() {
               const wSaida = (Number(j.saidas_previstas) / maxVal) * 100
               return (
                 <div key={j.periodo} className="space-y-1">
-                  <div className="flex justify-between text-xs text-gray-500">
+                  <div className="flex justify-between text-xs text-gray-500 dark:text-slate-400">
                     <span>{j.periodo} dias</span>
-                    <span className={Number(j.resultado_previsto) >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                    <span className={Number(j.resultado_previsto) >= 0 ? 'text-green-600 dark:text-emerald-400 font-semibold' : 'text-red-600 dark:text-red-400 font-semibold'}>
                       {BRL(j.resultado_previsto)}
                     </span>
                   </div>
@@ -1307,14 +1307,14 @@ function IndicadoresTab() {
               )
             })}
 
-            <div className="border-t border-gray-200 pt-2 flex justify-between items-center text-sm">
-              <span className="text-gray-600 font-medium">Saldo Projetado (90 dias)</span>
-              <span className={`font-bold ${Number(fluxo.saldo_projetado_90_dias) >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+            <div className="border-t border-gray-200 dark:border-navy-700 pt-2 flex justify-between items-center text-sm">
+              <span className="text-gray-600 dark:text-slate-400 font-medium">Saldo Projetado (90 dias)</span>
+              <span className={`font-bold ${Number(fluxo.saldo_projetado_90_dias) >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
                 {BRL(fluxo.saldo_projetado_90_dias)}
               </span>
             </div>
 
-            <div className="flex gap-4 text-xs text-gray-500">
+            <div className="flex gap-4 text-xs text-gray-500 dark:text-slate-400">
               <span className="flex items-center gap-1"><span className="w-2 h-2 bg-green-400 rounded-full" />Entradas</span>
               <span className="flex items-center gap-1"><span className="w-2 h-2 bg-red-400 rounded-full" />Saídas</span>
             </div>
@@ -1350,16 +1350,16 @@ function LivroCaixaTab({ contasOptions }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-800">Livro Caixa</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-200">Livro Caixa</h2>
         <div className="w-48">
           <Select options={[{ value: '', label: 'Todas as contas' }, ...contasOptions]} value={contaFilter} onChange={(e) => { setContaFilter(e.target.value); setPage(1) }} />
         </div>
       </div>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="text-center py-12 text-gray-400"><p className="text-sm">Nenhum lançamento encontrado.</p></div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500"><p className="text-sm">Nenhum lançamento encontrado.</p></div>
       ) : (
         <>
           {/* Mobile */}
@@ -1368,18 +1368,18 @@ function LivroCaixaTab({ contasOptions }) {
               <Card key={item.id}>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{item.descricao}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.origem_label} &middot; {item.data}</p>
+                    <p className="font-semibold text-gray-900 dark:text-slate-100 truncate">{item.descricao}</p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">{item.origem_label} &middot; {item.data}</p>
                   </div>
-                  <span className={`text-lg font-bold ${item.tipo === 'ENTRADA' ? 'text-green-700' : 'text-red-700'}`}>
+                  <span className={`text-lg font-bold ${item.tipo === 'ENTRADA' ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
                     {item.tipo === 'ENTRADA' ? '+' : '-'}{BRL(item.valor)}
                   </span>
                 </div>
-                <div className="mt-2 flex justify-between text-xs text-gray-500">
+                <div className="mt-2 flex justify-between text-xs text-gray-500 dark:text-slate-400">
                   <span>{item.conta_nome}</span>
                   <span>Saldo: {BRL(item.saldo_atual)}</span>
                 </div>
-                {item.estornado && <span className="text-xs text-red-500 font-medium mt-1 block">ESTORNADO</span>}
+                {item.estornado && <span className="text-xs text-red-500 dark:text-red-400 font-medium mt-1 block">ESTORNADO</span>}
               </Card>
             ))}
           </div>
@@ -1390,26 +1390,26 @@ function LivroCaixaTab({ contasOptions }) {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Data</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Descrição</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Origem</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Conta</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Saldo</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Data</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Descrição</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Origem</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Conta</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Valor</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Saldo</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {items.map((item) => (
-                      <tr key={item.id} className={`hover:bg-gray-50 ${item.estornado ? 'opacity-50 line-through' : ''}`}>
-                        <td className="px-4 py-3 text-gray-600">{item.data}</td>
-                        <td className="px-4 py-3 font-medium text-gray-900 max-w-[250px] truncate">{item.descricao}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.origem_label}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.conta_nome}</td>
-                        <td className={`px-4 py-3 text-right font-semibold ${item.tipo === 'ENTRADA' ? 'text-green-700' : 'text-red-700'}`}>
+                      <tr key={item.id} className={`hover:bg-gray-50 dark:hover:bg-navy-700/60 ${item.estornado ? 'opacity-50 line-through' : ''}`}>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.data}</td>
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100 max-w-[250px] truncate">{item.descricao}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.origem_label}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.conta_nome}</td>
+                        <td className={`px-4 py-3 text-right font-semibold ${item.tipo === 'ENTRADA' ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
                           {item.tipo === 'ENTRADA' ? '+' : '-'}{BRL(item.valor)}
                         </td>
-                        <td className="px-4 py-3 text-right text-gray-700 font-medium">{BRL(item.saldo_atual)}</td>
+                        <td className="px-4 py-3 text-right text-gray-700 dark:text-slate-300 font-medium">{BRL(item.saldo_atual)}</td>
                       </tr>
                     ))}
                   </tbody>

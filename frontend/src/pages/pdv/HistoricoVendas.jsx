@@ -13,9 +13,9 @@ import Pagination from '../../components/ui/Pagination.jsx'
 const PAGE_SIZE = 20
 
 const STATUS_VENDA_BADGES = {
-  ABERTA: 'bg-yellow-100 text-yellow-800',
-  FINALIZADA: 'bg-green-100 text-green-800',
-  CANCELADA: 'bg-gray-100 text-gray-600',
+  ABERTA: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
+  FINALIZADA: 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  CANCELADA: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
 }
 
 const STATUS_OPTIONS = [
@@ -43,7 +43,7 @@ function Badge({ status }) {
   return (
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-        STATUS_VENDA_BADGES[status] || 'bg-gray-100 text-gray-600'
+        STATUS_VENDA_BADGES[status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'
       }`}
     >
       {status}
@@ -220,15 +220,15 @@ export default function HistoricoVendas() {
       )}
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Histórico de Vendas</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Consulte e gerencie as vendas realizadas</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Histórico de Vendas</h1>
+        <p className="text-sm text-gray-500 mt-0.5 dark:text-slate-400">Consulte e gerencie as vendas realizadas</p>
       </div>
 
       {/* Filtros */}
       <Card>
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1 dark:text-slate-400">
               <Calendar size={12} />
               De
             </p>
@@ -239,7 +239,7 @@ export default function HistoricoVendas() {
             />
           </div>
           <div>
-            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1 dark:text-slate-400">
               <Calendar size={12} />
               Até
             </p>
@@ -250,7 +250,7 @@ export default function HistoricoVendas() {
             />
           </div>
           <div className="w-48">
-            <p className="text-xs text-gray-500 mb-1">Status</p>
+            <p className="text-xs text-gray-500 mb-1 dark:text-slate-400">Status</p>
             <Select
               options={STATUS_OPTIONS}
               value={statusFiltro}
@@ -266,10 +266,10 @@ export default function HistoricoVendas() {
       </Card>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 text-sm dark:text-slate-500">Carregando...</div>
       ) : vendas.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <PackageSearch size={32} className="mx-auto mb-2 text-gray-300" />
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500">
+          <PackageSearch size={32} className="mx-auto mb-2 text-gray-300 dark:text-navy-500" />
           <p className="text-sm">Nenhuma venda encontrada.</p>
         </div>
       ) : (
@@ -280,13 +280,13 @@ export default function HistoricoVendas() {
               <Card key={venda.id}>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900">
+                    <p className="font-semibold text-gray-900 dark:text-slate-100">
                       #{venda.numero || venda.id}
                     </p>
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">
                       {formatarDataHora(venda.data_hora)}
                     </p>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-500 dark:text-slate-400">
                       {venda.cliente?.nome_completo || venda.cliente?.nome_razao_social || 'Consumidor Final'}
                     </p>
                   </div>
@@ -295,12 +295,12 @@ export default function HistoricoVendas() {
                 <div className="mt-2 flex justify-between items-center">
                   <span
                     className={`text-lg font-bold ${
-                      venda.status === 'CANCELADA' ? 'line-through text-gray-400' : 'text-gray-900'
+                      venda.status === 'CANCELADA' ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-900 dark:text-slate-100'
                     }`}
                   >
                     {BRL(venda.valor_total)}
                   </span>
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-400 dark:text-slate-500">
                     {venda.operador?.first_name || venda.operador?.username || '—'}
                   </span>
                 </div>
@@ -326,36 +326,36 @@ export default function HistoricoVendas() {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Número</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Data/Hora</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Operador</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Cliente</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Total</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Ações</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Número</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Data/Hora</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Operador</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Cliente</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Total</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Status</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {vendas.map((venda) => (
-                      <tr key={venda.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">
+                      <tr key={venda.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">
                           #{venda.numero || venda.id}
                         </td>
-                        <td className="px-4 py-3 text-gray-600">
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
                           {formatarDataHora(venda.data_hora)}
                         </td>
-                        <td className="px-4 py-3 text-gray-600">
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
                           {venda.operador?.first_name || venda.operador?.username || '—'}
                         </td>
-                        <td className="px-4 py-3 text-gray-600 max-w-[150px] truncate">
+                        <td className="px-4 py-3 text-gray-600 max-w-[150px] truncate dark:text-slate-400">
                           {venda.cliente?.nome_completo || venda.cliente?.nome_razao_social || 'Consumidor Final'}
                         </td>
                         <td
                           className={`px-4 py-3 text-right font-mono font-semibold ${
                             venda.status === 'CANCELADA'
-                              ? 'line-through text-gray-400'
-                              : 'text-gray-900'
+                              ? 'line-through text-gray-400 dark:text-slate-500'
+                              : 'text-gray-900 dark:text-slate-100'
                           }`}
                         >
                           {BRL(venda.valor_total)}
@@ -368,7 +368,7 @@ export default function HistoricoVendas() {
                             <button
                               type="button"
                               onClick={() => abrirDetalhe(venda)}
-                              className="text-gray-400 hover:text-gray-700 transition-colors"
+                              className="text-gray-400 hover:text-gray-700 transition-colors dark:text-slate-500 dark:hover:text-slate-200"
                               title="Ver detalhe"
                             >
                               <Eye size={16} />
@@ -377,7 +377,7 @@ export default function HistoricoVendas() {
                               <button
                                 type="button"
                                 onClick={() => abrirCancelar(venda)}
-                                className="text-red-400 hover:text-red-600 transition-colors"
+                                className="text-red-400 hover:text-red-600 transition-colors dark:text-red-400/70 dark:hover:text-red-400"
                                 title="Cancelar venda"
                               >
                                 <XCircle size={16} />
@@ -406,30 +406,30 @@ export default function HistoricoVendas() {
         >
           <div className="space-y-4">
             {/* Cabeçalho */}
-            <div className="flex flex-wrap gap-2 items-center text-sm text-gray-600">
+            <div className="flex flex-wrap gap-2 items-center text-sm text-gray-600 dark:text-slate-400">
               <Badge status={vendaDetalhe.status} />
               <span>
                 {vendaDetalhe.cliente?.nome_completo ||
                   vendaDetalhe.cliente?.nome_razao_social ||
                   'Consumidor Final'}
               </span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-300 dark:text-slate-600">·</span>
               <span>
                 {vendaDetalhe.operador?.first_name ||
                   vendaDetalhe.operador?.username ||
                   '—'}
               </span>
-              <span className="text-gray-300">·</span>
+              <span className="text-gray-300 dark:text-slate-600">·</span>
               <span>{formatarDataHora(vendaDetalhe.data_hora)}</span>
             </div>
 
             {/* Itens */}
             {vendaDetalhe.itens && vendaDetalhe.itens.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
                   Itens
                 </p>
-                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 dark:border-navy-600 dark:divide-navy-700">
                   {vendaDetalhe.itens.map((item) => {
                     const qtdRestante =
                       Number(item.quantidade || 0) - Number(item.quantidade_estornada || 0)
@@ -441,19 +441,19 @@ export default function HistoricoVendas() {
                       <div key={item.id} className="px-4 py-3">
                         <div className="flex justify-between items-start gap-2">
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-900 truncate">
+                            <p className="font-medium text-gray-900 dark:text-slate-100 truncate">
                               {item.produto?.nome || `Produto #${item.produto}`}
                             </p>
                             {parcialmenteDevolvido && (
-                              <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-xs bg-yellow-50 text-yellow-700">
+                              <span className="inline-block mt-0.5 px-1.5 py-0.5 rounded text-xs bg-yellow-50 text-yellow-700 dark:bg-amber-900/30 dark:text-amber-300">
                                 Parcialmente devolvido ({item.quantidade_estornada} un)
                               </span>
                             )}
-                            <p className="text-xs text-gray-500 mt-0.5">
+                            <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
                               {item.quantidade} ×{' '}
                               {BRL(item.valor_unitario)}
                               {Number(item.desconto_item || 0) > 0 && (
-                                <span className="text-gray-400">
+                                <span className="text-gray-400 dark:text-slate-500">
                                   {' '}
                                   — {BRL(item.desconto_item)} desconto
                                 </span>
@@ -461,14 +461,14 @@ export default function HistoricoVendas() {
                             </p>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="font-mono font-semibold text-gray-900">
+                            <span className="font-mono font-semibold text-gray-900 dark:text-slate-100">
                               {BRL(item.valor_total)}
                             </span>
                             {vendaDetalhe.status === 'FINALIZADA' && qtdRestante > 0 && (
                               <button
                                 type="button"
                                 onClick={() => abrirDevolucao(item, qtdRestante)}
-                                className="text-yellow-600 hover:text-yellow-800 transition-colors"
+                                className="text-yellow-600 hover:text-yellow-800 transition-colors dark:text-amber-400 dark:hover:text-amber-300"
                                 title="Devolver item"
                               >
                                 <RotateCcw size={14} />
@@ -486,16 +486,16 @@ export default function HistoricoVendas() {
             {/* Pagamentos */}
             {vendaDetalhe.pagamentos && vendaDetalhe.pagamentos.length > 0 && (
               <div>
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
                   Pagamentos
                 </p>
                 <div className="space-y-1">
                   {vendaDetalhe.pagamentos.map((pg, i) => (
                     <div key={i} className="flex justify-between text-sm">
-                      <span className="text-gray-600">
+                      <span className="text-gray-600 dark:text-slate-400">
                         {pg.metodo?.nome || pg.forma_pagamento || 'Pagamento'}
                       </span>
-                      <span className="font-mono text-gray-900">{BRL(pg.valor)}</span>
+                      <span className="font-mono text-gray-900 dark:text-slate-100">{BRL(pg.valor)}</span>
                     </div>
                   ))}
                 </div>
@@ -503,11 +503,11 @@ export default function HistoricoVendas() {
             )}
 
             {/* Total */}
-            <div className="border-t border-gray-200 pt-3 flex justify-between items-center">
-              <span className="font-semibold text-gray-700">Total</span>
+            <div className="border-t border-gray-200 dark:border-navy-700 pt-3 flex justify-between items-center">
+              <span className="font-semibold text-gray-700 dark:text-slate-300">Total</span>
               <span
                 className={`font-mono font-bold text-lg ${
-                  vendaDetalhe.status === 'CANCELADA' ? 'line-through text-gray-400' : 'text-gray-900'
+                  vendaDetalhe.status === 'CANCELADA' ? 'line-through text-gray-400 dark:text-slate-500' : 'text-gray-900 dark:text-slate-100'
                 }`}
               >
                 {BRL(vendaDetalhe.valor_total)}
@@ -541,20 +541,20 @@ export default function HistoricoVendas() {
           maxW="max-w-md"
         >
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-gray-600 dark:text-slate-400">
               Esta ação cancelará a venda inteira. Todo o estoque será revertido e os pagamentos
               estornados.
             </p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Motivo <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                Motivo <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <textarea
                 rows={3}
                 value={motivoCancelamento}
                 onChange={(e) => setMotivoCancelamento(e.target.value)}
                 placeholder="Descreva o motivo do cancelamento..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
               />
             </div>
             <div className="flex justify-end gap-3 pt-2">
@@ -577,13 +577,13 @@ export default function HistoricoVendas() {
           maxW="max-w-md"
         >
           <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              <strong>{itemDevolucao.produto?.nome || `Produto #${itemDevolucao.produto}`}</strong>
+            <p className="text-sm text-gray-600 dark:text-slate-400">
+              <strong className="text-gray-900 dark:text-slate-100">{itemDevolucao.produto?.nome || `Produto #${itemDevolucao.produto}`}</strong>
               {' '}— máximo {itemDevolucao.qtdMax} unidade(s) disponíveis para devolução.
             </p>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Quantidade a devolver <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                Quantidade a devolver <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <Input
                 type="number"
@@ -595,15 +595,15 @@ export default function HistoricoVendas() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Motivo <span className="text-red-500">*</span>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                Motivo <span className="text-red-500 dark:text-red-400">*</span>
               </label>
               <textarea
                 rows={2}
                 value={motivoDevolucao}
                 onChange={(e) => setMotivoDevolucao(e.target.value)}
                 placeholder="Motivo da devolução..."
-                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
               />
             </div>
             <div className="flex justify-end gap-3 pt-2">

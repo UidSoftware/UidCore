@@ -11,7 +11,7 @@ function MetodoIcon({ nome }) {
   if (n.includes('CREDITO') || n.includes('CRÉDITO')) return <CreditCard size={18} className="text-purple-600" />
   if (n.includes('DEBITO') || n.includes('DÉBITO')) return <CreditCard size={18} className="text-blue-600" />
   if (n.includes('BOLETO')) return <FileText size={18} className="text-blue-600" />
-  return <MoreHorizontal size={18} className="text-gray-500" />
+  return <MoreHorizontal size={18} className="text-gray-500 dark:text-slate-400" />
 }
 
 /**
@@ -57,18 +57,18 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
     <div className="space-y-4">
       {/* Grid de chips de métodos disponíveis */}
       <div>
-        <p className="text-xs font-medium text-gray-500 mb-2">Adicionar forma de pagamento</p>
+        <p className="text-xs font-medium text-gray-500 mb-2 dark:text-slate-400">Adicionar forma de pagamento</p>
         <div className="grid grid-cols-2 gap-2">
           {metodos.map((m) => (
             <button
               key={m.id}
               type="button"
               onClick={() => adicionarMetodo(m)}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors text-left"
+              className="flex items-center gap-2 px-3 py-2.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-sm font-medium text-gray-700 transition-colors text-left dark:border-navy-600 dark:bg-navy-800 dark:hover:bg-navy-700 dark:text-slate-200"
             >
               <MetodoIcon nome={m.nome} />
               <span className="truncate">{m.nome}</span>
-              <Plus size={12} className="ml-auto text-primary-600 shrink-0" />
+              <Plus size={12} className="ml-auto text-primary-600 shrink-0 dark:text-violet-400" />
             </button>
           ))}
         </div>
@@ -78,14 +78,14 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
       {linhas.length > 0 && (
         <div className="space-y-3">
           {linhas.map((linha) => (
-            <div key={linha._key} className="rounded-lg border border-gray-200 p-4 space-y-3 bg-gray-50">
+            <div key={linha._key} className="rounded-lg border border-gray-200 p-4 space-y-3 bg-gray-50 dark:border-navy-600 dark:bg-navy-900/50">
               <div className="flex items-center gap-2">
                 <MetodoIcon nome={linha.metodo_nome} />
-                <span className="text-sm font-medium text-gray-800 flex-1">{linha.metodo_nome}</span>
+                <span className="text-sm font-medium text-gray-800 flex-1 dark:text-slate-200">{linha.metodo_nome}</span>
                 <button
                   type="button"
                   onClick={() => removerLinha(linha._key)}
-                  className="p-1 text-gray-400 hover:text-red-600 transition-colors rounded"
+                  className="p-1 text-gray-400 hover:text-red-600 transition-colors rounded dark:text-slate-500 dark:hover:text-red-400"
                 >
                   <X size={14} />
                 </button>
@@ -94,7 +94,7 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
               <div className="grid grid-cols-2 gap-3">
                 {/* Valor */}
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">Valor (R$)</label>
+                  <label className="block text-sm text-gray-500 mb-1 dark:text-slate-400">Valor (R$)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -102,17 +102,17 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
                     value={linha.valor}
                     onChange={(e) => atualizarLinha(linha._key, 'valor', e.target.value)}
                     placeholder="0,00"
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-right font-mono focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
                   />
                 </div>
 
                 {/* Conta (se não há conta_padrao) */}
                 <div>
-                  <label className="block text-sm text-gray-500 mb-1">Conta de destino</label>
+                  <label className="block text-sm text-gray-500 mb-1 dark:text-slate-400">Conta de destino</label>
                   <select
                     value={linha.conta}
                     onChange={(e) => atualizarLinha(linha._key, 'conta', e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
                   >
                     <option value="">Selecione...</option>
                     {contas.map((c) => (
@@ -124,9 +124,9 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
 
               {/* Campos extras para cartão de crédito */}
               {linha.metodo_cartao_credito && (
-                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-200">
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-gray-200 dark:border-navy-700">
                   <div>
-                    <label className="block text-sm text-gray-500 mb-1">Taxa (%)</label>
+                    <label className="block text-sm text-gray-500 mb-1 dark:text-slate-400">Taxa (%)</label>
                     <input
                       type="number"
                       step="0.01"
@@ -135,11 +135,11 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
                       value={linha.taxa_percentual}
                       onChange={(e) => atualizarLinha(linha._key, 'taxa_percentual', e.target.value)}
                       placeholder="Ex: 2,99"
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm text-gray-500 mb-1">Prazo (dias)</label>
+                    <label className="block text-sm text-gray-500 mb-1 dark:text-slate-400">Prazo (dias)</label>
                     <input
                       type="number"
                       step="1"
@@ -147,7 +147,7 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
                       value={linha.prazo_dias}
                       onChange={(e) => atualizarLinha(linha._key, 'prazo_dias', e.target.value)}
                       placeholder="Ex: 30"
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
                     />
                   </div>
                 </div>
@@ -160,16 +160,16 @@ export default function SplitPagamento({ metodos = [], contas = [], total = 0, l
       {/* Resumo do split */}
       {linhas.length > 0 && (
         <div className="flex justify-between items-center text-sm pt-1">
-          <span className="text-gray-600">
+          <span className="text-gray-600 dark:text-slate-400">
             Alocado: <span className="font-mono font-medium">{BRL(somaLinhas)}</span>
           </span>
           {!eExato && (
-            <span className={`font-medium ${falta > 0 ? 'text-yellow-700' : 'text-green-700'}`}>
+            <span className={`font-medium ${falta > 0 ? 'text-yellow-700 dark:text-amber-400' : 'text-green-700 dark:text-emerald-400'}`}>
               {falta > 0 ? `Falta alocar: ${BRL(falta)}` : `Troco: ${BRL(Math.abs(falta))}`}
             </span>
           )}
           {eExato && (
-            <span className="text-green-700 font-medium">Pagamento completo</span>
+            <span className="text-green-700 font-medium dark:text-emerald-400">Pagamento completo</span>
           )}
         </div>
       )}

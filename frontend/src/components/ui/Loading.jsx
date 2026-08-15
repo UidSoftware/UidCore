@@ -2,7 +2,7 @@ export default function Loading({ message = 'Carregando...' }) {
   return (
     <div className="flex flex-col items-center justify-center gap-3 min-h-[200px]">
       <svg
-        className="animate-spin h-8 w-8 text-primary-600"
+        className="animate-spin h-8 w-8 text-primary-600 dark:text-violet-500"
         xmlns="http://www.w3.org/2000/svg"
         fill="none"
         viewBox="0 0 24 24"
@@ -14,7 +14,7 @@ export default function Loading({ message = 'Carregando...' }) {
           d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
         />
       </svg>
-      {message && <p className="text-sm text-gray-500">{message}</p>}
+      {message && <p className="text-sm text-gray-500 dark:text-slate-400">{message}</p>}
     </div>
   )
 }

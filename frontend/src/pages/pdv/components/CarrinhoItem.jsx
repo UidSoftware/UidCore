@@ -34,29 +34,29 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
   }
 
   return (
-    <div className="border-b border-gray-100 last:border-0 py-3">
+    <div className="border-b border-gray-100 last:border-0 py-3 dark:border-navy-700">
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium text-gray-900 truncate">{item.produto_nome}</p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-sm font-medium text-gray-900 truncate dark:text-slate-100">{item.produto_nome}</p>
+          <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">
             {BRL(item.valor_unitario)} / {item.produto_unidade || 'UN'}
           </p>
           {parseFloat(item.desconto_item || 0) > 0 && (
-            <p className="text-xs text-gray-400 mt-0.5">
+            <p className="text-xs text-gray-400 mt-0.5 dark:text-slate-500">
               - {BRL(item.desconto_item)} desconto
             </p>
           )}
         </div>
 
         <div className="flex items-center gap-1">
-          <p className="text-sm font-medium text-gray-900 font-mono whitespace-nowrap">
+          <p className="text-sm font-medium text-gray-900 font-mono whitespace-nowrap dark:text-slate-100">
             {BRL(item.valor_total)}
           </p>
           {!disabled && (
             <button
               type="button"
               onClick={() => onRemover(item.id)}
-              className="ml-2 p-1 text-gray-400 hover:text-red-600 transition-colors rounded"
+              className="ml-2 p-1 text-gray-400 hover:text-red-600 transition-colors rounded dark:text-slate-500 dark:hover:text-red-400"
               title="Remover item"
             >
               <Trash2 size={14} />
@@ -70,7 +70,7 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
           <button
             type="button"
             onClick={handleMinus}
-            className="w-6 h-6 flex items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors shrink-0"
+            className="w-6 h-6 flex items-center justify-center rounded-full border border-gray-300 text-gray-600 hover:bg-gray-100 transition-colors shrink-0 dark:border-navy-500 dark:text-slate-300 dark:hover:bg-navy-700"
             title="Diminuir quantidade"
           >
             <Minus size={12} />
@@ -81,17 +81,17 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
             onChange={handleInput}
             step="1"
             min="0.001"
-            className="w-14 text-center text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+            className="w-14 text-center text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
           />
           <button
             type="button"
             onClick={handlePlus}
-            className="w-6 h-6 flex items-center justify-center rounded-full border border-gray-300 bg-primary-50 text-primary-600 hover:bg-primary-100 transition-colors shrink-0"
+            className="w-6 h-6 flex items-center justify-center rounded-full border border-gray-300 bg-primary-50 text-primary-600 hover:bg-primary-100 transition-colors shrink-0 dark:border-navy-500 dark:bg-violet-900/30 dark:text-violet-300 dark:hover:bg-violet-900/50"
             title="Aumentar quantidade"
           >
             <Plus size={12} />
           </button>
-          <span className="text-xs text-gray-400 ml-1">{item.produto_unidade || 'UN'}</span>
+          <span className="text-xs text-gray-400 ml-1 dark:text-slate-500">{item.produto_unidade || 'UN'}</span>
         </div>
       )}
     </div>

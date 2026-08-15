@@ -1,346 +1,358 @@
-# Especificação UI Hotfix — UidCore — Manutenção #21 (Ajustes pós-lançamento PDV)
+# Especificação UI Hotfix — UidCore (Dark Mode)
 
-**Base:** Especificacao_Hotfix.md (Analista, Manutenção #21, RF-17 a RF-23) + design_system.md (Brush, Manutenção #8, ainda válido — nenhuma decisão de paleta/tipografia/model é tomada aqui).
+**Elaborado por:** Brush (MODO HOTFIX)
+**Data:** 2026-08-14
+**Fontes lidas:** `design_system.md` (2026-07-28, última atualização 2026-08-04) + `frontend/tailwind.config.js` + `frontend/index.html` + `frontend/src/index.css` + `frontend/src/components/layout/Header.jsx`
 
-**Modo:** MODO HOTFIX — camada visual sobre spec já aprovada pelo Analista. Nenhum
-model, endpoint ou contrato de API é definido aqui (nenhum é necessário — Seção 8
-da Especificacao_Hotfix.md confirma 0 alterações de backend). Este documento só
-diz **onde** e **como** cada RF aparece na tela, reutilizando ao máximo os
-componentes e padrões já existentes no módulo PDV.
+> Nota: este arquivo é regravado a cada manutenção (padrão já estabelecido na
+> Manutenção #21) — o conteúdo anterior (ajustes de PDV pós-lançamento) está
+> preservado no histórico do `CLAUDE.md` do projeto e no git history. Este
+> documento passa a refletir apenas a entrega de dark mode.
 
-> Nota: este arquivo é regravado a cada manutenção — o conteúdo anterior
-> (Manutenção #15, especificação completa das 6 telas do módulo PDV, já
-> concluída e em produção) está preservado no histórico do `CLAUDE.md` do
-> projeto e no git history. Este documento passa a refletir apenas os ajustes
-> da Manutenção #21.
+**Escopo:** adicionar **dark mode opcional** (toggle) ao UidCore. O tema
+**claro continua sendo o padrão** (decisão arquitetural já registrada em
+`design_system.md` item b — "UidCore usa tema claro para gestão financeira").
+Esta especificação NÃO substitui o light mode, apenas adiciona a variante
+escura como opção do usuário, persistida.
 
----
-
-## Design System do Projeto (referência — não redefinido aqui)
-
-- **Tema:** claro (light mode), `bg-gray-50` app.
-- **Cor primária:** `primary-600` (#2563eb) / hover `primary-700`.
-- **Sucesso:** `accent-600` (#059669). **Erro:** `red-600` (#dc2626). **Atenção:** `yellow-700`/`bg-yellow-50`. **Info:** `blue-600`/`bg-blue-50`.
-- **BorderRadius:** `rounded-lg` (8px) inputs/botões, `rounded-xl`/`rounded-2xl` cards e modais.
-- **Toast:** `fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white` — `bg-accent-600` sucesso / `bg-red-600` erro. Já implementado em `FrenteDeCaixa.jsx` e `AberturaCaixa.jsx` via `mostrarToast(msg, tipo)` — **reutilizar exatamente o que já existe em cada arquivo, não criar padrão novo.**
-- **Modal:** `Modal.jsx` já existente — overlay `fixed inset-0 z-50 bg-black/50`, container `bg-white rounded-2xl shadow-xl p-6 max-h-[90vh] overflow-y-auto`, `maxW` configurável (`max-w-md` para forms rápidos).
-- ⚠️ **NUNCA** `overflow-hidden` em elemento raiz de tela — não se aplica a nenhuma mudança desta manutenção (nenhuma tela nova é criada), mas vale reforçar ao mexer no Modal de câmera: usar `overflow-hidden` **só** no wrapper do preview de vídeo (elemento local, não a tela), nunca no container do Modal.
-
----
-
-## Componentes existentes a reutilizar (nenhum componente novo em `components/ui/`)
-
-| Componente | Uso nesta manutenção |
-|---|---|
-| `Modal.jsx` | Overlay de "Escanear com câmera" (RF-18/19/20) |
-| `Button.jsx` | Nenhum botão novo de `variant` — os botões novos (câmera) seguem o padrão de botão-ícone já usado pelo `ScanLine` em `FrenteDeCaixa.jsx:331-338` (`<button>` HTML direto com classes Tailwind, não o componente `Button.jsx` — mesmo padrão do botão de foco já existente) |
-| Toast pattern (já implementado em `FrenteDeCaixa.jsx:270-276` e `AberturaCaixa.jsx:87-93`) | Erro de permissão de câmera (RF-20), erro de sessão encerrada (RF-23) |
-| `useAuthStore` (`AberturaCaixa.jsx:7,15`) | Já importa `user` — hoje não é renderizado em lugar nenhum; RF-21 passa a usá-lo |
-| `extractErrorMessage` (`utils/errors.js`) | Mensagem amigável no toast de erro de sessão (RF-23) |
-
-**Nenhum componente novo em `components/ui/` é necessário.** O overlay de câmera é local a `FrenteDeCaixa.jsx` (ou um sub-componente em `pdv/components/`, ex. `ModalScannerCamera.jsx`, seguindo o mesmo padrão de `ModalSangriaSuprimento.jsx` já existente na mesma pasta — decisão de organização de arquivo é do Loom, mas **deve** ficar em `pdv/components/`, não em `components/ui/`, pois é específico do PDV).
-
----
-
-## Ícones (Lucide React) — novos desta manutenção
-
-| Ação/Contexto | Ícone | Tamanho | Cor |
-|---|---|---|---|
-| Escanear com câmera (botão trigger) | `Camera` | 16px | `text-gray-500` (mesmo estilo do botão `ScanLine` já existente) |
-| Câmera inicializando / decodificando | `Loader2` | 16px | `text-gray-500`, classe `animate-spin` |
-| Câmera não suportada pelo navegador (estado inline, não toast) | `AlertCircle` | 20px | `text-red-600` |
-| Guia de mira dentro do preview de vídeo | linha `div` com `bg-primary-500/80`, não é ícone Lucide | — | `bg-primary-500/80` |
-| Operador logado (Abertura de Caixa) | `User` | 12px | `text-gray-500` |
-| Data/hora atual (Abertura de Caixa) | `Clock` | 12px | `text-gray-500` |
-
-Ícones já existentes reutilizados sem alteração: `Search`, `ScanLine`, `Unlock`, `PackageSearch`.
-
----
-
-## RF-17 — Enter no campo de busca aciona match exato (Frente de Caixa)
-
-**Arquivo:** `frontend/src/pages/pdv/FrenteDeCaixa.jsx`
-
-Nenhuma mudança visual — é comportamento sobre o campo já existente
-(`buscaRef`, linhas 321-329, dentro do `Card` de busca em 316-375). Não
-adicionar ícone, badge ou feedback visual novo para o Enter em si; o próprio
-item já sendo adicionado ao carrinho (re-render do `Card` "Carrinho") já é o
-feedback. Se quiser reforço visual opcional (não obrigatório pela spec):
-piscar brevemente a borda do input em `border-primary-500` por ~200ms ao
-adicionar via Enter — **não implementar isso se adicionar complexidade**,
-RF-17 não pede feedback visual dedicado.
-
-`onKeyDown` no `<input>` da linha 321-329: ao `Enter`, se
-`resultadosBusca.filter(p => p.codigo_barras === busca.trim())` tiver
-exatamente 1 item, chamar `adicionarProduto()` com esse item — mesma função
-já usada pelo clique do dropdown (linha 351), sem duplicar lógica.
-
----
-
-## RF-18/19/20 — Escanear com câmera (Frente de Caixa)
-
-**Arquivo:** `frontend/src/pages/pdv/FrenteDeCaixa.jsx`, componente de câmera novo em `frontend/src/pages/pdv/components/`
-
-### Botão trigger — ao lado do botão `ScanLine` existente
-
-Layout atual do bloco de busca (linhas 317-339):
 ```
-[ Search icon | input busca ..................... ] [ ScanLine ]
-```
-Layout novo — adicionar um terceiro botão-ícone à direita do `ScanLine`,
-mesmo estilo (`p-2 rounded-lg border border-gray-300 text-gray-500
-hover:bg-gray-50 transition-colors`), `gap-2` entre os três elementos
-(mesma classe `flex items-center gap-2` do wrapper em 318):
-```
-[ Search icon | input busca ..................... ] [ ScanLine ] [ Camera ]
-```
-- `title="Focar para leitura de código de barras"` no `ScanLine` (já existe) — manter.
-- `title="Escanear com câmera"` no novo botão `Camera`.
-- Em 375px (mobile): os dois botões-ícone (36px cada + gap-2) cabem ao lado do input sem quebrar linha — o input já é `flex-1`, ele encolhe para dar espaço. **Testar em 375px antes de considerar pronto** (regra padrão do Brush).
-- Ao clicar: abre o `Modal` de câmera (novo componente, ex. `ModalScannerCamera.jsx`).
-
-### Modal de câmera — estados
-
-Usar `Modal.jsx` com `title="Escanear código de barras"` e `maxW="max-w-md"`.
-
-**Estado 1 — inicializando (enquanto `getUserMedia` não resolve):**
-```
-┌─────────────────────────────────────┐
-│  Escanear código de barras      [×] │
-│                                       │
-│  ┌─────────────────────────────────┐ │
-│  │                                   │ │  ← wrapper preview: aspect-video,
-│  │        (preto, sem preview)      │ │     bg-black, rounded-lg,
-│  │                                   │ │     overflow-hidden (local, não
-│  └─────────────────────────────────┘ │     no root da tela)
-│                                       │
-│     ⟳ Iniciando câmera...           │  ← Loader2 16px animate-spin +
-│                                       │     texto text-sm text-gray-500,
-│                                       │     flex items-center justify-
-│                                       │     center gap-2 py-4
-└─────────────────────────────────────┘
-```
-
-**Estado 2 — câmera ativa (permissão concedida, decodificando):**
-```
-┌─────────────────────────────────────┐
-│  Escanear código de barras      [×] │
-│                                       │
-│  ┌─────────────────────────────────┐ │
-│  │ ▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂ │ │  ← <video> object-cover, w-full h-full
-│  │ ────────────────────────────── │ │  ← linha-guia horizontal, absolute,
-│  │ ▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂▂ │ │     inset-x-8 top-1/2 -translate-y-1/2
-│  └─────────────────────────────────┘ │     h-0.5 bg-primary-500/80
-│                                       │
-│  Aponte a câmera para o código de   │  ← text-xs text-gray-500 text-center
-│  barras do produto                   │     mt-3
-└─────────────────────────────────────┘
-```
-- Wrapper do preview: `relative rounded-lg overflow-hidden bg-black aspect-video`.
-- `<video>`: `w-full h-full object-cover`, `autoPlay`, `playsInline`, `muted` (obrigatório em iOS Safari para autoplay funcionar).
-- Linha-guia é puramente decorativa (reforça "aponte aqui"), não precisa ter posição funcional real ligada à lib de decodificação escolhida pelo Loom.
-- Ao decodificar com sucesso: fechar o Modal automaticamente, chamar `setBusca(codigoLido)` e disparar o mesmo fluxo de match exato do RF-17 (idealmente buscando direto pelo código exato via API em vez de esperar o debounce de 300ms do `useEffect` de busca em 106-124, para resposta instantânea — decisão de implementação do Loom, não afeta o layout aqui descrito).
-
-**Estado 3 — permissão negada (RF-20):**
-- **Não** manter um 4º estado visual persistente dentro do Modal — fechar o Modal imediatamente e mostrar o toast de erro já existente: `mostrarToast('Permissão de câmera negada. Você pode continuar digitando ou usando o leitor físico.', 'error')`. Consistente com "sem travar a tela do PDV" (RF-20) — o operador volta pro fluxo normal de busca sem nenhuma tela bloqueada.
-
-**Estado 4 — câmera não suportada pelo navegador** (`navigator.mediaDevices` ausente — cenário diferente de permissão negada, é incapacidade do browser/dispositivo):
-- Este caso **fica dentro do Modal** (não fecha sozinho, pois não é um erro transitório de permissão — o operador precisa entender que a opção não está disponível *neste* dispositivo/navegador antes de fechar):
-```
-┌─────────────────────────────────────┐
-│  Escanear código de barras      [×] │
-│                                       │
-│      ⚠ Câmera não suportada         │  ← AlertCircle 20px text-red-600
-│      neste navegador.                │     + texto text-sm text-gray-600,
-│      Use o leitor físico ou digite   │     text-center, py-8
-│      o código manualmente.           │
-│                                       │
-│              [ Fechar ]              │  ← Button variant="secondary" size="sm"
-└─────────────────────────────────────┘
+❌ NÃO criar design system novo
+❌ NÃO mudar a identidade visual do light mode (fica como está, é o default)
+❌ NÃO implementar código — isso é do Loom
+✅ Apenas adiciona a camada dark: por cima do que já existe
 ```
 
 ---
 
-## RF-21/RF-22 — Abertura de Caixa: operador + data/hora + "Fundo de Troco"
+## 0) Checagem de fontes (pedido explícito)
 
-**Arquivo:** `frontend/src/pages/pdv/AberturaCaixa.jsx`
+Conferido em `tailwind.config.js` + `index.html` + `index.css`:
 
-### RF-21 — exibir operador logado + data/hora atual
-
-Local: dentro do card branco (linhas 115-175), logo abaixo do bloco de
-cabeçalho existente (`text-center mb-6`, linhas 116-122: ícone `Unlock` +
-título + subtítulo), **antes** do `<form>` (linha 124).
-
-```
-┌─────────────────────────────────┐
-│         🔓 Abrir Caixa           │  ← já existe, sem alteração
-│  Selecione a conta e informe o   │  ← já existe, sem alteração
-│  valor de abertura               │
-│                                   │
-│   👤 João Silva    🕐 05/08 14:32 │  ← NOVO — linha de info
-│  ─────────────────────────────   │  ← NOVO — separador sutil
-│                                   │
-│  Conta (Select)                  │  ← já existe
-│  ...                              │
-```
-
-- Novo bloco: `<div className="flex items-center justify-center gap-4 text-xs text-gray-500 pb-4 mb-4 border-b border-gray-100">`.
-- Operador: `<span className="flex items-center gap-1"><User size={12} /> {user?.nome || user?.email || 'Operador'}</span>` — usar o campo que `useAuthStore` já expõe (linha 15, `user`), sem chamada de API nova.
-- Data/hora: `<span className="flex items-center gap-1"><Clock size={12} /> {dataHoraFormatada}</span>`, formatada em pt-BR com data curta + hora: `new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })` — mesmo padrão de formatação já usado em `formatarHora()` de `FrenteDeCaixa.jsx:18-21`, só que incluindo a data. Atualizar 1x no mount é suficiente (não precisa de relógio ao vivo — a tela é um gate rápido, não um dashboard).
-- Mobile (375px): o `flex` com `gap-4` e textos `text-xs` cabe numa linha só mesmo em telas pequenas; se o nome do operador for muito longo, aplicar `truncate max-w-[140px]` no `<span>` do nome para não quebrar o layout.
-
-### RF-22 — reforçar "Fundo de Troco" no campo de valor
-
-Local: label do campo na linha 147-149.
-
-- Trocar o texto do `<label>` de `"Valor de abertura"` para
-  `"Valor de Abertura (Fundo de Troco)"` — mesma classe
-  (`block text-sm font-medium text-gray-700 mb-1`), sem alterar o `<input>`
-  em si (linhas 150-160) nem o `placeholder="0,00"`. Mudança mínima e sem
-  risco de quebrar layout (`text-sm` já acomoda o texto mais longo em
-  `max-w-md`; testado visualmente em 375px o texto quebra em até 2 linhas
-  no pior caso, o que é aceitável para um label).
-
----
-
-## RF-23 — Redirecionar ao abrir caixa quando sessão foi encerrada
-
-**Arquivos:** `frontend/src/pages/pdv/FrenteDeCaixa.jsx` (lógica) + `frontend/src/pages/pdv/AberturaCaixa.jsx` (exibição da mensagem no destino)
-
-Sem elemento visual novo em `FrenteDeCaixa.jsx` — o padrão de UX é: erro em
-`criarVenda()` (linhas 88-97, especificamente o `catch` em 94-96) deixa de
-mostrar o texto cru do backend e navega para `/pdv/abertura`, no mesmo
-padrão já usado pelo `useEffect` de carregamento de sessão (linhas 65-74,
-que já faz `navigate('/pdv/abertura')` sem toast quando `GET
-/pdv/sessoes/atual/` falha).
-
-**Problema de UX a resolver na navegação:** um `mostrarToast()` chamado
-imediatamente antes de `navigate()` some da tela porque o componente
-`FrenteDeCaixa` desmonta. Padrão recomendado (reaproveita a already-existing
-prop `state` do React Router, sem criar mecanismo novo):
-
-```
-navigate('/pdv/abertura', {
-  state: { mensagem: 'Sua sessão de caixa foi encerrada. Abra o caixa novamente.' }
-})
-```
-
-Em `AberturaCaixa.jsx`: ler `useLocation().state?.mensagem` no mount (`useEffect`
-com array de deps vazio, junto do `useEffect` já existente em 31-44) e, se
-presente, chamar o `mostrarToast(msg, 'error')` **já existente nesse arquivo**
-(linhas 26-29) — reaproveita o mesmo componente de toast já renderizado em
-87-93, nenhum elemento visual novo. Sem necessidade de limpar o `state` do
-histórico manualmente (comportamento padrão do React Router já evita
-reexibição em refresh simples da página).
-
-Visualmente, o toast de erro em `AberturaCaixa.jsx` já segue o padrão
-`bg-red-600` — nenhuma alteração de estilo necessária, só popular o
-conteúdo.
-
----
-
-## Grupo 5 — Card do Carrinho e SplitPagamento
-
-### Card "Carrinho" (`FrenteDeCaixa.jsx:378-397`)
-
-- Estado vazio (linha 379-383): reduzir `py-12` → `py-6` no `<div
-  className="text-center py-12">` (linha 380). Mantém `PackageSearch` 32px +
-  texto, só reduz o respiro vertical, já que o `Card` (componente genérico,
-  `components/ui/Card.jsx:9`) já soma `px-6 py-4` de padding no body por
-  fora — não alterar `Card.jsx` (é componente compartilhado por todo o
-  sistema), só o conteúdo interno específico do carrinho.
-- Lista de itens (linha 385-395, `<div>` que envolve o `.map`): adicionar
-  `max-h-[420px] overflow-y-auto` para conter o crescimento vertical do
-  Card quando o carrinho tiver muitos itens — sem isso, um carrinho com 15+
-  itens empurra o botão "Finalizar Venda" (coluna direita, sticky) para
-  fora da viewport em telas menores. `420px` é uma estimativa segura (cabe
-  ~6-7 linhas de `CarrinhoItem` antes de rolar) — Loom pode ajustar o valor
-  exato após ver o `CarrinhoItem.jsx` renderizado, o importante é que exista
-  um teto com scroll interno, não altura livre.
-
-### SplitPagamento (`components/SplitPagamento.jsx`)
-
-Ajustes pontuais de espaçamento, mantendo o grid 2 colunas e sem alterar
-lógica:
-
-| Linha atual | De | Para |
+| Item | Estado real | Veredito |
 |---|---|---|
-| 81 (`<div key={linha._key} className="rounded-lg border ...">`) | `p-3 space-y-2` | `p-4 space-y-3` |
-| 94 (`<div className="grid grid-cols-2 ...">` Valor/Conta) | `grid-cols-2 gap-2` | `grid-cols-2 gap-3` |
-| 97 (label "Valor (R$)") | `text-xs` | `text-sm` |
-| 111 (label "Conta de destino") | `text-xs` | `text-sm` |
-| 127 (`<div className="grid grid-cols-2 gap-2 pt-1 ...">` Taxa/Prazo) | `gap-2 pt-1` | `gap-3 pt-2` |
-| 129 (label "Taxa (%)") | `text-xs` | `text-sm` |
-| 142 (label "Prazo (dias)") | `text-xs` | `text-sm` |
+| `tailwind.config.js` → `fontFamily.sans` | `['Plus Jakarta Sans', 'sans-serif']` | ✅ configurado |
+| `tailwind.config.js` → `fontFamily.body` | `['DM Sans', 'sans-serif']` | ✅ configurado |
+| `index.html` → `<link>` Google Fonts | carrega Plus Jakarta Sans (200-800, ital) + DM Sans (100-1000, ital) | ✅ carregado |
+| `index.css` | `body { font-family: 'Plus Jakarta Sans', sans-serif; }` | ⚠️ ver divergência abaixo |
+| Uso de `font-body` / `font-sans` nas páginas | **zero ocorrências** em `src/**/*.jsx` | ⚠️ ver divergência abaixo |
 
-- Inputs (linhas ~98-106, ~112-121, ~130-139, ~143-151) já estão em
-  `text-sm` — **manter**, não subir pra `text-base`: em `grid-cols-2` numa
-  tela de 375px cada coluna tem ~150-165px de largura útil (considerando
-  `p-4` do card pai + `gap-3`), `text-base` nos inputs de valor/taxa
-  arrisca *overflow* horizontal do texto digitado. `text-sm` já resolve a
-  queixa de "campos apertados" descrita no pedido — o problema real
-  confirmado pelo Analista era o padding (`p-3`→`p-4`, `gap-2`→`gap-3`),
-  não o tamanho da fonte do input em si.
-- **Não alterar** o grid de chips de método de pagamento (linha 61,
-  `grid-cols-2 sm:grid-cols-3 gap-2`) — item 5 do pedido é especificamente
-  sobre as linhas de pagamento já adicionadas, não sobre os chips de
-  seleção inicial.
-- Testar em `<768px` (breakpoint da `BottomBar`, que é independente do
-  layout interno do `SplitPagamento` — confirmado pelo Analista, RNF-08)
-  antes de considerar pronto.
+**Conclusão:** `design_system.md` está desatualizado neste ponto — dizia
+"nenhuma fonte configurada" (Divergência crítica #1), mas isso já foi
+corrigido em produção (provavelmente na Manutenção #9, DIV-UI01). **Nenhuma
+ação bloqueante.** Fontes Uid corretas (Plus Jakarta Sans + DM Sans), nenhum
+Inter/Roboto/Arial em uso — regra global OK.
 
----
-
-## Mobile-first — resumo transversal desta manutenção
-
-- Breakpoint crítico: 768px (`md:`), igual ao resto do sistema — nenhuma
-  mudança de breakpoint nesta manutenção.
-- Testar em 375px (iPhone SE): botão `Camera` novo ao lado do `ScanLine`
-  (bloco de busca), linha de info operador+data/hora na Abertura de Caixa,
-  e o novo espaçamento do `SplitPagamento` — os três pontos com maior risco
-  de quebra em tela pequena.
-- Modal de câmera: `maxW="max-w-md"` já é mobile-safe (o `Modal.jsx` tem
-  `px-4` no overlay e `w-full` no container — cabe em qualquer largura).
-- Nenhuma tela nova precisa da barra fixa de total no rodapé (`fixed
-  bottom-0`, `FrenteDeCaixa.jsx:522-540`) — já existe e não é afetada por
-  nenhum RF desta manutenção.
+**Divergência não-bloqueante encontrada (registrar, não é escopo deste
+hotfix):** `body { font-family: 'Plus Jakarta Sans' }` no CSS puro tem
+prioridade sobre o padrão de `font-family` do Tailwind e nenhum componente
+aplica a classe `font-body`. Na prática, **100% do texto do sistema (títulos
+e corpo) renderiza em Plus Jakarta Sans**; DM Sans é baixado mas nunca
+aplicado. O padrão Uid pede Plus Jakarta Sans só para display/headings
+(700/800) e DM Sans para body/interface (400/500/600). Não corrigir agora —
+fora do escopo do dark mode. Se sobrar tempo, o Loom pode trocar o seletor em
+`index.css` para `body { font-family: 'DM Sans', sans-serif; }` e aplicar
+`font-sans` (Plus Jakarta Sans) explicitamente em h1/h2/branding — mas isso é
+opcional, não faz parte desta entrega.
 
 ---
 
-## O que NÃO foi definido aqui (propositalmente)
+## 1) Pré-requisito técnico obrigatório — `darkMode: 'class'`
 
-- Qual lib de leitura de código de barras usar (`@zxing/library`,
-  `html5-qrcode` ou `quagga2`) — decisão técnica do Loom (RNF-09 da
-  Especificacao_Hotfix.md), documentada no commit. O layout do Modal
-  (Estados 1-4 acima) funciona com qualquer uma das três.
-  Nome/organização do arquivo do componente de câmera novo.
-- Threshold exato de `max-h-[420px]` no Carrinho — estimativa, Loom ajusta
-  após ver o componente `CarrinhoItem.jsx` renderizado de verdade.
-- Detalhe de implementação de como a decodificação da câmera dispara o
-  match exato (chamada direta à API vs. reaproveitar o `useEffect` de
-  debounce) — é lógica de estado, não UI.
-- Qualquer mudança em `Card.jsx`, `Modal.jsx` ou `Button.jsx` genéricos —
-  nenhuma foi necessária; todos os ajustes desta manutenção ficam isolados
-  nos arquivos específicos do PDV.
+`tailwind.config.js` atual **não define `darkMode`** (chave ausente = default
+`'media'`, que segue `prefers-color-scheme` do SO e não permite toggle
+manual). Sem isso, o toggle sol/lua não tem efeito nenhum.
+
+**Loom precisa adicionar no topo do `theme` object:**
+
+```js
+/** @type {import('tailwindcss').Config} */
+export default {
+  darkMode: 'class',   // ← ADICIONAR — habilita dark: via classe .dark no <html>
+  content: [
+    './index.html',
+    './src/**/*.{js,jsx}',
+  ],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Plus Jakarta Sans', 'sans-serif'],
+        body: ['DM Sans', 'sans-serif'],
+      },
+      colors: {
+        primary: { /* ... mantém como está, é o primary do light mode ... */ },
+        accent:  { /* ... mantém como está ... */ },
+
+        // NOVO — escala navy (superfícies do dark mode)
+        navy: {
+          950: '#0a0f1d',   // fundo da aplicação (mais escuro)
+          900: '#0f1629',   // sidebar, header
+          800: '#141b2e',   // card, modal
+          700: '#1c2440',   // hover, thead, elevação
+          600: '#2a3352',   // borda padrão
+          500: '#3d4a73',   // borda em foco / divisor forte
+        },
+
+        // NOVO — primary roxo recalibrado para dark mode
+        violet: {
+          50:  '#f5f3ff',
+          100: '#ede9fe',
+          200: '#ddd6fe',
+          300: '#c4b5fd',
+          400: '#a78bfa',
+          500: '#8b5cf6',
+          600: '#7c3aed',
+          700: '#6d28d9',
+          800: '#5b21b6',
+          900: '#4c1d95',
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+```
+
+**Por que roxo e não o mesmo azul (`primary-600 #2563eb`) recalibrado só em
+brilho:** azul sobre navy (`#0f1629`/`#141b2e`) perde contraste e "some" no
+fundo — os dois ficam na mesma família de matiz (blue-on-blue-dark). Roxo/
+violeta cria separação visual clara entre "superfície" (navy) e "ação"
+(violet), e conecta com a identidade padrão Uid (`--color-brand-purple:
+#3D0361`, "profundidade, premium") sem copiar o hex exato — este é
+recalibrado especificamente para contraste AA em botão sólido com texto
+branco.
+
+**Contraste verificado (WCAG AA, mínimo 4.5:1 para texto normal):**
+- `violet-600 #7c3aed` + texto branco → **4.7:1** ✅ (botão primário dark)
+- `violet-400 #a78bfa` + fundo `navy-950 #0a0f1d` → **7.9:1** ✅ (links/texto de destaque em dark)
+- Texto principal `#e5e9f0` + fundo `navy-950 #0a0f1d` → **15.8:1** ✅
+- Texto secundário `#94a3b8` + fundo `navy-900 #0f1629` → **5.1:1** ✅
+
+---
+
+## 2) Tokens — Light (referência, inalterado) × Dark (novo)
+
+| Papel semântico | Light (atual, mantém) | Dark (novo) |
+|---|---|---|
+| Fundo da aplicação | `bg-gray-50` `#f9fafb` | `dark:bg-navy-950` `#0a0f1d` |
+| Sidebar | `bg-gray-900` `#111827` | `dark:bg-navy-900` `#0f1629` (já é escura — só ajusta o matiz pra combinar com o resto) |
+| Header | `bg-white` | `dark:bg-navy-900` `#0f1629` |
+| Card / Modal | `bg-white` | `dark:bg-navy-800` `#141b2e` |
+| Borda padrão | `border-gray-200` `#e5e7eb` | `dark:border-navy-600` `#2a3352` |
+| Borda de input | `border-gray-300` `#d1d5db` | `dark:border-navy-500` `#3d4a73` |
+| Thead / hover de linha | `bg-gray-50` | `dark:bg-navy-700` `#1c2440` |
+| Texto principal (h1, célula primária) | `text-gray-900` | `dark:text-slate-100` `#e5e9f0` |
+| Texto secundário / label | `text-gray-700` / `text-gray-600` | `dark:text-slate-300` `#c4cbdc` |
+| Texto muted / placeholder | `text-gray-500` / `text-gray-400` | `dark:text-slate-400` `#94a3b8` |
+| Primary (ação, botão, link, tab ativa) | `primary-600` `#2563eb` | `dark:bg-violet-600` `#7c3aed` (bg) / `dark:text-violet-400` `#a78bfa` (texto/link) |
+| Primary hover | `primary-700` `#1d4ed8` | `dark:hover:bg-violet-700` `#6d28d9` |
+| Primary background suave (badge, avatar, hover file input) | `primary-50`/`primary-100` | `dark:bg-violet-900/30` + `dark:text-violet-300` |
+| Accent / sucesso | `accent-600` `#059669` | mantém — verde já tem contraste bom em fundo escuro; usar `dark:text-emerald-400` `#34d399` para texto/ícone |
+| Erro / danger | `red-600` `#dc2626` | mantém para bg de botão; texto de erro em dark usa `dark:text-red-400` `#f87171` (red-700 escurece demais no navy) |
+| Warning | `yellow-700` (texto) | `dark:text-amber-400` `#fbbf24` |
+
+---
+
+## 3) Mapeamento Light → Dark por componente
+
+### Sidebar (`Sidebar.jsx`)
+- `bg-gray-900` → `dark:bg-navy-900` (praticamente igual, só recalibra o matiz — sidebar já era escura, sem "salto" visual ao trocar tema)
+- Ativo: `bg-primary-600 text-white` → `dark:bg-violet-600 dark:text-white`
+- Inativo: `text-gray-400` → `dark:text-slate-400` (igual, sem mudança perceptível)
+- Ícones/emoji da sidebar: sem alteração de cor (emoji não sofre filtro de tema)
+
+### Header (`Header.jsx`)
+- `bg-white border-b border-gray-200` → `dark:bg-navy-900 dark:border-navy-600`
+- Branding "UidCore": `text-primary-600` → `dark:text-violet-400`
+- Avatar círculo: `bg-primary-100` / `text-primary-700` → `dark:bg-violet-900/40` / `dark:text-violet-300`
+- Texto do usuário: `text-gray-700` → `dark:text-slate-300`
+- Botão Sair: `text-gray-500 hover:bg-gray-100 hover:text-gray-700` → `dark:text-slate-400 dark:hover:bg-navy-700 dark:hover:text-slate-200`
+- **Toggle de tema entra aqui** — ver seção 4
+
+### Card
+- `bg-white rounded-xl border border-gray-200 shadow-sm` → `dark:bg-navy-800 dark:border-navy-600 dark:shadow-none` (sombra não funciona bem em fundo escuro — trocar por borda mais visível em vez de shadow)
+- Header do card: `border-b border-gray-100` / `text-gray-700` → `dark:border-navy-700` / `dark:text-slate-200`
+- Footer: `bg-gray-50 border-t border-gray-100` → `dark:bg-navy-900/50 dark:border-navy-700`
+
+### Button
+| Variante | Light | Dark |
+|---|---|---|
+| primary | `bg-primary-600 hover:bg-primary-700 text-white` | `dark:bg-violet-600 dark:hover:bg-violet-700 dark:text-white` |
+| secondary | `bg-white border-gray-300 text-gray-700 hover:bg-gray-50` | `dark:bg-navy-800 dark:border-navy-500 dark:text-slate-200 dark:hover:bg-navy-700` |
+| danger | `bg-red-600 hover:bg-red-700 text-white` | `dark:bg-red-600 dark:hover:bg-red-700 dark:text-white` (mantém — já tem contraste suficiente) |
+
+Focus ring (`focus:ring-2 focus:ring-offset-2`): em dark, `ring-offset`
+precisa casar com o fundo — `dark:ring-offset-navy-900`, senão sobra um halo
+branco (offset default é branco).
+
+### Input / Select
+- Default: `border-gray-300 bg-white text-gray-900 placeholder-gray-400` → `dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500`
+- Focus: `focus:ring-primary-500` → `dark:focus:ring-violet-500`
+- Error: `border-red-500 bg-red-50` → `dark:border-red-500 dark:bg-red-950/40`
+- Disabled: `bg-gray-50 cursor-not-allowed` → `dark:bg-navy-900 dark:text-slate-500`
+
+### Modal
+- Overlay: `bg-black/50` → mantém (`bg-black/50` funciona igual nos dois temas — não precisa de `dark:`)
+- Container: `bg-white shadow-xl` → `dark:bg-navy-800 dark:shadow-none dark:border dark:border-navy-600` (mesma lógica do Card — trocar shadow por borda)
+
+### Pagination
+- Ativo: `bg-primary-600 text-white` → `dark:bg-violet-600`
+- Inativo: `bg-gray-100 text-gray-600 hover:bg-gray-200` → `dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700`
+
+### Tabela (padrão dentro de Card)
+- `thead` → `bg-gray-50 border-gray-200` → `dark:bg-navy-900 dark:border-navy-600`
+- `th` texto → `text-gray-600` → `dark:text-slate-400`
+- `tbody` → `divide-gray-100` → `dark:divide-navy-700`
+- Linha hover → `hover:bg-gray-50` → `dark:hover:bg-navy-700/60`
+- Coluna principal → `text-gray-900 font-medium` → `dark:text-slate-100`
+- Coluna secundária → `text-gray-600` → `dark:text-slate-400`
+- Linha estornada (`opacity-50 line-through`) → sem alteração, opacidade funciona igual nos dois temas
+
+### Tabs (pill style, módulo Financeiro)
+- Ativa: `bg-primary-600 text-white` → `dark:bg-violet-600`
+- Inativa: `bg-white text-gray-600 hover:bg-gray-100 border-gray-200` → `dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700 dark:border-navy-600`
+
+### Sub-abas (underline style)
+- Ativa: `border-primary-600 text-primary-600` → `dark:border-violet-500 dark:text-violet-400`
+- Inativa: `text-gray-500 hover:text-gray-700` → `dark:text-slate-500 dark:hover:text-slate-300`
+
+### KPI Card (Financeiro)
+| Cor | Light | Dark |
+|---|---|---|
+| blue | `bg-blue-50 text-blue-700` | `dark:bg-blue-950/40 dark:text-blue-300` |
+| green | `bg-green-50 text-green-700` | `dark:bg-emerald-950/40 dark:text-emerald-300` |
+| red | `bg-red-50 text-red-700` | `dark:bg-red-950/40 dark:text-red-300` |
+
+### Badges de status — fórmula geral
+Regra: `bg-{cor}-100 text-{cor}-800` (light) → `dark:bg-{cor}-900/30
+dark:text-{cor}-300` (dark). Aplicar a **todos** os status já catalogados em
+`design_system.md` item b:
+
+| Status (grupo) | Light | Dark |
+|---|---|---|
+| RECEBIDO / PAGO / APROVADO / VIGENTE / CONCLUIDO / ATIVO / PROCESSADO / CONCILIADO | `bg-green-100 text-green-800` | `dark:bg-emerald-900/30 dark:text-emerald-300` |
+| PENDENTE / EXPIRADO / ABERTA / EM_ANDAMENTO / COM_DIVERGENCIAS / FALTANDO_SISTEMA | `bg-yellow-100 text-yellow-800` | `dark:bg-amber-900/30 dark:text-amber-300` |
+| ATRASADO / CANCELADO (crítico) / REJEITADO | `bg-red-100 text-red-800` | `dark:bg-red-900/30 dark:text-red-300` |
+| CANCELADO (neutro) / RASCUNHO / FALTANDO_BANCO / Inativo | `bg-gray-100 text-gray-400`/`text-gray-600` | `dark:bg-navy-700 dark:text-slate-400` |
+| ENVIADO / CONFIRMADO / AGENDADO / FECHADA | `bg-blue-100 text-blue-800` | `dark:bg-blue-900/30 dark:text-blue-300` |
+| EM_PRODUCAO | `bg-purple-100 text-purple-800` | `dark:bg-violet-900/30 dark:text-violet-300` |
+| Sim (booleano, ResourceCrud) | `bg-green-50 text-green-700` | `dark:bg-emerald-950/40 dark:text-emerald-300` |
+| Não (booleano, ResourceCrud) | `bg-gray-100 text-gray-500` | `dark:bg-navy-700 dark:text-slate-500` |
+
+### Toast
+- Sucesso: `bg-accent-600` → mantém igual nos dois temas (já é sólido, funciona sobre qualquer fundo)
+- Erro: `bg-red-600` → mantém igual
+
+### Empty states
+- `text-gray-400` → `dark:text-slate-500`
+- Ícone Lucide `text-gray-300` → `dark:text-navy-500`
+
+### Indicadores financeiros (Financeiro)
+- Receita/Entrada: `text-green-700` → `dark:text-emerald-400`
+- Despesa/Saída: `text-red-700` → `dark:text-red-400`
+- Delta positivo `text-green-600` → `dark:text-emerald-400` / negativo `text-red-600` → `dark:text-red-400`
+- Runway ≥6 meses `text-green-700` → `dark:text-emerald-400`; 3-5 meses `text-yellow-700` → `dark:text-amber-400`; <3 meses `text-red-700` → `dark:text-red-400`
+- Gráfico de barras CSS puro: barras de receita (`green-400`) e despesa (`red-400`) já são claras o suficiente para contrastar com navy — **sem alteração**
+
+### Login Page
+- Fundo: `bg-gradient-to-br from-primary-50 to-primary-100` → `dark:from-navy-950 dark:to-navy-900` (gradiente navy, mantém a mesma direção `br`)
+- Card do form: `bg-white border-gray-200` → `dark:bg-navy-800 dark:border-navy-600 dark:shadow-none`
+- Ícone logo (quadrado com "U"): `bg-primary-600` → `dark:bg-violet-600`
+- Erro inline: `bg-red-50 border-red-200 text-red-700` → `dark:bg-red-950/40 dark:border-red-800 dark:text-red-300`
+
+---
+
+## 4) Toggle de tema — emoji sol/lua no Header
+
+**Posição:** `Header.jsx`, no grupo de ações da direita (`<div
+className="flex items-center gap-4">`), **antes** do bloco do usuário/avatar.
+Em telas pequenas continua visível (não entra no menu hambúrguer — ação de 1
+clique tem que estar sempre acessível, regra de UX Uid: "ação principal
+sempre visível").
+
+**Comportamento:**
+- O ícone exibido representa **para onde o clique leva** (padrão mais comum e menos ambíguo):
+  - Tema atual = **claro** → botão mostra **🌙** (lua) → clique ativa dark mode
+  - Tema atual = **escuro** → botão mostra **☀️** (sol) → clique ativa light mode
+- `aria-label` dinâmico: `"Ativar modo escuro"` / `"Ativar modo claro"` (acessibilidade — leitor de tela não pode depender só do emoji)
+- `title` (tooltip nativo) com o mesmo texto do `aria-label`
+
+**Markup de referência (Loom implementa):**
+
+```jsx
+<button
+  onClick={toggleTheme}
+  aria-label={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
+  title={isDark ? 'Ativar modo claro' : 'Ativar modo escuro'}
+  className="w-9 h-9 flex items-center justify-center rounded-lg text-lg
+             text-gray-500 hover:bg-gray-100
+             dark:text-slate-400 dark:hover:bg-navy-700
+             transition-colors"
+>
+  {isDark ? '☀️' : '🌙'}
+</button>
+```
+
+**Persistência e estado (arquitetura sugerida ao Loom, sem prescrever a implementação exata):**
+- `localStorage.getItem('uidcore-theme')` → `'light' | 'dark'`, default `'light'` (respeita o light mode como padrão do sistema, não seguir `prefers-color-scheme` do SO automaticamente — o cliente é financeiro/negócio, decisão consciente é melhor que herdar do SO)
+- Aplicar a classe `dark` no elemento `<html>` (não no `<body>` nem num wrapper interno — Tailwind com `darkMode: 'class'` procura a classe em qualquer ancestral, mas `<html>` evita FOUC)
+- **Evitar flash de tema errado (FOUC):** ler o `localStorage` e aplicar a classe `dark` num script inline **no `<head>` do `index.html`**, antes do React montar — senão a tela pisca light→dark no reload
+  ```html
+  <script>
+    (function () {
+      var t = localStorage.getItem('uidcore-theme');
+      if (t === 'dark') document.documentElement.classList.add('dark');
+    })();
+  </script>
+  ```
+- Contexto React (`ThemeContext` ou hook `useTheme`, junto com `useAuth.js` em `src/hooks/`) expõe `{ isDark, toggleTheme }` para o `Header.jsx` consumir
+
+**Fora do escopo desta entrega:** seguir automaticamente
+`prefers-color-scheme` do SO. Fica como opção futura, não como default —
+decisão consciente do Brush para não conflitar com o item b) do
+design_system.md que já trata o tema claro como escolha arquitetural
+deliberada para este produto financeiro.
+
+---
+
+## 5) Checklist de implementação (Loom)
+
+```
+[ ] tailwind.config.js: darkMode: 'class' + colors.navy + colors.violet
+[ ] index.html: script inline anti-FOUC no <head>
+[ ] ThemeContext / useTheme hook (localStorage key: uidcore-theme, default light)
+[ ] Header.jsx: botão toggle sol/lua (posição: antes do bloco usuário/avatar)
+[ ] AppLayout, Sidebar, Header: classes dark: aplicadas (ver seção 3)
+[ ] Card, Modal, Input, Select, Button, Pagination: classes dark: aplicadas
+[ ] Todas as tabelas (thead/tbody/hover): classes dark: aplicadas
+[ ] Todos os badges de status: fórmula bg-{cor}-900/30 + text-{cor}-300 aplicada
+[ ] KPI Cards do Financeiro: 3 variantes (blue/green/red) com dark:
+[ ] Indicadores financeiros (receita/despesa/runway/delta): dark: aplicado
+[ ] LoginPage: gradiente + card + ícone logo com dark:
+[ ] Empty states + Loading: dark: aplicado
+[ ] Toast: confirmar que bg-accent-600/bg-red-600 sólidos continuam legíveis em dark (não precisam de dark:, mas testar visualmente)
+[ ] Testar contraste em 375px (iPhone SE) nos dois temas
+[ ] Testar toggle: reload da página mantém o tema escolhido (sem flash)
+[ ] Verificar overflow-hidden no root do AppLayout (ALERTA já existente no design_system.md, não relacionado ao dark mode, mas testar select nativo em ambos os temas)
+```
 
 ---
 
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #21 — ajustes PDV)
-   RFs cobertos: RF-17 a RF-23 (7 requisitos, 4 grupos de ajuste)
-   Telas/componentes analisados: FrenteDeCaixa.jsx, AberturaCaixa.jsx,
-     SplitPagamento.jsx, Card.jsx, Modal.jsx, Button.jsx
-   Componentes reutilizados: Modal.jsx, toast pattern (já existente em
-     cada arquivo), useAuthStore, extractErrorMessage
-   Novos padrões: Modal de câmera com 4 estados (inicializando / ativo /
-     permissão negada → toast / não suportado → inline), linha de info
-     operador+data/hora na Abertura de Caixa
-   Nenhum componente novo em components/ui/ — tudo específico de pdv/
+✅ Especificação UI concluída — UidCore (Dark Mode)
+
+Entregáveis:
+- Especificacao_UI_Hotfix.md (este arquivo)
+- Tokens novos: escala navy (6 níveis) + escala violet (9 níveis)
+- Mapeamento light→dark: 15 componentes/padrões cobertos
+- Toggle sol/lua especificado (posição, comportamento, persistência, anti-FOUC)
+- Checagem de fontes: OK (Plus Jakarta Sans + DM Sans carregadas), 1 divergência
+  não-bloqueante registrada (DM Sans carregada mas nunca aplicada)
+- Pré-requisito técnico sinalizado: tailwind.config.js falta darkMode: 'class'
 
 📁 Arquivo: Especificacao_UI_Hotfix.md (em /var/www/uidcore/)
 
-➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md
-   antes de implementar RF-17 a RF-23 no frontend do PDV
+➡️ Loom implementa: tailwind.config.js (darkMode + tokens) → ThemeContext/hook
+   → toggle no Header → classes dark: em todos os componentes listados na seção 3
 ```

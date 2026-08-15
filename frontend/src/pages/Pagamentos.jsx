@@ -35,8 +35,8 @@ export default function Pagamentos() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Pagamentos</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Recebimento de clientes: PIX, boleto, cartão</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Pagamentos</h1>
+        <p className="text-sm text-gray-500 mt-0.5 dark:text-slate-400">Recebimento de clientes: PIX, boleto, cartão</p>
       </div>
 
       <div className="flex gap-1 overflow-x-auto pb-1">
@@ -46,8 +46,8 @@ export default function Pagamentos() {
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
               tab === t.key
-                ? 'bg-primary-600 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                ? 'bg-primary-600 text-white dark:bg-violet-600'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700 dark:border-navy-600'
             }`}
           >
             {t.label}

@@ -14,8 +14,8 @@ import Pagination from '../../components/ui/Pagination.jsx'
 const PAGE_SIZE = 20
 
 const STATUS_SESSAO_BADGES = {
-  ABERTA: 'bg-yellow-100 text-yellow-800',
-  FECHADA: 'bg-blue-100 text-blue-800',
+  ABERTA: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
+  FECHADA: 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
 }
 
 const STATUS_OPTIONS = [
@@ -42,7 +42,7 @@ function Badge({ status }) {
   return (
     <span
       className={`px-2 py-0.5 rounded-full text-xs font-semibold ${
-        STATUS_SESSAO_BADGES[status] || 'bg-gray-100 text-gray-600'
+        STATUS_SESSAO_BADGES[status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'
       }`}
     >
       {status}
@@ -53,11 +53,11 @@ function Badge({ status }) {
 function DiferencaCell({ valor }) {
   const v = Number(valor || 0)
   if (v === 0) {
-    return <span className="font-mono text-green-700 font-semibold">{BRL(0)}</span>
+    return <span className="font-mono text-green-700 dark:text-emerald-400 font-semibold">{BRL(0)}</span>
   }
   return (
-    <span className="font-mono text-red-700 font-semibold flex items-center gap-1">
-      <AlertTriangle size={14} className="text-red-600 shrink-0" />
+    <span className="font-mono text-red-700 dark:text-red-400 font-semibold flex items-center gap-1">
+      <AlertTriangle size={14} className="text-red-600 dark:text-red-400 shrink-0" />
       {BRL(v)}
     </span>
   )
@@ -79,61 +79,61 @@ function ResumoSessaoModal({ sessao }) {
     <div className="space-y-4">
       {/* Dados gerais */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Conta</p>
-          <p className="font-semibold text-gray-900 truncate">
+        <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
+          <p className="text-xs text-gray-500 dark:text-slate-400">Conta</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100 truncate">
             {sessao.conta?.nome || sessao.conta_nome || '—'}
           </p>
         </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Operador</p>
-          <p className="font-semibold text-gray-900">
+        <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
+          <p className="text-xs text-gray-500 dark:text-slate-400">Operador</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100">
             {sessao.operador?.first_name || sessao.operador?.username || '—'}
           </p>
         </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Abertura</p>
-          <p className="font-semibold text-gray-900">{formatarDataHora(sessao.data_abertura)}</p>
+        <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
+          <p className="text-xs text-gray-500 dark:text-slate-400">Abertura</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100">{formatarDataHora(sessao.data_abertura)}</p>
         </div>
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500">Fechamento</p>
-          <p className="font-semibold text-gray-900">{formatarDataHora(sessao.data_fechamento)}</p>
+        <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
+          <p className="text-xs text-gray-500 dark:text-slate-400">Fechamento</p>
+          <p className="font-semibold text-gray-900 dark:text-slate-100">{formatarDataHora(sessao.data_fechamento)}</p>
         </div>
       </div>
 
       {/* KPIs financeiros */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-blue-50 rounded-xl p-3">
-          <p className="text-xs text-blue-700 opacity-80">Valor Abertura</p>
-          <p className="font-bold text-blue-700 mt-1">{BRL(sessao.valor_abertura)}</p>
+        <div className="bg-blue-50 rounded-xl p-3 dark:bg-blue-950/40">
+          <p className="text-xs text-blue-700 dark:text-blue-300 opacity-80">Valor Abertura</p>
+          <p className="font-bold text-blue-700 dark:text-blue-300 mt-1">{BRL(sessao.valor_abertura)}</p>
         </div>
-        <div className="bg-green-50 rounded-xl p-3">
-          <p className="text-xs text-green-700 opacity-80">Vendas</p>
-          <p className="font-bold text-green-700 mt-1">
+        <div className="bg-green-50 rounded-xl p-3 dark:bg-emerald-950/40">
+          <p className="text-xs text-green-700 dark:text-emerald-300 opacity-80">Vendas</p>
+          <p className="font-bold text-green-700 dark:text-emerald-300 mt-1">
             {BRL(sessao.total_vendas || sessao.valor_fechamento_calculado)}
           </p>
         </div>
-        <div className="bg-red-50 rounded-xl p-3">
-          <p className="text-xs text-red-700 opacity-80">Sangrias</p>
-          <p className="font-bold text-red-700 mt-1">{BRL(totalSangrias)}</p>
+        <div className="bg-red-50 rounded-xl p-3 dark:bg-red-950/40">
+          <p className="text-xs text-red-700 dark:text-red-300 opacity-80">Sangrias</p>
+          <p className="font-bold text-red-700 dark:text-red-300 mt-1">{BRL(totalSangrias)}</p>
         </div>
-        <div className="bg-green-50 rounded-xl p-3">
-          <p className="text-xs text-green-700 opacity-80">Suprimentos</p>
-          <p className="font-bold text-green-700 mt-1">{BRL(totalSuprimentos)}</p>
+        <div className="bg-green-50 rounded-xl p-3 dark:bg-emerald-950/40">
+          <p className="text-xs text-green-700 dark:text-emerald-300 opacity-80">Suprimentos</p>
+          <p className="font-bold text-green-700 dark:text-emerald-300 mt-1">{BRL(totalSuprimentos)}</p>
         </div>
       </div>
 
       {/* Vendas por forma de pagamento */}
       {pagamentos.length > 0 && (
         <div>
-          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+          <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mb-2">
             Vendas por Forma de Pagamento
           </p>
-          <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+          <div className="border border-gray-200 rounded-lg divide-y divide-gray-100 dark:border-navy-600 dark:divide-navy-700">
             {pagamentos.map((pg, i) => (
               <div key={i} className="flex justify-between px-4 py-2 text-sm">
-                <span className="text-gray-600">{pg.forma || pg.metodo || pg.nome || '—'}</span>
-                <span className="font-mono font-semibold text-gray-900">{BRL(pg.total || pg.valor)}</span>
+                <span className="text-gray-600 dark:text-slate-400">{pg.forma || pg.metodo || pg.nome || '—'}</span>
+                <span className="font-mono font-semibold text-gray-900 dark:text-slate-100">{BRL(pg.total || pg.valor)}</span>
               </div>
             ))}
           </div>
@@ -141,31 +141,31 @@ function ResumoSessaoModal({ sessao }) {
       )}
 
       {/* Resumo de conferência */}
-      <div className="border-t border-gray-200 pt-3 space-y-1">
+      <div className="border-t border-gray-200 dark:border-navy-700 pt-3 space-y-1">
         <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Valor calculado em caixa</span>
-          <span className="font-mono font-semibold text-gray-900">
+          <span className="text-gray-600 dark:text-slate-400">Valor calculado em caixa</span>
+          <span className="font-mono font-semibold text-gray-900 dark:text-slate-100">
             {BRL(sessao.valor_fechamento_calculado)}
           </span>
         </div>
         {sessao.valor_contagem_fisica != null && (
           <div className="flex justify-between text-sm">
-            <span className="text-gray-600">Contagem física</span>
-            <span className="font-mono font-semibold text-gray-900">
+            <span className="text-gray-600 dark:text-slate-400">Contagem física</span>
+            <span className="font-mono font-semibold text-gray-900 dark:text-slate-100">
               {BRL(sessao.valor_contagem_fisica)}
             </span>
           </div>
         )}
-        <div className="flex justify-between text-sm font-semibold border-t border-gray-100 pt-1">
-          <span className="text-gray-700">Diferença</span>
+        <div className="flex justify-between text-sm font-semibold border-t border-gray-100 dark:border-navy-700 pt-1">
+          <span className="text-gray-700 dark:text-slate-300">Diferença</span>
           <DiferencaCell valor={sessao.diferenca} />
         </div>
       </div>
 
       {sessao.observacoes && (
-        <div className="bg-gray-50 rounded-lg p-3">
-          <p className="text-xs text-gray-500 mb-1">Observações</p>
-          <p className="text-sm text-gray-700">{sessao.observacoes}</p>
+        <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
+          <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Observações</p>
+          <p className="text-sm text-gray-700 dark:text-slate-300">{sessao.observacoes}</p>
         </div>
       )}
     </div>
@@ -285,10 +285,10 @@ export default function RelatorioSessoesCaixa() {
       )}
 
       <div className="flex items-center gap-3">
-        <ClipboardList size={24} className="text-gray-600" />
+        <ClipboardList size={24} className="text-gray-600 dark:text-slate-400" />
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Relatório de Sessões de Caixa</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Auditoria de abertura e fechamento de caixa</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Relatório de Sessões de Caixa</h1>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Auditoria de abertura e fechamento de caixa</p>
         </div>
       </div>
 
@@ -296,7 +296,7 @@ export default function RelatorioSessoesCaixa() {
       <Card>
         <div className="flex flex-wrap gap-3 items-end">
           <div>
-            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-1 flex items-center gap-1">
               <Calendar size={12} />
               De
             </p>
@@ -307,7 +307,7 @@ export default function RelatorioSessoesCaixa() {
             />
           </div>
           <div>
-            <p className="text-xs text-gray-500 mb-1 flex items-center gap-1">
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-1 flex items-center gap-1">
               <Calendar size={12} />
               Até
             </p>
@@ -318,7 +318,7 @@ export default function RelatorioSessoesCaixa() {
             />
           </div>
           <div className="w-48">
-            <p className="text-xs text-gray-500 mb-1">Status</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Status</p>
             <Select
               options={STATUS_OPTIONS}
               value={statusFiltro}
@@ -327,7 +327,7 @@ export default function RelatorioSessoesCaixa() {
           </div>
           {contas.length > 0 && (
             <div className="w-48">
-              <p className="text-xs text-gray-500 mb-1">Conta</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Conta</p>
               <Select
                 options={[{ value: '', label: 'Todas as contas' }, ...contas]}
                 value={contaFiltro}
@@ -344,10 +344,10 @@ export default function RelatorioSessoesCaixa() {
       </Card>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : sessoes.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <ClipboardList size={32} className="mx-auto mb-2 text-gray-300" />
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500">
+          <ClipboardList size={32} className="mx-auto mb-2 text-gray-300 dark:text-navy-500" />
           <p className="text-sm">Nenhuma sessão encontrada.</p>
         </div>
       ) : (
@@ -359,18 +359,18 @@ export default function RelatorioSessoesCaixa() {
               return (
                 <div
                   key={sessao.id}
-                  className={`bg-white rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition-shadow ${
-                    temDiferenca ? 'border-red-200 bg-red-50' : 'border-gray-200'
+                  className={`bg-white rounded-xl border shadow-sm cursor-pointer hover:shadow-md transition-shadow dark:shadow-none dark:hover:shadow-none ${
+                    temDiferenca ? 'border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30' : 'border-gray-200 dark:border-navy-600 dark:bg-navy-800'
                   }`}
                   onClick={() => abrirDetalhe(sessao)}
                 >
                   <div className="px-4 py-3 space-y-2">
                     <div className="flex justify-between items-start gap-2">
                       <div className="min-w-0">
-                        <p className="font-semibold text-gray-900 truncate">
+                        <p className="font-semibold text-gray-900 dark:text-slate-100 truncate">
                           {sessao.conta?.nome || sessao.conta_nome || '—'}
                         </p>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
                           {sessao.operador?.first_name || sessao.operador?.username || '—'}
                         </p>
                       </div>
@@ -378,19 +378,19 @@ export default function RelatorioSessoesCaixa() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       <div>
-                        <span className="text-gray-400">Abertura: </span>
-                        <span className="text-gray-700">{formatarDataHora(sessao.data_abertura)}</span>
+                        <span className="text-gray-400 dark:text-slate-500">Abertura: </span>
+                        <span className="text-gray-700 dark:text-slate-300">{formatarDataHora(sessao.data_abertura)}</span>
                       </div>
                       <div>
-                        <span className="text-gray-400">Fechamento: </span>
-                        <span className="text-gray-700">{formatarDataHora(sessao.data_fechamento)}</span>
+                        <span className="text-gray-400 dark:text-slate-500">Fechamento: </span>
+                        <span className="text-gray-700 dark:text-slate-300">{formatarDataHora(sessao.data_fechamento)}</span>
                       </div>
                       <div>
-                        <span className="text-gray-400">Calculado: </span>
-                        <span className="font-mono text-gray-900">{BRL(sessao.valor_fechamento_calculado)}</span>
+                        <span className="text-gray-400 dark:text-slate-500">Calculado: </span>
+                        <span className="font-mono text-gray-900 dark:text-slate-100">{BRL(sessao.valor_fechamento_calculado)}</span>
                       </div>
                       <div className="flex items-center gap-1">
-                        <span className="text-gray-400">Diferença: </span>
+                        <span className="text-gray-400 dark:text-slate-500">Diferença: </span>
                         <DiferencaCell valor={sessao.diferenca} />
                       </div>
                     </div>
@@ -406,50 +406,50 @@ export default function RelatorioSessoesCaixa() {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Conta</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Operador</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Abertura</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Fechamento</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Vl. Abertura</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Calculado</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Contagem</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Diferença</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Conta</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Operador</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Abertura</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Fechamento</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Vl. Abertura</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Calculado</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Contagem</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Diferença</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {sessoes.map((sessao) => {
                       const temDiferenca = Number(sessao.diferenca || 0) !== 0
                       return (
                         <tr
                           key={sessao.id}
-                          className={`cursor-pointer hover:bg-gray-50 transition-colors ${
-                            temDiferenca ? 'bg-red-50 hover:bg-red-100' : ''
+                          className={`cursor-pointer hover:bg-gray-50 transition-colors dark:hover:bg-navy-700/60 ${
+                            temDiferenca ? 'bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-950/30' : ''
                           }`}
                           onClick={() => abrirDetalhe(sessao)}
                         >
-                          <td className="px-4 py-3 font-medium text-gray-900 max-w-[140px] truncate">
+                          <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100 max-w-[140px] truncate">
                             {sessao.conta?.nome || sessao.conta_nome || '—'}
                           </td>
-                          <td className="px-4 py-3 text-gray-600">
+                          <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
                             {sessao.operador?.first_name || sessao.operador?.username || '—'}
                           </td>
-                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                          <td className="px-4 py-3 text-gray-600 dark:text-slate-400 whitespace-nowrap">
                             {formatarDataHora(sessao.data_abertura)}
                           </td>
-                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                          <td className="px-4 py-3 text-gray-600 dark:text-slate-400 whitespace-nowrap">
                             {formatarDataHora(sessao.data_fechamento)}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-gray-700">
+                          <td className="px-4 py-3 text-right font-mono text-gray-700 dark:text-slate-300">
                             {BRL(sessao.valor_abertura)}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-gray-700">
+                          <td className="px-4 py-3 text-right font-mono text-gray-700 dark:text-slate-300">
                             {sessao.valor_fechamento_calculado != null
                               ? BRL(sessao.valor_fechamento_calculado)
                               : '—'}
                           </td>
-                          <td className="px-4 py-3 text-right font-mono text-gray-700">
+                          <td className="px-4 py-3 text-right font-mono text-gray-700 dark:text-slate-300">
                             {sessao.valor_contagem_fisica != null
                               ? BRL(sessao.valor_contagem_fisica)
                               : '—'}
@@ -466,8 +466,8 @@ export default function RelatorioSessoesCaixa() {
                   </tbody>
                   {/* Totalizador da página */}
                   <tfoot>
-                    <tr className="border-t-2 border-gray-300 bg-gray-50">
-                      <td colSpan={7} className="px-4 py-3 text-sm font-semibold text-gray-700">
+                    <tr className="border-t-2 border-gray-300 bg-gray-50 dark:border-navy-600 dark:bg-navy-900">
+                      <td colSpan={7} className="px-4 py-3 text-sm font-semibold text-gray-700 dark:text-slate-300">
                         Total de diferenças nesta página
                       </td>
                       <td className="px-4 py-3 text-right">
@@ -482,8 +482,8 @@ export default function RelatorioSessoesCaixa() {
           </div>
 
           {/* Totalizador mobile */}
-          <div className="md:hidden bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 flex justify-between items-center">
-            <span className="text-sm font-semibold text-gray-700">Total de diferenças (página)</span>
+          <div className="md:hidden bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 flex justify-between items-center dark:bg-navy-900/50 dark:border-navy-600">
+            <span className="text-sm font-semibold text-gray-700 dark:text-slate-300">Total de diferenças (página)</span>
             <DiferencaCell valor={totalDiferencaPagina} />
           </div>
 

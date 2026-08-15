@@ -1,5 +1,6 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: [
     './index.html',
     './src/**/*.{js,jsx}',
@@ -36,6 +37,30 @@ export default {
           800: '#065f46',
           900: '#064e3b',
           950: '#022c22',
+        },
+
+        // Dark mode — superfícies (Manutenção #31, Especificacao_UI_Hotfix.md)
+        navy: {
+          950: '#0a0f1e',
+          900: '#0f1729',
+          800: '#1a2540',
+          700: '#232f4d',
+          600: '#2a3352',
+          500: '#3d4a73',
+        },
+
+        // Dark mode — ação/destaque, recalibrado para contraste AA sobre navy
+        violet: {
+          50: '#f5f3ff',
+          100: '#ede9fe',
+          200: '#ddd6fe',
+          300: '#c4b5fd',
+          400: '#a78bfa',
+          500: '#8b5cf6',
+          600: '#7c3aed',
+          700: '#6d28d9',
+          800: '#5b21b6',
+          900: '#4c1d95',
         },
       },
     },

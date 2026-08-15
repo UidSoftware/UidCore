@@ -162,18 +162,18 @@ export default function ResourceCrud({
     const value = item[col.key]
     if (col.boolean) {
       return value ? (
-        <span className="text-xs bg-green-50 text-green-700 rounded-full px-2 py-0.5 font-medium">Sim</span>
+        <span className="text-xs bg-green-50 text-green-700 rounded-full px-2 py-0.5 font-medium dark:bg-emerald-950/40 dark:text-emerald-300">Sim</span>
       ) : (
-        <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 font-medium">Não</span>
+        <span className="text-xs bg-gray-100 text-gray-500 rounded-full px-2 py-0.5 font-medium dark:bg-navy-700 dark:text-slate-500">Não</span>
       )
     }
-    if (value === null || value === undefined || value === '') return <span className="text-gray-400">—</span>
+    if (value === null || value === undefined || value === '') return <span className="text-gray-400 dark:text-slate-500">—</span>
     if (col.money) return Number(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
     if (col.date) return new Date(value).toLocaleDateString('pt-BR')
     if (col.datetime) return new Date(value).toLocaleString('pt-BR')
     if (col.badge) {
       return (
-        <span className="text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium">
+        <span className="text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium dark:bg-violet-900/30 dark:text-violet-300">
           {value}
         </span>
       )
@@ -199,24 +199,24 @@ export default function ResourceCrud({
             name={f.name}
             checked={!!form[f.name]}
             onChange={(e) => setForm((prev) => ({ ...prev, [f.name]: e.target.checked }))}
-            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-navy-500 dark:bg-navy-800 dark:text-violet-600 dark:focus:ring-violet-500"
           />
-          <label htmlFor={f.name} className="text-sm font-medium text-gray-700">{f.label}</label>
+          <label htmlFor={f.name} className="text-sm font-medium text-gray-700 dark:text-slate-300">{f.label}</label>
         </div>
       )
     }
     if (f.type === 'file') {
       return (
         <div key={f.name} className="flex flex-col gap-1">
-          <label className="text-sm font-medium text-gray-700">{f.label}</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-slate-300">{f.label}</label>
           <input
             type="file"
             name={f.name}
             onChange={handleChange}
             required={f.required && !editingId}
-            className="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-primary-50 file:text-primary-700 file:text-sm file:font-medium hover:file:bg-primary-100"
+            className="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:bg-primary-50 file:text-primary-700 file:text-sm file:font-medium hover:file:bg-primary-100 dark:text-slate-400 dark:file:bg-violet-900/30 dark:file:text-violet-300 dark:hover:file:bg-violet-900/50"
           />
-          {editingId && <p className="text-xs text-gray-400">Deixe em branco para manter o arquivo atual.</p>}
+          {editingId && <p className="text-xs text-gray-400 dark:text-slate-500">Deixe em branco para manter o arquivo atual.</p>}
         </div>
       )
     }
@@ -236,13 +236,13 @@ export default function ResourceCrud({
     if (f.type === 'textarea') {
       return (
         <div key={f.name} className="flex flex-col gap-1 sm:col-span-2">
-          <label className="text-sm font-medium text-gray-700">{f.label}</label>
+          <label className="text-sm font-medium text-gray-700 dark:text-slate-300">{f.label}</label>
           <textarea
             name={f.name}
             value={form[f.name] ?? ''}
             onChange={handleChange}
             rows={3}
-            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent transition-colors duration-150"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500 transition-colors duration-150"
           />
         </div>
       )
@@ -271,14 +271,14 @@ export default function ResourceCrud({
       )}
 
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{title}</h2>
         <Button onClick={openNew}>{createLabel}</Button>
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="flex justify-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
           <span className="text-4xl">{emptyIcon}</span>
           <p className="text-sm">{emptyText}</p>
         </div>
@@ -288,20 +288,20 @@ export default function ResourceCrud({
             <div className="overflow-x-auto -mx-6 -my-4">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
+                  <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
                     {columns.map((col) => (
-                      <th key={col.key} className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap first:px-6">
+                      <th key={col.key} className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap first:px-6 dark:text-slate-400">
                         {col.label}
                       </th>
                     ))}
-                    <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap">Ações</th>
+                    <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-100">
+                <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                   {items.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50 transition-colors">
+                    <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
                       {columns.map((col) => (
-                        <td key={col.key} className="px-4 py-3 text-gray-600 whitespace-nowrap first:px-6 first:font-medium first:text-gray-900">
+                        <td key={col.key} className="px-4 py-3 text-gray-600 whitespace-nowrap first:px-6 first:font-medium first:text-gray-900 dark:text-slate-400 dark:first:text-slate-100">
                           {renderCell(item, col)}
                         </td>
                       ))}

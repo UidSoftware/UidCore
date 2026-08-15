@@ -118,29 +118,29 @@ function ProdutoAutocomplete({ value, onChange, onSelect, onInvalidate }) {
 
   return (
     <div ref={wrapRef} className="relative">
-      <label className="text-sm font-medium text-gray-700 block mb-1">Produto</label>
+      <label className="text-sm font-medium text-gray-700 block mb-1 dark:text-slate-300">Produto</label>
       <input
         type="text"
         value={query}
         onChange={handleInput}
         placeholder="Buscar produto..."
-        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+        className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
       />
       {/* Fix 2: mensagem de erro visivel ao usuario */}
       {erroBusca && (
-        <p className="text-xs text-red-600 mt-1">{erroBusca}</p>
+        <p className="text-xs text-red-600 mt-1 dark:text-red-400">{erroBusca}</p>
       )}
       {aberto && opcoes.length > 0 && (
-        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
           {opcoes.map((p) => (
             <button
               key={p.id}
               type="button"
               onMouseDown={() => handleSelect(p)}
-              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex justify-between items-center"
+              className="w-full text-left px-3 py-2 text-sm hover:bg-gray-50 flex justify-between items-center dark:hover:bg-navy-700"
             >
-              <span className="font-medium text-gray-800">{p.nome}</span>
-              <span className="text-xs text-gray-400 ml-2">{BRL(p.preco_venda)}</span>
+              <span className="font-medium text-gray-800 dark:text-slate-200">{p.nome}</span>
+              <span className="text-xs text-gray-400 ml-2 dark:text-slate-500">{BRL(p.preco_venda)}</span>
             </button>
           ))}
         </div>
@@ -210,30 +210,30 @@ function SecaoItens({ itens, setItens }) {
   }
 
   return (
-    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4">
+    <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-gray-700">Itens</h3>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Itens</h3>
         <button
           type="button"
           onClick={addItem}
-          className="text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors"
+          className="text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors dark:text-violet-400 dark:hover:text-violet-300"
         >
           + Adicionar Item
         </button>
       </div>
 
       {itens.length === 0 && (
-        <p className="text-xs text-gray-400">Nenhum item adicionado.</p>
+        <p className="text-xs text-gray-400 dark:text-slate-500">Nenhum item adicionado.</p>
       )}
 
       <div className="space-y-3">
         {itens.map((it, idx) => (
-          <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2">
+          <div key={idx} className="bg-white rounded-lg border border-gray-200 p-3 space-y-2 dark:bg-navy-800 dark:border-navy-600">
             <div className="flex justify-end">
               <button
                 type="button"
                 onClick={() => removeItem(idx)}
-                className="text-red-400 hover:text-red-600 transition-colors"
+                className="text-red-400 hover:text-red-600 transition-colors dark:text-red-400/70 dark:hover:text-red-400"
               >
                 <Trash2 size={14} />
               </button>
@@ -245,45 +245,45 @@ function SecaoItens({ itens, setItens }) {
               onInvalidate={() => handleInvalidateProduto(idx)}
             />
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Descricao</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Descricao</label>
               <input
                 type="text"
                 value={it.descricao}
                 onChange={(e) => updateItem(idx, 'descricao', e.target.value)}
                 placeholder="Descricao do item"
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
               <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-700">Quantidade</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Quantidade</label>
                 <input
                   type="number"
                   min="0.001"
                   step="0.001"
                   value={it.quantidade}
                   onChange={(e) => updateItem(idx, 'quantidade', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-700">Valor Unit. (R$)</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Valor Unit. (R$)</label>
                 <input
                   type="number"
                   min="0"
                   step="0.01"
                   value={it.valor_unitario}
                   onChange={(e) => updateItem(idx, 'valor_unitario', e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
                 />
               </div>
               <div className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-gray-700">Total (R$)</label>
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Total (R$)</label>
                 <input
                   type="text"
                   readOnly
                   value={BRL(it.valor_total)}
-                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 cursor-default"
+                  className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 cursor-default dark:border-navy-700 dark:bg-navy-900 dark:text-slate-300"
                 />
               </div>
             </div>
@@ -293,7 +293,7 @@ function SecaoItens({ itens, setItens }) {
 
       {itens.length > 0 && (
         <div className="mt-3 flex justify-end">
-          <span className="text-sm font-bold text-gray-800">Total Geral: {BRL(totalGeral)}</span>
+          <span className="text-sm font-bold text-gray-800 dark:text-slate-200">Total Geral: {BRL(totalGeral)}</span>
         </div>
       )}
     </div>
@@ -409,17 +409,17 @@ function OrcamentosTab({ showToast }) {
   }
 
   const STATUS_BADGES = {
-    RASCUNHO: 'bg-gray-100 text-gray-600',
-    ENVIADO: 'bg-blue-100 text-blue-700',
-    APROVADO: 'bg-green-100 text-green-700',
-    REJEITADO: 'bg-red-100 text-red-700',
-    CANCELADO: 'bg-gray-100 text-gray-500',
+    RASCUNHO: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
+    ENVIADO: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    APROVADO: 'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    REJEITADO: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+    CANCELADO: 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-500',
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-800">Orcamentos</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-200">Orcamentos</h2>
         <Button onClick={openNew}>+ Novo Orcamento</Button>
       </div>
       <Card>
@@ -427,9 +427,9 @@ function OrcamentosTab({ showToast }) {
       </Card>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
           <span className="text-4xl">📄</span>
           <p className="text-sm">Nenhum orcamento encontrado.</p>
         </div>
@@ -440,16 +440,16 @@ function OrcamentosTab({ showToast }) {
               <Card key={item.id}>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{item.numero || `#${item.id}`}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.cliente_nome || '—'}</p>
+                    <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{item.numero || `#${item.id}`}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">{item.cliente_nome || '—'}</p>
                   </div>
-                  <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'}`}>
                     {item.status}
                   </span>
                 </div>
                 <div className="mt-2 flex justify-between items-center">
-                  <span className="text-lg font-bold text-gray-900">{BRL(item.valor_total)}</span>
-                  <span className="text-xs text-gray-400">{item.validade || '—'}</span>
+                  <span className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(item.valor_total)}</span>
+                  <span className="text-xs text-gray-400 dark:text-slate-500">{item.validade || '—'}</span>
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
@@ -463,27 +463,27 @@ function OrcamentosTab({ showToast }) {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Numero</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Cliente</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Validade</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Acoes</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Numero</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Cliente</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Valor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Status</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Validade</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Acoes</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{item.numero || `#${item.id}`}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.cliente_nome || '—'}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900">{BRL(item.valor_total)}</td>
+                      <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{item.numero || `#${item.id}`}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.cliente_nome || '—'}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-slate-100">{BRL(item.valor_total)}</td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600'}`}>
+                          <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'}`}>
                             {item.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{item.validade || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.validade || '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex justify-end gap-2">
                             <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
@@ -510,17 +510,17 @@ function OrcamentosTab({ showToast }) {
             </div>
             <Input label="Validade" name="validade" type="date" value={form.validade} onChange={handleChange} />
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Descricao</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Descricao</label>
               <textarea name="descricao" value={form.descricao} onChange={handleChange} rows={2}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
 
             <SecaoItens itens={itens} setItens={setItens} />
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observacoes</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observacoes</label>
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
@@ -645,17 +645,17 @@ function PedidosTab({ showToast }) {
   }
 
   const STATUS_BADGES = {
-    PENDENTE: 'bg-yellow-100 text-yellow-800',
-    CONFIRMADO: 'bg-blue-100 text-blue-700',
-    EM_PRODUCAO: 'bg-purple-100 text-purple-700',
-    ENTREGUE: 'bg-green-100 text-green-700',
-    CANCELADO: 'bg-gray-100 text-gray-500',
+    PENDENTE: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
+    CONFIRMADO: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    EM_PRODUCAO: 'bg-purple-100 text-purple-700 dark:bg-violet-900/30 dark:text-violet-300',
+    ENTREGUE: 'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    CANCELADO: 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-500',
   }
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-800">Pedidos</h2>
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-200">Pedidos</h2>
         <Button onClick={openNew}>+ Novo Pedido</Button>
       </div>
       <Card>
@@ -663,9 +663,9 @@ function PedidosTab({ showToast }) {
       </Card>
 
       {loading ? (
-        <div className="text-center py-12 text-gray-400 text-sm">Carregando...</div>
+        <div className="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
       ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400">
+        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
           <span className="text-4xl">🛒</span>
           <p className="text-sm">Nenhum pedido encontrado.</p>
         </div>
@@ -676,16 +676,16 @@ function PedidosTab({ showToast }) {
               <Card key={item.id}>
                 <div className="flex justify-between items-start gap-2">
                   <div className="min-w-0">
-                    <p className="font-semibold text-gray-900 truncate">{item.numero || `#${item.id}`}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">{item.cliente_nome || '—'}</p>
+                    <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{item.numero || `#${item.id}`}</p>
+                    <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">{item.cliente_nome || '—'}</p>
                   </div>
-                  <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600'}`}>
+                  <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'}`}>
                     {item.status}
                   </span>
                 </div>
                 <div className="mt-2 flex justify-between items-center">
-                  <span className="text-lg font-bold text-gray-900">{BRL(item.valor_total)}</span>
-                  <span className="text-xs text-gray-400">{item.data_entrega_prevista || '—'}</span>
+                  <span className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(item.valor_total)}</span>
+                  <span className="text-xs text-gray-400 dark:text-slate-500">{item.data_entrega_prevista || '—'}</span>
                 </div>
                 <div className="mt-3 flex gap-2">
                   <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
@@ -699,27 +699,27 @@ function PedidosTab({ showToast }) {
               <div className="overflow-x-auto -mx-6 -my-4">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="bg-gray-50 border-b border-gray-200">
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Numero</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Cliente</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Valor</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                      <th className="text-left px-4 py-3 font-semibold text-gray-600">Entrega Prevista</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Acoes</th>
+                    <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Numero</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Cliente</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Valor</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Status</th>
+                      <th className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Entrega Prevista</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-slate-400">Acoes</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-100">
+                  <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {items.map((item) => (
-                      <tr key={item.id} className="hover:bg-gray-50">
-                        <td className="px-4 py-3 font-medium text-gray-900">{item.numero || `#${item.id}`}</td>
-                        <td className="px-4 py-3 text-gray-600">{item.cliente_nome || '—'}</td>
-                        <td className="px-4 py-3 text-right font-semibold text-gray-900">{BRL(item.valor_total)}</td>
+                      <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60">
+                        <td className="px-4 py-3 font-medium text-gray-900 dark:text-slate-100">{item.numero || `#${item.id}`}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.cliente_nome || '—'}</td>
+                        <td className="px-4 py-3 text-right font-semibold text-gray-900 dark:text-slate-100">{BRL(item.valor_total)}</td>
                         <td className="px-4 py-3">
-                          <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600'}`}>
+                          <span className={`text-xs rounded-full px-2 py-0.5 font-semibold ${STATUS_BADGES[item.status] || 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'}`}>
                             {item.status}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-600">{item.data_entrega_prevista || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.data_entrega_prevista || '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex justify-end gap-2">
                             <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
@@ -752,9 +752,9 @@ function PedidosTab({ showToast }) {
             <SecaoItens itens={itens} setItens={setItens} />
 
             <div className="flex flex-col gap-1">
-              <label className="text-sm font-medium text-gray-700">Observacoes</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observacoes</label>
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
-                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent" />
+                className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
@@ -790,8 +790,8 @@ export default function Vendas() {
       )}
 
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Vendas</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Orcamentos, pedidos e funil comercial</p>
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Vendas</h1>
+        <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Orcamentos, pedidos e funil comercial</p>
       </div>
 
       <div className="flex gap-1 overflow-x-auto pb-1">
@@ -801,8 +801,8 @@ export default function Vendas() {
             onClick={() => setTab(t.key)}
             className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
               tab === t.key
-                ? 'bg-primary-600 text-white'
-                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200'
+                ? 'bg-primary-600 text-white dark:bg-violet-600'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700 dark:border-navy-600'
             }`}
           >
             {t.label}

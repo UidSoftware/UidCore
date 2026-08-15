@@ -4,8 +4,8 @@ export default function Portal() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-2xl font-bold text-gray-900">Portal do Cliente</h1>
-        <p className="text-sm text-gray-500 mt-0.5">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Portal do Cliente</h1>
+        <p className="text-sm text-gray-500 mt-0.5 dark:text-slate-400">
           Acessos de clientes ao portal — perfil separado do admin/operacional
         </p>
       </div>
