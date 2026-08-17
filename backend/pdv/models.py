@@ -30,10 +30,12 @@ class SessaoCaixa(BaseModel):
     Sessão de caixa físico.
 
     RN-01: no máximo 1 sessão ABERTA por conta (não global).
-    A UniqueConstraint condicional é a barreira de última linha; a validação
-    primária está em services.abrir_sessao() com select_for_update() dentro
-    de transaction.atomic(), para retornar 400 legível em vez de 500
-    IntegrityError.
+    RN-02 (Manutenção #36): no máximo 1 sessão ABERTA por operador,
+    independente da conta.
+    As duas UniqueConstraint condicionais são a barreira de última linha; a
+    validação primária está em services.abrir_sessao() com
+    select_for_update() dentro de transaction.atomic(), para retornar 400
+    legível em vez de 500 IntegrityError.
     """
     conta = models.ForeignKey(
         'financeiro.Conta',
@@ -72,6 +74,11 @@ class SessaoCaixa(BaseModel):
                 fields=['conta'],
                 condition=models.Q(status='ABERTA'),
                 name='uniq_sessao_aberta_por_conta',
+            ),
+            models.UniqueConstraint(
+                fields=['operador'],
+                condition=models.Q(status='ABERTA'),
+                name='uniq_sessao_aberta_por_operador',
             ),
         ]
 

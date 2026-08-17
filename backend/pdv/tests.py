@@ -130,6 +130,87 @@ class AbrirSessaoServiceTest(TestCase):
         self.assertIsNotNone(sessao_fechada.data_fechamento)
         self.assertEqual(sessao_fechada.valor_fechamento_informado, Decimal('90.00'))
 
+    def test_abrir_sessao_rejeita_conta_tipo_invalido(self):
+        """RF-01/RN-01 (Manutencao 36): conta.tipo != CAIXA -> 400 legivel."""
+        from rest_framework.exceptions import ValidationError
+
+        conta_corrente = _criar_conta('Conta Corrente', 'CORRENTE')
+        with self.assertRaises(ValidationError) as ctx:
+            abrir_sessao(
+                conta_id=conta_corrente.id,
+                valor_abertura=Decimal('0'),
+                usuario=self.usuario,
+            )
+        self.assertIn('conta', ctx.exception.detail)
+
+    def test_abrir_sessao_bloqueada_por_operador_em_outra_conta(self):
+        """RF-02/RN-02 (Manutencao 36): 1 sessao ABERTA por operador, mesmo
+        em contas diferentes."""
+        from rest_framework.exceptions import ValidationError
+
+        outra_conta = _criar_conta('Caixa Loja 2', 'CAIXA')
+        abrir_sessao(
+            conta_id=self.conta.id,
+            valor_abertura=Decimal('0'),
+            usuario=self.usuario,
+        )
+        with self.assertRaises(ValidationError) as ctx:
+            abrir_sessao(
+                conta_id=outra_conta.id,
+                valor_abertura=Decimal('0'),
+                usuario=self.usuario,
+            )
+        self.assertIn('operador', ctx.exception.detail)
+
+    def test_calcular_resumo_sessao_aberta_e_fechada(self):
+        """RF-03: resumo reflete vendas/sangria/suprimento reais, antes e
+        depois do fechamento."""
+        from .services import calcular_resumo_sessao
+
+        sessao = abrir_sessao(
+            conta_id=self.conta.id,
+            valor_abertura=Decimal('100.00'),
+            usuario=self.usuario,
+        )
+        metodo_dinheiro = _criar_metodo('DINHEIRO')
+        produto = _criar_produto()
+
+        venda = Venda.objects.create(sessao_caixa=sessao, operador=self.usuario)
+        ItemVenda.objects.create(
+            venda=venda, produto=produto, quantidade=Decimal('1'),
+            unidade='UN', valor_unitario=produto.preco_venda,
+        )
+        venda.recalcular_total()
+        finalizar_venda(
+            venda=venda,
+            pagamentos_payload=[{'metodo': metodo_dinheiro.id, 'valor': venda.valor_total, 'conta': self.conta.id}],
+            usuario=self.usuario,
+        )
+
+        MovimentoCaixa.objects.create(
+            sessao=sessao, tipo='SANGRIA', valor=Decimal('20.00'),
+            motivo='Sangria teste', operador=self.usuario,
+        )
+        MovimentoCaixa.objects.create(
+            sessao=sessao, tipo='SUPRIMENTO', valor=Decimal('30.00'),
+            motivo='Suprimento teste', operador=self.usuario,
+        )
+
+        resumo_aberta = calcular_resumo_sessao(sessao)
+        self.assertEqual(resumo_aberta['vendas_dinheiro'], produto.preco_venda)
+        self.assertEqual(resumo_aberta['sangrias'], Decimal('20.00'))
+        self.assertEqual(resumo_aberta['suprimentos'], Decimal('30.00'))
+        self.assertEqual(
+            resumo_aberta['valor_calculado_dinheiro'],
+            Decimal('100.00') + produto.preco_venda + Decimal('30.00') - Decimal('20.00'),
+        )
+        self.assertEqual(len(resumo_aberta['por_metodo']), 1)
+        self.assertEqual(resumo_aberta['por_metodo'][0]['total'], produto.preco_venda)
+
+        sessao_fechada = fechar_sessao(sessao=sessao, valor_fechamento_informado=Decimal('0'))
+        resumo_fechada = calcular_resumo_sessao(sessao_fechada)
+        self.assertEqual(resumo_fechada['valor_calculado_dinheiro'], sessao_fechada.valor_fechamento_calculado)
+
 
 # ---------------------------------------------------------------------------
 # Testes de API (integration)
@@ -216,6 +297,27 @@ class SessaoCaixaAPITest(PDVAPITestBase):
         })
         self.assertEqual(resp.status_code, 400)
 
+    def test_abrir_sessao_conta_tipo_invalido_retorna_400(self):
+        """CA-01 (Manutencao 36): conta.tipo != CAIXA → 400 legivel."""
+        resp = self.client.post('/api/v1/pdv/sessoes/', {
+            'conta': self.conta_pix.id,  # tipo=CORRENTE
+            'valor_abertura': '0',
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('conta', resp.data)
+
+    def test_abrir_sessao_duplicada_por_operador_retorna_400(self):
+        """CA-02 (Manutencao 36): operador com sessao ABERTA na Conta A
+        recebe 400 ao tentar abrir sessao na Conta B."""
+        outra_conta = _criar_conta('Caixa Loja 2', 'CAIXA')
+        self._abrir_sessao()
+        resp = self.client.post('/api/v1/pdv/sessoes/', {
+            'conta': outra_conta.id,
+            'valor_abertura': '0',
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('operador', resp.data)
+
     def test_sangria_em_sessao_aberta(self):
         """RF-10: POST /sessoes/{id}/movimento/ tipo=SANGRIA → 201."""
         sessao = self._abrir_sessao()
@@ -236,6 +338,40 @@ class SessaoCaixaAPITest(PDVAPITestBase):
         })
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.data['status'], 'FECHADA')
+
+    def test_sessao_atual_retorna_resumo_populado(self):
+        """CA-04/CA-05 (Manutencao 36): GET /sessoes/atual/ com sessao
+        ABERTA retorna resumo com vendas/sangria/suprimento reais, nao
+        R$ 0,00 nem vazio."""
+        sessao = self._abrir_sessao(valor=Decimal('100.00'))
+        venda = self._criar_venda()
+        self._adicionar_item(venda['id'])
+        resp_finalizar = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [
+                {'metodo': self.metodo_dinheiro.id, 'valor': '10.00', 'conta': self.conta.id},
+            ],
+        }, format='json')
+        self.assertEqual(resp_finalizar.status_code, 200, resp_finalizar.data)
+
+        self.client.post(f'/api/v1/pdv/sessoes/{sessao["id"]}/movimento/', {
+            'tipo': 'SANGRIA', 'valor': '15.00', 'motivo': 'Sangria teste',
+        })
+        self.client.post(f'/api/v1/pdv/sessoes/{sessao["id"]}/movimento/', {
+            'tipo': 'SUPRIMENTO', 'valor': '25.00', 'motivo': 'Suprimento teste',
+        })
+
+        resp = self.client.get('/api/v1/pdv/sessoes/atual/')
+        self.assertEqual(resp.status_code, 200)
+        resumo = resp.data['resumo']
+        self.assertEqual(Decimal(str(resumo['vendas_dinheiro'])), Decimal('10.00'))
+        self.assertEqual(Decimal(str(resumo['sangrias'])), Decimal('15.00'))
+        self.assertEqual(Decimal(str(resumo['suprimentos'])), Decimal('25.00'))
+        self.assertEqual(
+            Decimal(str(resumo['valor_calculado_dinheiro'])),
+            Decimal('100.00') + Decimal('10.00') + Decimal('25.00') - Decimal('15.00'),
+        )
+        self.assertEqual(len(resumo['por_metodo']), 1)
+        self.assertEqual(resumo['por_metodo'][0]['metodo_nome'], 'Dinheiro')
 
     def test_sem_autenticacao_retorna_401(self):
         """RF-16: sem token → 401."""

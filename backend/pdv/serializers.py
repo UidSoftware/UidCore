@@ -46,6 +46,7 @@ class SessaoCaixaSerializer(serializers.ModelSerializer):
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     operador_nome = serializers.CharField(source='operador.get_full_name', read_only=True)
     movimentos = MovimentoCaixaSerializer(many=True, read_only=True)
+    resumo = serializers.SerializerMethodField()
 
     class Meta:
         model = SessaoCaixa
@@ -54,12 +55,21 @@ class SessaoCaixaSerializer(serializers.ModelSerializer):
             'valor_abertura', 'data_abertura', 'data_fechamento',
             'valor_fechamento_informado', 'valor_fechamento_calculado',
             'diferenca', 'status', 'status_label', 'observacoes',
-            'movimentos', 'is_active', 'created_at',
+            'movimentos', 'resumo', 'is_active', 'created_at',
         ]
         read_only_fields = [
             'data_abertura', 'data_fechamento',
             'valor_fechamento_calculado', 'diferenca', 'created_at',
         ]
+
+    def get_resumo(self, obj):
+        """
+        RF-03 (Manutenção #36): resumo calculado ao vivo — por_metodo,
+        vendas_dinheiro, sangrias, suprimentos, valor_calculado_dinheiro.
+        Reaproveita a mesma fórmula usada em fechar_sessao(), sem duplicar.
+        """
+        from .services import calcular_resumo_sessao
+        return calcular_resumo_sessao(obj)
 
 
 class AbrirSessaoSerializer(serializers.Serializer):

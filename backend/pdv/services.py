@@ -22,7 +22,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from financeiro.models import Conta, Receita
+from financeiro.models import Conta, Receita, TipoConta
 from financeiro.services import estornar_receita
 from pagamentos.models import MetodoPagamento, NomeMetodoPagamento
 from produtos.models import ConversaoUnidade, Produto
@@ -176,18 +176,36 @@ def abrir_sessao(conta_id, valor_abertura, usuario):
 
     RN-01: select_for_update() + lock por conta para retornar 400 legível em
     vez de IntegrityError 500 na UniqueConstraint condicional.
+    RN-02 (Manutenção #36): mesma proteção, agora também por operador — um
+    operador não pode ter mais de uma sessão ABERTA simultânea, mesmo em
+    contas diferentes. Lock advisory dedicado com namespace de 2 argumentos
+    (classid=2, objid=operador.id) para não colidir com o lock de 1
+    argumento já usado para conta.id.
     """
     try:
         conta = Conta.objects.get(pk=conta_id, is_active=True)
     except Conta.DoesNotExist:
         raise ValidationError({'conta': 'Conta nao encontrada ou inativa.'})
 
+    if conta.tipo != TipoConta.CAIXA:
+        # RF-01/RN-01 (Manutenção #36): o dropdown do frontend ja filtra por
+        # tipo=CAIXA, mas isso e so UI — a garantia real tem que estar aqui.
+        raise ValidationError({'conta': 'Conta informada nao e do tipo CAIXA.'})
+
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta.id])
+            cursor.execute('SELECT pg_advisory_xact_lock(2, %s)', [usuario.id])
 
         if SessaoCaixa.objects.filter(conta=conta, status='ABERTA').select_for_update().exists():
             raise ValidationError({'conta': 'Ja existe sessao aberta nesta conta.'})
+
+        if SessaoCaixa.objects.filter(
+            operador=usuario, status='ABERTA',
+        ).select_for_update().exists():
+            raise ValidationError({
+                'operador': 'Voce ja tem uma sessao de caixa aberta em outra conta.',
+            })
 
         sessao = SessaoCaixa.objects.create(
             conta=conta,
@@ -200,32 +218,49 @@ def abrir_sessao(conta_id, valor_abertura, usuario):
 
 
 # ---------------------------------------------------------------------------
-# fechar_sessao (RF-11 / RN-07)
+# calcular_resumo_sessao (RF-03) — extraída de fechar_sessao() para ser
+# reutilizada ao vivo (sessão ABERTA, sem persistir nada) e no fechamento
+# (sessão FECHADA), sem duplicar a fórmula.
 # ---------------------------------------------------------------------------
 
-def fechar_sessao(sessao, valor_fechamento_informado, observacoes=''):
+def calcular_resumo_sessao(sessao):
     """
-    Fecha uma SessaoCaixa.
+    Resumo ao vivo (não persistido) de uma SessaoCaixa: vendas por forma de
+    pagamento, sangrias, suprimentos e o valor calculado de caixa físico.
 
-    RN-07: nunca bloqueia por diferença — registra e segue.
+    Usado por:
+      - SessaoCaixaSerializer.resumo (RF-03) — sessão ABERTA ou FECHADA.
+      - fechar_sessao() — mesma fórmula, agora extraída daqui (RN-07).
 
-    valor_fechamento_calculado = valor_abertura
-                                 + vendas finalizadas (dinheiro/pix/débito)
-                                 + suprimentos
-                                 - sangrias
-    (Apenas métodos à vista entram no cálculo físico do caixa —
-    cartão de crédito não entra no gaveta física.)
+    valor_calculado_dinheiro = valor_abertura
+                               + vendas finalizadas à vista (dinheiro/pix/débito)
+                               + suprimentos
+                               - sangrias
+    (Apenas métodos à vista entram no cálculo físico do caixa — cartão de
+    crédito não entra na gaveta física, mas continua listado em por_metodo
+    para a conferência de "vendas por forma de pagamento".)
     """
-    if sessao.status != 'ABERTA':
-        raise ValidationError({'status': 'Sessao ja esta fechada.'})
-
     from django.db.models import Sum
 
-    # Vendas finalizadas: soma pagamentos à vista desta sessão
-    from .models import ItemVenda  # evitar import circular no topo
-    pagamentos_avista = PagamentoVenda.objects.filter(
+    pagamentos_qs = PagamentoVenda.objects.filter(
         venda__sessao_caixa=sessao,
         venda__status='FINALIZADA',
+    ).select_related('metodo')
+
+    labels = dict(NomeMetodoPagamento.choices)
+    por_metodo = [
+        {
+            'metodo_nome': labels.get(row['metodo__nome'], row['metodo__nome']),
+            'total': row['total'] or Decimal('0'),
+        }
+        for row in (
+            pagamentos_qs.values('metodo__nome')
+            .annotate(total=Sum('valor'))
+            .order_by('metodo__nome')
+        )
+    ]
+
+    vendas_dinheiro = pagamentos_qs.filter(
         metodo__nome__in=[
             NomeMetodoPagamento.DINHEIRO,
             NomeMetodoPagamento.PIX,
@@ -241,7 +276,34 @@ def fechar_sessao(sessao, valor_fechamento_informado, observacoes=''):
         tipo='SANGRIA', is_active=True,
     ).aggregate(v=Sum('valor'))['v'] or Decimal('0')
 
-    calculado = sessao.valor_abertura + pagamentos_avista + suprimentos - sangrias
+    valor_calculado_dinheiro = sessao.valor_abertura + vendas_dinheiro + suprimentos - sangrias
+
+    return {
+        'por_metodo': por_metodo,
+        'vendas_dinheiro': vendas_dinheiro,
+        'sangrias': sangrias,
+        'suprimentos': suprimentos,
+        'valor_calculado_dinheiro': valor_calculado_dinheiro,
+    }
+
+
+# ---------------------------------------------------------------------------
+# fechar_sessao (RF-11 / RN-07)
+# ---------------------------------------------------------------------------
+
+def fechar_sessao(sessao, valor_fechamento_informado, observacoes=''):
+    """
+    Fecha uma SessaoCaixa.
+
+    RN-07: nunca bloqueia por diferença — registra e segue.
+    Reaproveita calcular_resumo_sessao() para o valor calculado — mesma
+    fórmula usada ao vivo antes do fechamento (RF-03), sem duplicação.
+    """
+    if sessao.status != 'ABERTA':
+        raise ValidationError({'status': 'Sessao ja esta fechada.'})
+
+    resumo = calcular_resumo_sessao(sessao)
+    calculado = resumo['valor_calculado_dinheiro']
     informado = Decimal(str(valor_fechamento_informado))
 
     sessao.valor_fechamento_calculado = calculado
