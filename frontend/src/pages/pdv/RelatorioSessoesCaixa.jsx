@@ -148,11 +148,11 @@ function ResumoSessaoModal({ sessao }) {
             {BRL(sessao.valor_fechamento_calculado)}
           </span>
         </div>
-        {sessao.valor_contagem_fisica != null && (
+        {sessao.valor_fechamento_informado != null && (
           <div className="flex justify-between text-sm">
             <span className="text-gray-600 dark:text-slate-400">Contagem física</span>
             <span className="font-mono font-semibold text-gray-900 dark:text-slate-100">
-              {BRL(sessao.valor_contagem_fisica)}
+              {BRL(sessao.valor_fechamento_informado)}
             </span>
           </div>
         )}
@@ -195,6 +195,8 @@ export default function RelatorioSessoesCaixa() {
   const [statusFiltro, setStatusFiltro] = useState('')
   const [contaFiltro, setContaFiltro] = useState('')
   const [contas, setContas] = useState([])
+  const [operadorFiltro, setOperadorFiltro] = useState('')
+  const [operadores, setOperadores] = useState([])
 
   // Modal detalhe
   const [sessaoDetalhe, setSessaoDetalhe] = useState(null)
@@ -208,7 +210,7 @@ export default function RelatorioSessoesCaixa() {
     setTimeout(() => setToast(null), 4000)
   }
 
-  const filtrosAtivos = dataInicio || dataFim || statusFiltro || contaFiltro
+  const filtrosAtivos = dataInicio || dataFim || statusFiltro || contaFiltro || operadorFiltro
 
   // Carregar contas para o filtro
   useEffect(() => {
@@ -223,6 +225,25 @@ export default function RelatorioSessoesCaixa() {
       .catch(() => {})
   }, [])
 
+  // RF-05 — sem endpoint dedicado de operadores: deriva lista distinta a
+  // partir do próprio GET /pdv/sessoes/ (mesmo endpoint que a tela consome)
+  useEffect(() => {
+    api.get('/pdv/sessoes/', { params: { page_size: 100, ordering: '-data_abertura' } })
+      .then(({ data }) => {
+        const lista = data.results || []
+        const mapa = new Map()
+        lista.forEach((s) => {
+          if (s.operador != null && !mapa.has(s.operador)) {
+            mapa.set(s.operador, s.operador_nome || `Operador #${s.operador}`)
+          }
+        })
+        const options = Array.from(mapa, ([value, label]) => ({ value, label }))
+          .sort((a, b) => a.label.localeCompare(b.label))
+        setOperadores(options)
+      })
+      .catch(() => {})
+  }, [])
+
   const carregarSessoes = useCallback(async () => {
     if (user && !user.is_staff) return
     setLoading(true)
@@ -232,6 +253,7 @@ export default function RelatorioSessoesCaixa() {
       if (dataFim) params.data_abertura__date__lte = dataFim
       if (statusFiltro) params.status = statusFiltro
       if (contaFiltro) params.conta = contaFiltro
+      if (operadorFiltro) params.operador = operadorFiltro
       const { data } = await api.get('/pdv/sessoes/', { params })
       const lista = data.results || []
       setSessoes(lista)
@@ -245,7 +267,7 @@ export default function RelatorioSessoesCaixa() {
     } finally {
       setLoading(false)
     }
-  }, [page, dataInicio, dataFim, statusFiltro, contaFiltro, user])
+  }, [page, dataInicio, dataFim, statusFiltro, contaFiltro, operadorFiltro, user])
 
   useEffect(() => {
     carregarSessoes()
@@ -256,6 +278,7 @@ export default function RelatorioSessoesCaixa() {
     setDataFim('')
     setStatusFiltro('')
     setContaFiltro('')
+    setOperadorFiltro('')
     setPage(1)
   }
 
@@ -332,6 +355,16 @@ export default function RelatorioSessoesCaixa() {
                 options={[{ value: '', label: 'Todas as contas' }, ...contas]}
                 value={contaFiltro}
                 onChange={(e) => { setContaFiltro(e.target.value); setPage(1) }}
+              />
+            </div>
+          )}
+          {operadores.length > 0 && (
+            <div className="w-48">
+              <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Operador</p>
+              <Select
+                options={[{ value: '', label: 'Todos os operadores' }, ...operadores]}
+                value={operadorFiltro}
+                onChange={(e) => { setOperadorFiltro(e.target.value); setPage(1) }}
               />
             </div>
           )}
@@ -450,8 +483,8 @@ export default function RelatorioSessoesCaixa() {
                               : '—'}
                           </td>
                           <td className="px-4 py-3 text-right font-mono text-gray-700 dark:text-slate-300">
-                            {sessao.valor_contagem_fisica != null
-                              ? BRL(sessao.valor_contagem_fisica)
+                            {sessao.valor_fechamento_informado != null
+                              ? BRL(sessao.valor_fechamento_informado)
                               : '—'}
                           </td>
                           <td className="px-4 py-3 text-right">

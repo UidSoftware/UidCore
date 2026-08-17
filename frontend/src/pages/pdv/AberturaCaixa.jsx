@@ -82,6 +82,10 @@ export default function AberturaCaixa() {
       const data = err?.response?.data
       if (data?.conta) {
         setErrors({ conta: Array.isArray(data.conta) ? data.conta[0] : data.conta })
+      } else if (data?.operador) {
+        // RF-02 — "1 sessão ABERTA por operador" rejeitada pelo backend.
+        // Não há campo "operador" no formulário para erro inline — toast, mesmo padrão do erro genérico.
+        mostrarToast(extractErrorMessage(err, 'Você já tem uma sessão de caixa aberta em outra conta.'), 'error')
       } else {
         mostrarToast(extractErrorMessage(err, 'Erro ao abrir caixa.'), 'error')
       }
