@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2 } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Plus, Trash2, ArrowRight } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -28,7 +28,32 @@ const UNIDADE_SELECT = [
 const BRL = (v) =>
   Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 
-const EMPTY_CONVERSAO = { unidade: '', quantidade_por_base: '' }
+const EMPTY_CONVERSAO = { unidade: '', converte_para: '', quantidade_por_base: '' }
+
+const unidadeLabel = (valor) => UNIDADE_OPTIONS.find((u) => u.value === valor)?.label || valor
+
+const formatFator = (n) =>
+  Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 3 })
+
+// RF-04/RF-08: resolve o fator de conversao de `unidade` ate `unidadeBase`
+// percorrendo a cadeia de `converte_para` (mesma logica recursiva do backend
+// produtos/services.py::fator_para_base) — so para preview no cliente, a
+// fonte de verdade continua sendo a validacao do servidor no submit.
+function resolverFatorBase(conversoes, unidadeBase, unidade, _visitados = new Set(), _profundidade = 0) {
+  if (unidade === unidadeBase) return { ok: true, fator: 1 }
+  if (_visitados.has(unidade)) return { ok: false }
+  if (_profundidade >= 5) return { ok: false }
+
+  const conv = conversoes.find((c) => c.unidade === unidade)
+  if (!conv || !conv.quantidade_por_base) return { ok: false }
+
+  const proximaUnidade = conv.converte_para || unidadeBase
+  const novosVisitados = new Set(_visitados)
+  novosVisitados.add(unidade)
+  const resto = resolverFatorBase(conversoes, unidadeBase, proximaUnidade, novosVisitados, _profundidade + 1)
+  if (!resto.ok) return { ok: false }
+  return { ok: true, fator: parseFloat(conv.quantidade_por_base) * resto.fator }
+}
 
 const EMPTY_FORM = {
   nome: '',
@@ -57,6 +82,10 @@ export default function Produtos() {
   const [loadingEntradas, setLoadingEntradas] = useState(false)
   const [novaEntrada, setNovaEntrada] = useState(null)
   const [savingEntrada, setSavingEntrada] = useState(false)
+  // Snapshot das conversoes carregadas do backend (id -> {unidade, converte_para,
+  // quantidade_por_base}) — usado no handleSubmit pra so fazer PATCH das linhas
+  // que realmente mudaram (RF-02).
+  const conversoesSnapshotRef = useRef({})
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -89,6 +118,7 @@ export default function Produtos() {
     setEntradas([])
     setNovaEntrada(null)
     setEditingId(null)
+    conversoesSnapshotRef.current = {}
     setModalOpen(true)
   }
 
@@ -107,6 +137,7 @@ export default function Produtos() {
     setConversoes([])
     setEntradas([])
     setNovaEntrada(null)
+    conversoesSnapshotRef.current = {}
     setModalOpen(true)
 
     // Carregar conversoes e entradas em paralelo
@@ -116,7 +147,17 @@ export default function Produtos() {
         api.get(`/produtos/${produto.id}/conversoes/`).catch(() => ({ data: [] })),
         api.get(`/produtos/${produto.id}/entradas/`).catch(() => ({ data: [] })),
       ])
-      setConversoes(convR.data.results || convR.data || [])
+      const convList = convR.data.results || convR.data || []
+      setConversoes(convList)
+      const snapshot = {}
+      convList.forEach((c) => {
+        snapshot[c.id] = {
+          unidade: c.unidade,
+          converte_para: c.converte_para || '',
+          quantidade_por_base: c.quantidade_por_base,
+        }
+      })
+      conversoesSnapshotRef.current = snapshot
       setEntradas(entR.data.results || entR.data || [])
     } finally {
       setLoadingEntradas(false)
@@ -130,6 +171,7 @@ export default function Produtos() {
     setConversoes([])
     setEntradas([])
     setNovaEntrada(null)
+    conversoesSnapshotRef.current = {}
   }
 
   const handleChange = (e) => {
@@ -142,7 +184,21 @@ export default function Produtos() {
     setConversoes((prev) => [...prev, { ...EMPTY_CONVERSAO }])
   }
 
-  const removeConversao = (idx) => {
+  const removeConversao = async (idx) => {
+    const conv = conversoes[idx]
+    // RF-03: linha ja persistida (tem id) precisa de DELETE real no backend —
+    // so sumir do estado local deixava a conversao viva no banco. RN-06:
+    // backend bloqueia excluir uma conversao usada como elo por outra —
+    // exibir a mensagem completa (lista de dependentes) sem truncar.
+    if (conv.id && editingId) {
+      try {
+        await api.delete(`/produtos/${editingId}/conversoes/${conv.id}/`)
+      } catch (error) {
+        showToast(extractErrorMessage(error, 'Erro ao remover conversao.'), 'error')
+        return
+      }
+      delete conversoesSnapshotRef.current[conv.id]
+    }
     setConversoes((prev) => prev.filter((_, i) => i !== idx))
   }
 
@@ -166,11 +222,39 @@ export default function Produtos() {
         produtoId = r.data.id
         showToast('Produto cadastrado com sucesso.')
       }
-      // Salvar conversoes novas
+      // Salvar conversoes — POST das novas, PATCH das existentes que mudaram (RF-02)
       if (produtoId) {
         for (const conv of conversoes) {
-          if (!conv.id && conv.unidade && conv.quantidade_por_base) {
-            await api.post(`/produtos/${produtoId}/conversoes/`, stripEmptyStrings(conv)).catch(() => {})
+          if (!conv.unidade || !conv.quantidade_por_base) continue
+          const payload = stripEmptyStrings({
+            unidade: conv.unidade,
+            converte_para: conv.converte_para,
+            quantidade_por_base: conv.quantidade_por_base,
+          })
+          if (conv.id) {
+            const original = conversoesSnapshotRef.current[conv.id]
+            const mudou =
+              !original ||
+              original.unidade !== conv.unidade ||
+              (original.converte_para || '') !== (conv.converte_para || '') ||
+              Number(original.quantidade_por_base) !== Number(conv.quantidade_por_base)
+            if (!mudou) continue
+            try {
+              await api.patch(`/produtos/${produtoId}/conversoes/${conv.id}/`, payload)
+              conversoesSnapshotRef.current[conv.id] = {
+                unidade: conv.unidade,
+                converte_para: conv.converte_para || '',
+                quantidade_por_base: conv.quantidade_por_base,
+              }
+            } catch (error) {
+              showToast(extractErrorMessage(error, 'Erro ao atualizar conversao.'), 'error')
+            }
+          } else {
+            try {
+              await api.post(`/produtos/${produtoId}/conversoes/`, payload)
+            } catch (error) {
+              showToast(extractErrorMessage(error, 'Erro ao adicionar conversao.'), 'error')
+            }
           }
         }
       }
@@ -452,36 +536,88 @@ export default function Produtos() {
                 <p className="text-xs text-gray-400 dark:text-slate-500">Nenhuma conversao cadastrada. Ex.: CX = 30 UN</p>
               )}
               <div className="space-y-2">
-                {conversoes.map((conv, idx) => (
-                  <div key={idx} className="flex items-end gap-2">
-                    <div className="flex-1">
-                      <Select
-                        label="Unidade"
-                        options={UNIDADE_SELECT}
-                        value={conv.unidade}
-                        onChange={(e) => updateConversao(idx, 'unidade', e.target.value)}
-                      />
+                {conversoes.map((conv, idx) => {
+                  const unidadeBase = form.unidade_base || 'UN'
+                  const convertePara = conv.converte_para || unidadeBase
+                  // Converte-para: unidade base do produto (sempre primeira opcao)
+                  // + demais unidades ja usadas em outras linhas, exceto a propria.
+                  const converteParaOptions = [
+                    { value: unidadeBase, label: `${unidadeLabel(unidadeBase)} (base)` },
+                    ...conversoes
+                      .filter((c, i) => i !== idx && c.unidade && c.unidade !== unidadeBase)
+                      .map((c) => ({ value: c.unidade, label: unidadeLabel(c.unidade) }))
+                      .filter((opt, i, arr) => arr.findIndex((o) => o.value === opt.value) === i),
+                  ]
+                  const resultado =
+                    conv.unidade && conv.quantidade_por_base
+                      ? resolverFatorBase(conversoes, unidadeBase, conv.unidade)
+                      : null
+                  return (
+                    <div key={idx} className="space-y-1">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+                        <div className="flex-1">
+                          <Select
+                            label="Unidade"
+                            options={UNIDADE_SELECT}
+                            value={conv.unidade}
+                            onChange={(e) => updateConversao(idx, 'unidade', e.target.value)}
+                          />
+                        </div>
+                        <div className="flex-1">
+                          <Select
+                            label="Converte para"
+                            options={converteParaOptions}
+                            value={convertePara}
+                            onChange={(e) =>
+                              updateConversao(
+                                idx,
+                                'converte_para',
+                                e.target.value === unidadeBase ? '' : e.target.value,
+                              )
+                            }
+                          />
+                        </div>
+                        <div className="flex-1 flex items-end gap-2">
+                          <div className="flex-1">
+                            <Input
+                              label={`Qtd por ${unidadeLabel(convertePara)}`}
+                              type="number"
+                              step="0.001"
+                              min="0"
+                              value={conv.quantidade_por_base}
+                              onChange={(e) => updateConversao(idx, 'quantidade_por_base', e.target.value)}
+                              placeholder="30"
+                            />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => removeConversao(idx)}
+                            className="mb-1 text-red-400 hover:text-red-600 transition-colors p-1 dark:text-red-400/70 dark:hover:text-red-400"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </div>
+                      {conv.unidade && conv.quantidade_por_base && (
+                        resultado?.ok ? (
+                          <p className="text-xs text-gray-500 dark:text-slate-400 pl-1 flex items-center gap-1">
+                            <ArrowRight size={12} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                            <span>
+                              1 {conv.unidade} = {conv.quantidade_por_base} {convertePara}
+                              {convertePara !== unidadeBase && (
+                                <> = {formatFator(resultado.fator)} {unidadeBase}</>
+                              )}
+                            </span>
+                          </p>
+                        ) : (
+                          <p className="text-xs text-amber-700 dark:text-amber-400 pl-1">
+                            ⚠ conversao nao fecha na unidade base
+                          </p>
+                        )
+                      )}
                     </div>
-                    <div className="flex-1">
-                      <Input
-                        label={`Qtd por ${form.unidade_base || 'base'}`}
-                        type="number"
-                        step="0.001"
-                        min="0"
-                        value={conv.quantidade_por_base}
-                        onChange={(e) => updateConversao(idx, 'quantidade_por_base', e.target.value)}
-                        placeholder="30"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeConversao(idx)}
-                      className="mb-1 text-red-400 hover:text-red-600 transition-colors p-1 dark:text-red-400/70 dark:hover:text-red-400"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </div>
 
@@ -524,6 +660,25 @@ export default function Produtos() {
                         onChange={(e) => setNovaEntrada((p) => ({ ...p, unidade: e.target.value }))}
                       />
                     </div>
+                    {/* RF-08: preview da quantidade equivalente em unidade base */}
+                    {novaEntrada.unidade &&
+                      novaEntrada.unidade !== form.unidade_base &&
+                      novaEntrada.quantidade && (() => {
+                        const resultado = resolverFatorBase(conversoes, form.unidade_base || 'UN', novaEntrada.unidade)
+                        if (!resultado.ok) {
+                          return (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              ⚠ sem conversao cadastrada para esta unidade
+                            </p>
+                          )
+                        }
+                        const convertido = parseFloat(novaEntrada.quantidade) * resultado.fator
+                        return (
+                          <p className="text-xs text-gray-500 dark:text-slate-400">
+                            = {formatFator(convertido)} {form.unidade_base}
+                          </p>
+                        )
+                      })()}
                     <Input
                       label="Nota Fiscal"
                       value={novaEntrada.nota_fiscal}

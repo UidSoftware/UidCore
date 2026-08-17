@@ -6,7 +6,7 @@ const BRL = (v) =>
 /**
  * Item do carrinho de venda.
  * Props:
- *   item: { id, produto_nome, produto_unidade, quantidade, valor_unitario,
+ *   item: { id, produto_nome, unidade, quantidade, valor_unitario,
  *            desconto_item, valor_total }
  *   onQuantidade(itemId, novaQtd)  — novaQtd = 0 remove o item
  *   onRemover(itemId)
@@ -39,7 +39,7 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 truncate dark:text-slate-100">{item.produto_nome}</p>
           <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">
-            {BRL(item.valor_unitario)} / {item.produto_unidade || 'UN'}
+            {BRL(item.valor_unitario)} / {item.unidade || 'UN'}
           </p>
           {parseFloat(item.desconto_item || 0) > 0 && (
             <p className="text-xs text-gray-400 mt-0.5 dark:text-slate-500">
@@ -91,7 +91,7 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
           >
             <Plus size={12} />
           </button>
-          <span className="text-xs text-gray-400 ml-1 dark:text-slate-500">{item.produto_unidade || 'UN'}</span>
+          <span className="text-xs text-gray-400 ml-1 dark:text-slate-500">{item.unidade || 'UN'}</span>
         </div>
       )}
     </div>

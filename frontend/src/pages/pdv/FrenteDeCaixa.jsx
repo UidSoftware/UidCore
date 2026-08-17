@@ -8,6 +8,7 @@ import api from '../../api/client.js'
 import { extractErrorMessage } from '../../utils/errors.js'
 import Button from '../../components/ui/Button.jsx'
 import Card from '../../components/ui/Card.jsx'
+import Select from '../../components/ui/Select.jsx'
 import CarrinhoItem from './components/CarrinhoItem.jsx'
 import SplitPagamento from './components/SplitPagamento.jsx'
 import ModalSangriaSuprimento from './components/ModalSangriaSuprimento.jsx'
@@ -57,6 +58,10 @@ export default function FrenteDeCaixa() {
   const [modalSangria, setModalSangria] = useState(false)
   const [modalCamera, setModalCamera] = useState(false)
   const [toast, setToast] = useState(null)
+
+  // ── RF-05: seletor de unidade de venda (popover inline) ────────────────────
+  const [seletorUnidade, setSeletorUnidade] = useState(null) // { produto, rect, unidade }
+  const seletorRef = useRef(null)
 
   const mostrarToast = (msg, tipo = 'success') => {
     setToast({ msg, tipo })
@@ -151,7 +156,10 @@ export default function FrenteDeCaixa() {
   }, [buscaCliente])
 
   // ── Adicionar produto ao carrinho ─────────────────────────────────────────
-  const adicionarProduto = async (produto) => {
+  // RF-05: 2º parâmetro opcional `unidade` — quando omitido (RF-17 Enter,
+  // RF-19 câmera, ou produto sem conversões), mantém o comportamento
+  // original de sempre vender na unidade base.
+  const adicionarProduto = async (produto, unidade) => {
     if (!venda) return
     setBusca('')
     setResultadosBusca([])
@@ -160,7 +168,7 @@ export default function FrenteDeCaixa() {
       const { data: vendaAtualizada } = await api.post(`/pdv/vendas/${venda.id}/itens/`, {
         produto: produto.id,
         quantidade: '1.000',
-        unidade: produto.unidade_base || 'UN',
+        unidade: unidade || produto.unidade_base || 'UN',
         desconto_item: '0.00',
       })
       // Recarregar venda completa
@@ -173,6 +181,37 @@ export default function FrenteDeCaixa() {
       setSalvandoItem(false)
     }
   }
+
+  // RF-05: clique num item do dropdown de busca — se o produto tem conversões
+  // de unidade cadastradas, abre o popover "Vender em:" em vez de adicionar
+  // direto (produto sem conversão mantém o clique direto, zero fricção nova).
+  const handleClickProduto = (produto, event) => {
+    if (produto.conversoes?.length > 0) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      setSeletorUnidade({ produto, rect, unidade: produto.unidade_base || 'UN' })
+      return
+    }
+    adicionarProduto(produto)
+  }
+
+  // Fecha o popover de unidade ao clicar fora ou apertar Escape.
+  useEffect(() => {
+    if (!seletorUnidade) return
+    const handleClickFora = (e) => {
+      if (seletorRef.current && !seletorRef.current.contains(e.target)) {
+        setSeletorUnidade(null)
+      }
+    }
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') setSeletorUnidade(null)
+    }
+    document.addEventListener('mousedown', handleClickFora)
+    document.addEventListener('keydown', handleEscape)
+    return () => {
+      document.removeEventListener('mousedown', handleClickFora)
+      document.removeEventListener('keydown', handleEscape)
+    }
+  }, [seletorUnidade])
 
   // ── RF-17: Enter no campo de busca com match exato de codigo_barras ───────
   // Um leitor físico de código de barras manda o Enter poucos ms após o
@@ -427,7 +466,7 @@ export default function FrenteDeCaixa() {
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => adicionarProduto(p)}
+                      onClick={(e) => handleClickProduto(p, e)}
                       className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left transition-colors dark:hover:bg-navy-700 dark:border-navy-700"
                     >
                       <div className={parseFloat(p.quantidade_estoque || 0) <= 0 ? 'opacity-50' : ''}>
@@ -617,6 +656,45 @@ export default function FrenteDeCaixa() {
           </Button>
         </div>
       </div>
+
+      {/* RF-05: popover "Vender em:" — inline, nunca modal (Especificacao_UI_Hotfix) */}
+      {seletorUnidade && (
+        <div
+          ref={seletorRef}
+          className="fixed z-50 bg-white dark:bg-navy-800 border border-gray-200 dark:border-navy-600 rounded-lg shadow-lg p-3"
+          style={{
+            top: seletorUnidade.rect.bottom + 4,
+            left: Math.min(seletorUnidade.rect.left, window.innerWidth - 228),
+            width: 220,
+          }}
+        >
+          <p className="text-xs font-medium text-gray-500 dark:text-slate-400 mb-2">Vender em:</p>
+          <Select
+            options={[
+              {
+                value: seletorUnidade.produto.unidade_base || 'UN',
+                label: seletorUnidade.produto.unidade_base_display || seletorUnidade.produto.unidade_base || 'UN',
+              },
+              ...seletorUnidade.produto.conversoes.map((c) => ({
+                value: c.unidade,
+                label: c.unidade_display,
+              })),
+            ]}
+            value={seletorUnidade.unidade}
+            onChange={(e) => setSeletorUnidade((prev) => ({ ...prev, unidade: e.target.value }))}
+          />
+          <Button
+            size="sm"
+            className="w-full mt-2"
+            onClick={() => {
+              adicionarProduto(seletorUnidade.produto, seletorUnidade.unidade)
+              setSeletorUnidade(null)
+            }}
+          >
+            Adicionar
+          </Button>
+        </div>
+      )}
 
       {/* Modal sangria/suprimento */}
       {modalSangria && sessao && (
