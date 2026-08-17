@@ -1,278 +1,291 @@
-# Especificação UI Hotfix — UidCore (Manutenção #36)
+# Especificação UI Hotfix — UidCore (Manutenção #37)
 **Elaborado por:** Brush (MODO HOTFIX)
 **Data:** 2026-08-17
-**Base:** Especificacao_Hotfix.md (Analista, Manutenção #36)
+**Base:** Especificacao_Hotfix.md (Analista, Manutenção #37 — conversão de unidade em cadeia)
 
 ---
 
 ## Escopo desta especificação
 
-Manutenção majoritariamente de **backend** (validação de servidor RF-01/RF-02,
-cálculo de resumo RF-03). Do lado visual há só **3 pontos reais de UI**:
+Manutenção com peso real de UI, diferente da #36 (que era quase 100%
+backend). Aqui há **3 telas com trabalho visual concreto**:
 
-1. `AberturaCaixa.jsx` — tratar a nova chave de erro `operador` (RF-02) como toast
-2. `FechamentoCaixa.jsx` + `ResumoSessao.jsx` — **zero mudança de código**, só passam
-   a receber dado real do backend (RF-03) — os componentes já foram desenhados
-   para esse formato
-3. `RelatorioSessoesCaixa.jsx` — corrigir campo (RF-04, sem impacto visual) +
-   **adicionar filtro de operador** (RF-05, único elemento de UI novo desta manutenção)
+1. `Produtos.jsx` — seção "Conversões de Unidade": novo Select "Converte
+   para" por linha (RF-01), preview de fator composto (RF-04), fix visual
+   de feedback em editar/excluir conversão (RF-02/RF-03), preview de
+   quantidade em unidade base na Entrada de Estoque (RF-08)
+2. `pdv/FrenteDeCaixa.jsx` — seletor de unidade de venda antes de
+   adicionar o produto ao carrinho (RF-05), só quando o produto tem
+   conversões cadastradas
+3. `pdv/components/CarrinhoItem.jsx` — troca de prop lida (RF-07,
+   cosmético puro — zero mudança visual, só correção de dado exibido)
 
-Não há tela nova nem componente novo a criar. O trabalho do Brush aqui é
-garantir que o único elemento novo (Select de operador) segue exatamente o
-padrão visual já estabelecido no módulo PDV, e documentar os pontos de
-atenção para o Loom não improvisar decisão de estilo.
+Nenhuma tela nova. Nenhum componente novo além do popover de escolha de
+unidade no PDV (item 3 abaixo), que reaproveita o padrão visual já
+existente na mesma tela (dropdown de busca).
 
 ---
 
-## Design System do Projeto (referência — lido em design_system.md + código real do PDV)
+## Design System do Projeto (referência — lido em tailwind.config.js + código real das 3 telas)
 
 - **Paleta:** navy (60%) + violet (30%) + red (10%), dark mode via classe
-  `dark:` (Tailwind `darkMode: 'class'`) — confirmado em Manutenção #31
+  `dark:` (Tailwind `darkMode: 'class'`) — confirmado em Manutenção #31,
+  tokens em `tailwind.config.js` (`navy-950…500`, `violet-50…900`)
 - **Fundo de página:** `bg-gray-50 dark:bg-navy-950`
-- **Cards:** `bg-white rounded-xl border border-gray-200 shadow-sm dark:bg-navy-800
-  dark:border-navy-600 dark:shadow-none` (componente `Card.jsx`, já usado em
-  todas as 4 telas do PDV — 100% reutilizável, nenhuma prop nova)
+- **Cards:** componente `Card.jsx` — `bg-white rounded-xl border
+  border-gray-200 shadow-sm dark:bg-navy-800 dark:border-navy-600
+  dark:shadow-none` — 100% reutilizável, nenhuma prop nova
 - **Fonte:** Plus Jakarta Sans (headings) + DM Sans (body/interface) — já
-  configuradas no projeto, não mexer
-- **BorderRadius:** `rounded-lg` (8px) em inputs/selects/botões, `rounded-xl`
-  (12px) em cards e KPI tiles, `rounded-full` em badges de status
-- **Cor de destaque (accent/primary):** `primary-600` / `dark:violet-500-600`
-  para foco de input, ícones de header e botão primário
-- **Semântica de cor já em uso no PDV** (reaproveitar sempre, nunca inventar
-  nova combinação):
-  - azul (`blue-50/700` · `dark:blue-950/40 dark:blue-300`) → valores neutros/informativos (Abertura)
-  - verde (`green-50/700` · `dark:emerald-950/40 dark:emerald-300`) → entradas positivas (Vendas, Suprimentos, "sem diferença")
-  - vermelho (`red-50/700` · `dark:red-950/40 dark:red-300`) → saídas/alertas (Sangrias, diferença de caixa)
-  - amarelo/âmbar (`yellow-50/700` · `dark:amber-950/40 dark:amber-300`) → status ABERTA (badge), diferença pequena
-- **Toast pattern (já usado nas 4 telas do PDV, reaproveitar tal qual):**
-  `fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm
-  font-medium text-white` — `bg-red-600` para erro, `bg-accent-600` para
-  sucesso, timeout 7000ms erro / 3500-4000ms sucesso
+  configuradas, não mexer
+- **BorderRadius padrão:** `rounded-lg` (8px) em inputs/selects/botões,
+  `rounded-xl`/`rounded-2xl` (12-16px) em cards e modais (`Modal.jsx` usa
+  `rounded-2xl`), `rounded-full` em badges e botões circulares (stepper
+  de quantidade do carrinho)
+- **Componentes reutilizáveis confirmados no código:** `Select.jsx`,
+  `Input.jsx`, `Button.jsx`, `Card.jsx`, `Modal.jsx` — todos já com
+  variante dark aplicada, usar tal como estão, sem criar variante nova
+- **Cor de destaque (accent/primary):** `primary-600` claro /
+  `dark:violet-400` a `violet-500` para ícones, links, foco de input
+  (`focus:ring-primary-500 dark:focus:ring-violet-500`, padrão já em
+  todo input/select do projeto)
+- **Semântica de cor já em uso** (reaproveitar, nunca inventar nova
+  combinação):
+  - cinza (`text-gray-400/500` · `dark:text-slate-500/400`) → texto de
+    apoio/preview secundário, placeholder, estado vazio
+  - vermelho (`text-red-400 hover:text-red-600` ·
+    `dark:text-red-400/70 dark:hover:text-red-400`) → ação destrutiva
+    (ícone `Trash2` de remover conversão/item do carrinho); badge
+    `bg-red-100 text-red-800` · `dark:bg-red-900/30 dark:text-red-300`
+    já usado para "Sem estoque" no dropdown do PDV
+  - azul/primary (`text-primary-600` · `dark:text-violet-400`) → ação de
+    adicionar (`+ Adicionar Conversão`, `+ Registrar Entrada`), link,
+    controle interativo
+  - amarelo/âmbar (`text-amber-700` · `dark:text-amber-400`, sem
+    background — usado inline em texto de aviso, não em badge) → aviso
+    não-bloqueante de cadeia de conversão incompleta ou sem conversão
+    cadastrada
+- **Toast pattern** (já usado em `Produtos.jsx` e `FrenteDeCaixa.jsx`,
+  reaproveitar tal qual — não criar novo componente de alerta):
+  `fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg
+  text-sm font-medium text-white whitespace-pre-line break-words` —
+  `bg-red-600` erro, `bg-accent-600` sucesso
 
 ---
 
 ## Especificação Visual por Tela
 
-### 1. `AberturaCaixa.jsx` — erro `operador` (RF-02)
+### 1. `Produtos.jsx` — Seção "Conversões de Unidade" (modal Novo/Editar Produto)
 
-**Diagnóstico:** a tela não tem campo de formulário para "operador" (é o
-usuário logado, não um input) — não há onde anexar um erro inline como já
-é feito com `errors.conta`. O padrão correto é o já existente `mostrarToast`.
+**Contexto atual (confirmado lendo o código, linhas ~440-486):** cada
+linha de conversão hoje é `Select "Unidade"` + `Input "Qtd por
+{unidade_base}"` + botão lixeira, dentro de um card `bg-gray-50
+dark:bg-navy-900/50 border border-gray-200 dark:border-navy-700
+rounded-lg p-4`. Layout de linha: `flex items-end gap-2`, cada campo
+`flex-1`. `EMPTY_CONVERSAO = { unidade: '', quantidade_por_base: '' }`.
 
-**Especificação:**
-- Quando `err.response.data.operador` vier no catch de `handleSubmit`, chamar
-  `mostrarToast(extractErrorMessage(err, 'Você já tem uma sessão de caixa aberta em outra conta.'), 'error')`
-  — mesmo padrão de toast já usado para o erro genérico do `else`, **não**
-  criar um novo tipo de alerta visual
-- Não usar `setErrors({...})` para essa chave — reservado a campos com input
-  visível (`conta`, `valorAbertura`)
-- Duração do toast: 7000ms (padrão já definido em `mostrarToast` para
-  `tipo === 'error'`) — mensagem é acionável ("vá lá fechar o outro caixa
-  primeiro"), operador precisa de tempo de leitura maior que o de sucesso
-- **Nenhuma mudança de layout, cor ou ícone** — reaproveita 100% o bloco de
-  toast já renderizado no topo do componente (linhas 103-109 do arquivo atual)
+**Mudança de layout — nova coluna "Converte para" (RF-01):**
+- Linha de conversão passa de 2 campos (Unidade, Qtd) para 3 campos +
+  lixeira: `Select "Unidade"` (existente) + `Select "Converte para"`
+  (**novo**) + `Input "Quantidade"` (existente). `EMPTY_CONVERSAO` ganha
+  `converte_para: ''`.
+- Estrutura da linha: `flex-col gap-2 sm:flex-row sm:items-end` — em
+  ≥640px os 3 campos ficam lado a lado (`flex-1` cada, proporção igual);
+  em <640px empilham em coluna. 3 selects/input + lixeira lado a lado em
+  375px não cabe com labels legíveis (regra mobile-first do Brush,
+  testar em iPhone SE).
+- `Select "Converte para"`: mesmo componente `Select.jsx`, `label=
+  "Converte para"`, options dinâmicas = unidade base do produto (sempre
+  primeira opção, ex. `"UN — Unidade (base)"`) + demais unidades já
+  presentes nas outras linhas de `conversoes`, excluindo a própria
+  unidade da linha atual (não faz sentido "CX converte para CX").
+  Default = unidade base do produto — comportamento hoje implícito,
+  preservado 100% (usuário que nunca mexe nesse campo tem exatamente o
+  comportamento de antes da manutenção).
+- Label do `Input "Quantidade"` muda de fixo `Qtd por {unidade_base}`
+  para dinâmico `Qtd por {converte_para || unidade_base}` — reflete pra
+  qual unidade aquela linha está convertendo (ex.: linha CX→PT mostra
+  "Qtd por PT", não mais sempre "Qtd por UN").
+- Ícone: manter `Trash2` (lucide-react, já importado) 16px, mesma cor
+  atual. Nenhuma mudança de ícone nesta linha.
 
-### 2. Card "Você já tem uma sessão aberta" (`AberturaCaixa.jsx:112-128` e `FrenteDeCaixa.jsx:353`)
+**Preview do fator composto (RF-04) — elemento novo:**
+- Abaixo de cada linha de conversão (dentro do mesmo `space-y-2`, como
+  linha de texto extra, não card separado): `text-xs text-gray-500
+  dark:text-slate-400 pl-1 flex items-center gap-1`.
+- Formato: `"1 {unidade} = {quantidade_por_base} {converte_para} =
+  {fator_composto} {unidade_base}"` — ex.: `"1 CX = 6 PT = 300 UN"`. Só
+  mostrar o segundo `=` (fator composto) quando `converte_para !==
+  unidade_base` — conversão direta pra base não precisa de preview
+  redundante (já é auto-evidente: "1 CX = 300 UN").
+- Ícone à esquerda do texto: `ArrowRight` (lucide-react, **novo
+  import**) 12px, `text-gray-400 dark:text-slate-500`, decorativo, sem
+  clique.
+- Calculado no cliente por função local `resolverFatorBase` (mesma
+  lógica recursiva do backend, só para conferência — fonte de verdade
+  continua sendo a validação do servidor no submit).
+- **Cadeia não fecha na base ou tem ciclo (RN-01):** trocar o texto pelo
+  padrão de aviso âmbar (`text-amber-700 dark:text-amber-400`, sem
+  background, mesmo tamanho `text-xs`) com `"⚠ conversão não fecha na
+  unidade base"`. Não bloqueia digitação — só alerta antes do usuário
+  levar o 400 do backend no submit.
 
-Fora do escopo de mudança desta manutenção (RF-06 é validação do Sentinel em
-produção, não alteração de código) — documentando aqui só para confirmar que
-o padrão visual atual **está correto e não deve ser alterado**:
+**Fix de feedback visual em editar/excluir (RF-02/RF-03):**
+- Nenhuma mudança de layout — o bug era 100% de lógica (submit não
+  persistia PATCH, remove não chamava DELETE de verdade). Especificação
+  de UI aqui é garantir que o toast de erro padrão dispare quando o
+  `DELETE` falhar por RN-06 (conversão é elo de outra) — usar a mesma
+  classe já existente (`bg-red-600`, `whitespace-pre-line break-words`)
+  e **não truncar** a mensagem do backend (ela lista quem depende da
+  conversão — informação útil pro usuário entender o bloqueio).
+- Excluir uma linha com sucesso: nenhuma confirmação visual adicional
+  além da própria linha sumir da lista — **não** usar `window.confirm()`
+  aqui (padrão reservado a `handleDelete` de produto inteiro, ação fora
+  de contexto de formulário); dentro do modal já aberto, remover e poder
+  simplesmente não salvar já é reversível o suficiente.
 
-- Container: `bg-blue-50 border border-blue-200 text-blue-700 dark:bg-blue-950/40
-  dark:border-blue-800 dark:text-blue-300`, `rounded-lg`, `px-4 py-3`
-- Estrutura: título em negrito ("Você já tem uma sessão aberta.") + linha de
-  detalhe com `Conta: {nome} · Aberta às {hora}` + link de ação
-  ("Ir para o caixa aberto") em `text-primary-600 dark:text-violet-400` com
-  `hover:underline`
-- Fallback de nome de conta: `sessaoAtiva.conta_nome || `#${sessaoAtiva.conta}``
-  — já correto, mantido
-- Se o Sentinel confirmar em produção que o bug reproduz (bundle desatualizado),
-  a correção é **redeploy**, não mudança visual — nada a fazer aqui
+### 2. `Produtos.jsx` — Entrada de Estoque (RF-08, dentro do modal de edição)
 
-### 3. `FechamentoCaixa.jsx` + `ResumoSessao.jsx` (RF-03)
+**Contexto atual:** formulário `novaEntrada` (linhas ~508-548) já tem
+`Input "Quantidade"` + `Select "Unidade"` lado a lado em `grid
+grid-cols-2 gap-2`, dentro de card branco `bg-white dark:bg-navy-800
+border border-gray-200 dark:border-navy-600 rounded-lg p-3`.
 
-**Zero mudança de código.** Os componentes já foram implementados esperando
-exatamente o formato `{ por_metodo, vendas_dinheiro, sangrias, suprimentos,
-valor_calculado_dinheiro }` — só nunca receberam dado real do backend.
-Confirmação visual do que já existe (para o Sentinel validar contra):
+**Preview de quantidade em unidade base:**
+- Nova linha de texto logo abaixo do `grid grid-cols-2` (antes do campo
+  "Nota Fiscal"), só visível quando `novaEntrada.unidade !==
+  form.unidade_base` **e** `novaEntrada.quantidade` preenchido.
+- Estilo: `text-xs text-gray-500 dark:text-slate-400`, formato `"=
+  {quantidade_convertida} {unidade_base}"` — ex. usuário digita "2" +
+  unidade "CX" (produto com base UN e conversão CX→300UN) → mostra `"=
+  600 UN"`.
+- Reaproveita a mesma função `resolverFatorBase` do item 1 — não
+  duplicar lógica de cálculo entre as duas seções do mesmo arquivo.
+- Unidade sem conversão cadastrada (o backend passa a rejeitar com 400
+  por RN-05): mesmo padrão de aviso âmbar do item 1 — `"⚠ sem conversão
+  cadastrada para esta unidade"` — sinaliza **antes** do usuário tentar
+  salvar e levar o erro só depois via toast.
 
-**KPI Cards (`ResumoSessao.jsx`, grid `grid-cols-2 md:grid-cols-4 gap-3`):**
-| Label | Cor | Fonte do valor |
-|---|---|---|
-| Abertura | azul | `sessao.valor_abertura` |
-| Total Vendas | verde | soma de `resumo.por_metodo[].total` |
-| Sangrias | vermelho, prefixo `- ` | `resumo.sangrias` |
-| Suprimentos | verde, prefixo `+ ` | `resumo.suprimentos` |
+### 3. `pdv/FrenteDeCaixa.jsx` — Seletor de unidade de venda (RF-05)
 
-Cada tile: `rounded-xl p-4`, label em `text-xs font-medium opacity-70`, valor
-em `text-lg font-bold mt-1 font-mono` — **já implementado, sem alteração**.
+**Contexto atual:** `adicionarProduto(produto)` (linha ~154) é chamado
+direto ao clicar num item do dropdown de busca (linha ~430,
+`onClick={() => adicionarProduto(p)}`) e sempre envia `unidade:
+produto.unidade_base || 'UN'` — sem passo intermediário. A tela já tem
+padrão de modal leve pra ações secundárias (`ModalSangriaSuprimento`,
+`ModalScannerCamera`), mas um modal cheio é peso demais pra uma decisão
+de 1 campo — segue o princípio "menos é mais" do Brush.
 
-**Lista "Vendas por forma de pagamento":** só renderiza se
-`resumo.por_metodo.length > 0` — card branco/navy com header
-`px-4 py-3 border-b`, linhas `flex justify-between` com nome à esquerda
-(`text-gray-600 dark:text-slate-400`) e valor em `font-mono font-medium` à
-direita. **Já implementado, sem alteração.**
+**Especificação — popover inline, não modal:**
+- Regra de entrada: se `produto.conversoes?.length > 0` (campo já vem
+  nested da API — confirmado em `ProdutoSerializer.conversoes`), **não**
+  chama `adicionarProduto(produto)` direto no clique do item — abre um
+  popover pequeno ancorado no item clicado, em vez disso.
+- Produto **sem** conversões cadastradas: mantém o clique direto atual,
+  zero fricção nova — regra explícita de RF-05 (não pode piorar o fluxo
+  do caso comum, que é a maioria dos produtos hoje).
+- Layout do popover: `bg-white dark:bg-navy-800 border border-gray-200
+  dark:border-navy-600 rounded-lg shadow-lg p-3`, largura ~220px.
+  **Atenção de posicionamento:** o dropdown de resultados que contém os
+  itens já é `overflow-y-auto` — usar `position: fixed` +
+  `getBoundingClientRect()` do item clicado para posicionar o popover,
+  mesma técnica já aplicada nas Manutenções #23/#24 para o
+  `ProdutoAutocomplete` não ser cortado por overflow do container pai.
+  **Nunca** `overflow-hidden` em nenhum container envolvido (regra
+  global do Brush).
+- Conteúdo: título `text-xs font-medium text-gray-500 dark:text-slate-400`
+  = `"Vender em:"` + `Select` (componente existente) com options =
+  unidade base (default, primeira opção) + cada `conversao.unidade`
+  cadastrada, usando `unidade_display` da API (já vem formatado, ex.
+  "CX — Caixa"). Botão `Button` `size="sm"`, label "Adicionar", full
+  width dentro do popover.
+- Fechar: clique fora (mesmo padrão já usado para fechar o dropdown de
+  busca) ou `Escape`.
+- Ao confirmar: `adicionarProduto(produto, unidadeEscolhida)` —
+  `adicionarProduto` ganha 2º parâmetro opcional, default
+  `produto.unidade_base || 'UN'` quando omitido. Preserva as 3 chamadas
+  existentes que não passam por escolha manual (RF-17 Enter/código de
+  barras, RF-19 câmera) — leitura física de código de barras já
+  identifica a unidade cadastrada do produto, não precisa de escolha.
+- Ícone no gatilho: nenhum novo — o item da lista já é o gatilho; não
+  adicionar chevron/seta que sugira "abrir menu", o texto "Vender em:"
+  já sinaliza o comportamento quando aparece.
 
-**Ponto de atenção para o Sentinel (não para o Loom):** antes desta
-manutenção, `resumo.por_metodo` sempre chegava vazio → essa seção nunca
-renderizava. Validar visualmente que ela aparece quando há vendas na sessão.
+### 4. `pdv/components/CarrinhoItem.jsx` — RF-07 (cosmético)
 
-**Card "Valor calculado em caixa" (`FechamentoCaixa.jsx`, fora do `ResumoSessao`):**
-`Card` simples com `flex justify-between`, valor grande à direita
-(`text-lg font-bold font-mono`), legenda abaixo em `text-xs text-gray-400`.
-Antes desta manutenção mostrava sempre o fallback `sessao?.valor_fechamento_calculado`
-(null enquanto ABERTA); agora deve refletir `resumo.valor_calculado_dinheiro`
-em tempo real. **Nenhuma mudança de estilo — só o dado que chega muda.**
-
-### 4. `RelatorioSessoesCaixa.jsx` — RF-04 (rename de campo, sem UI) + RF-05 (filtro de operador, novo)
-
-#### RF-04 — sem impacto visual
-As 3 ocorrências de `sessao.valor_contagem_fisica` (linhas 151, 155 no modal
-`ResumoSessaoModal`, e 453-454 na coluna "Contagem" da tabela desktop) trocam
-para `sessao.valor_fechamento_informado`. **Mesma formatação BRL, mesmo
-container, mesma cor** (`text-gray-900 dark:text-slate-100 font-mono
-font-semibold`) — é troca de nome de propriedade, não de layout.
-
-**Achado do Brush ao ler o componente:** o card mobile (linhas 356-401, grid
-`grid-cols-2 gap-2 text-xs`) hoje **não exibe** o campo de contagem/fechamento
-informado — só mostra Abertura, Fechamento, Calculado e Diferença. Isso não é
-regressão desta manutenção (o campo nunca existiu no card mobile, só no modal
-e na tabela desktop) e **não está no escopo de RF-04** — o Analista descreveu
-3 ocorrências, mas o código real só tem 2 pontos de uso (modal + tabela
-desktop; nenhuma no card mobile). Registrado para não confundir o Loom
-tentando achar uma 3ª ocorrência inexistente. Se o cliente quiser paridade
-(mostrar contagem física no card mobile também), é melhoria nova, fora do
-escopo desta manutenção — não adicionar por conta própria.
-
-#### RF-05 — novo Select de operador na barra de filtros
-
-**Reutilizar exatamente o componente `Select.jsx`** já usado nos filtros de
-Status e Conta na mesma barra (`Card` no topo, `flex flex-wrap gap-3 items-end`).
-
-**Posicionamento:** logo após o Select de "Conta" (linhas 328-337 do arquivo
-atual), antes do botão "Limpar filtros" — mesma ordem lógica do padrão já
-usado (texto → data → enums → relacionamento → ação).
-
-**Markup/estilo idêntico ao filtro de Conta (copiar padrão, não inventar):**
-```jsx
-{operadores.length > 0 && (
-  <div className="w-48">
-    <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Operador</p>
-    <Select
-      options={[{ value: '', label: 'Todos os operadores' }, ...operadores]}
-      value={operadorFiltro}
-      onChange={(e) => { setOperadorFiltro(e.target.value); setPage(1) }}
-    />
-  </div>
-)}
-```
-- Largura: `w-48` (mesma dos outros dois Selects da barra — Status e Conta —
-  para grid visual consistente)
-- Label acima do input: `text-xs text-gray-500 dark:text-slate-400 mb-1`,
-  **sem ícone** (o filtro de Conta também não tem ícone — só "De"/"Até" têm
-  `<Calendar size={12} />`, por serem datas; manter essa distinção, não
-  adicionar ícone ao Select de operador)
-- Opção "Todos os operadores" como primeiro item, mesmo texto-padrão de
-  "Todas as contas"/"Todos os status" já usados nos outros dois Selects
-- **Condicional de render:** `operadores.length > 0`, mesmo padrão do filtro
-  de Conta (`contas.length > 0`) — evita mostrar Select vazio enquanto a
-  fonte de dados carrega
-- Este filtro entra em `filtrosAtivos` (linha 211) e em `limparFiltros()`
-  (linha 254-260), mesmo tratamento dos demais — decisão de estado, não de
-  UI, mas registrado para o Loom não esquecer o botão "Limpar filtros" de
-  cobrir o novo filtro também
-
-**Rótulo de exibição do operador na option:** usar o mesmo formato já
-aplicado nas colunas da própria tabela (`operador?.first_name ||
-operador?.username || '—'`, linhas 374 e 436) — se a fonte de dados do
-Select vier de outro formato, normalizar para esse padrão antes de montar
-`options`, para o texto do filtro bater com o texto exibido nas linhas
-filtradas.
-
-**Nota técnica (decisão de dado, não de UI — fora da alçada do Brush):** o
-projeto não tem hoje um endpoint dedicado de listagem de usuários/operadores
-(`accounts/urls.py` só tem `register/` e `me/`). Cabe ao Loom decidir a forma
-mais simples de popular esse Select sem criar endpoint novo — por exemplo,
-extrair a lista de operadores distintos a partir dos dados já retornados por
-`GET /pdv/sessoes/` (mesmo endpoint que a própria tela já consome), já que o
-pedido do Analista foi explícito em não criar endpoint novo se já houver algo
-reaproveitável. Do ponto de vista visual, o resultado final tem que ser
-indistinguível do padrão dos outros dois filtros, qualquer que seja a fonte.
-
-**Mobile:** a barra de filtros já usa `flex flex-wrap gap-3` — o novo Select
-de `w-48` empilha/quebra junto com os demais automaticamente em telas
-estreitas (comportamento já testado com 3 filtros de largura fixa + 2 datas +
-botão; adicionar um 4º elemento de mesma largura não quebra o wrap). Testar
-em 375px conforme padrão Uid — nenhum CSS adicional necessário.
+**Nenhuma mudança visual.** Trocar as 2 ocorrências de
+`item.produto_unidade` por `item.unidade` (JSDoc do cabeçalho +
+`{BRL(item.valor_unitario)} / {item.produto_unidade || 'UN'}` +
+`<span>...{item.produto_unidade || 'UN'}</span>` no rodapé do stepper).
+Mesma posição, mesmo estilo (`text-xs text-gray-500 dark:text-slate-400`
+e `text-xs text-gray-400 dark:text-slate-500`), só o dado exibido passa
+a ser real — hoje sempre mostra "UN" mesmo vendendo CX/PT; depois do
+RF-05 isso ficaria visivelmente errado se não corrigido junto.
 
 ---
 
-## Ícones (Lucide React)
+## Ícones (Lucide React) — resumo desta manutenção
 
-Nenhum ícone novo necessário nesta manutenção. Confirmação dos já usados nas
-telas afetadas (não trocar nenhum):
+| Ação | Ícone | Tamanho | Já importado? |
+|---|---|---|---|
+| Adicionar conversão | `<Plus />` | 14px | sim (Produtos.jsx) |
+| Remover conversão | `<Trash2 />` | 16px | sim (Produtos.jsx) |
+| Preview de cadeia (decorativo) | `<ArrowRight />` | 12px | **novo import** em Produtos.jsx |
+| Registrar entrada | `<Plus />` | 14px | sim (Produtos.jsx) |
 
-| Tela | Ícone | Uso |
-|---|---|---|
-| AberturaCaixa | `Unlock` (32px header / 18px botão) | ação principal |
-| AberturaCaixa | `User` (12px) | operador logado |
-| AberturaCaixa | `Clock` (12px) | data/hora |
-| FechamentoCaixa | `Lock` (22px header / 16px botão) | ação principal |
-| FechamentoCaixa/ResumoSessao | `AlertTriangle` (14-16px) | diferença de caixa |
-| FechamentoCaixa/ResumoSessao | `CheckCircle` (14-16px) | sem diferença |
-| RelatorioSessoesCaixa | `ClipboardList` (24px header / 32px estado vazio) | identidade da tela |
-| RelatorioSessoesCaixa | `Calendar` (12px) | filtros de data |
-| RelatorioSessoesCaixa | `AlertTriangle` (14px) | célula de diferença ≠ 0 |
+Nenhum ícone novo necessário em `FrenteDeCaixa.jsx` nem `CarrinhoItem.jsx`.
 
 ---
 
 ## Espaçamentos e componentes existentes a reutilizar
 
-- `Card.jsx` — container de filtros, resumo, conferência (100% reaproveitado)
-- `Select.jsx` — Status, Conta, e o novo Operador — **mesmo componente, mesma prop shape**
-- `Input.jsx` — datas De/Até, contagem física, observações
-- `Button.jsx` — variantes `primary`/`secondary`/`danger` já cobrem todos os
-  casos desta manutenção (nenhuma variante nova)
-- `Modal.jsx` — detalhe de sessão no relatório (`maxW="max-w-2xl"`) — sem alteração
-- `Pagination.jsx` — sem alteração
-- `ResumoSessao.jsx` (componente compartilhado FechamentoCaixa ↔ modal do
-  Relatório) — **atenção:** o modal do Relatório (`ResumoSessaoModal`, dentro
-  do próprio `RelatorioSessoesCaixa.jsx`) é um componente **local diferente**
-  de `ResumoSessao.jsx` (o componente compartilhado usado em
-  `FechamentoCaixa.jsx`) — mesma finalidade visual, implementações duplicadas
-  já existentes. Não é bug desta manutenção e não deve ser unificado agora
-  (fora do escopo do pedido) — só registrando para o Loom não confundir os
-  dois ao aplicar RF-04.
+- `Select.jsx` — Unidade, Converte para (novo), Vender em (novo no PDV) — mesmo componente, mesma prop shape
+- `Input.jsx` — Quantidade da conversão, campos da Entrada de Estoque
+- `Button.jsx` — botão "Adicionar" do popover de unidade (`size="sm"`, variante default)
+- `Card.jsx` — sem alteração, contexto já existente
+- `Modal.jsx` — modal Novo/Editar Produto, sem alteração de estrutura
+- Toast pattern — reaproveitado tal qual em ambas as telas
 
 ---
 
-## Padrões mobile-first do UidCore (dark mode navy/violet)
+## Mobile-first (375px)
 
-- Breakpoint de referência: 375px (iPhone SE)
-- `RelatorioSessoesCaixa.jsx` já resolve mobile via card empilhado
-  (`md:hidden`) vs tabela desktop (`hidden md:block`) — padrão mantido,
-  nenhuma mudança estrutural
-- Barra de filtros com `flex flex-wrap gap-3 items-end` — o novo Select de
-  operador entra no fluxo do wrap sem CSS adicional
-- Toast fixo `top-4 right-4` — mesmo em mobile, `max-w-sm` evita overflow
-  horizontal
-- Contraste: todas as combinações de cor usadas (azul/verde/vermelho/âmbar
-  sobre fundo claro e fundo navy) já são as mesmas testadas na Manutenção #31
-  — nenhum novo par de cor introduzido nesta manutenção, logo nenhum novo
-  risco de contraste
+- Seção Conversões (`Produtos.jsx`): linha de conversão empilha em
+  coluna (`flex-col sm:flex-row`) a partir de <640px — 3 campos +
+  lixeira lado a lado em 375px não cabe com labels legíveis.
+- Preview de fator composto: sem `whitespace-nowrap` — texto pode
+  quebrar linha naturalmente em cadeias de 3+ elos.
+- Popover "Vender em" (PDV): ~220px cabe em 375px sem estourar a
+  viewport; se o item clicado estiver perto da borda direita, abrir
+  alinhado à direita (flip), não cortar.
+- Preview de RF-08 (Entrada de Estoque): já dentro do modal
+  (`maxW="max-w-2xl"`, que ocupa a largura útil em mobile) — nenhum
+  ajuste extra além da quebra de linha natural do texto.
+
+---
+
+## Dark Mode — checklist de tokens (nenhum token novo necessário)
+
+| Elemento novo | Light | Dark |
+|---|---|---|
+| Select "Converte para" / "Vender em" | Select.jsx (já dark-aware) | idem |
+| Texto de preview (fator composto / entrada) | `text-gray-500` | `dark:text-slate-400` |
+| Aviso de cadeia quebrada / sem conversão | `text-amber-700` | `dark:text-amber-400` |
+| Ícone ArrowRight decorativo | `text-gray-400` | `dark:text-slate-500` |
+| Popover "Vender em" (PDV) | `bg-white border-gray-200 shadow-lg` | `dark:bg-navy-800 dark:border-navy-600` |
+| Label "Vender em:" | `text-gray-500` | `dark:text-slate-400` |
 
 ---
 
 ## O que NÃO fazer (reforço)
 
 ```
-❌ NÃO criar novo componente visual — Select de operador reaproveita Select.jsx tal qual
-❌ NÃO adicionar ícone ao novo filtro de operador (inconsistente com o filtro de Conta, que também não tem)
-❌ NÃO unificar ResumoSessao.jsx com ResumoSessaoModal (duplicação pré-existente, fora de escopo)
-❌ NÃO tentar achar uma "3ª ocorrência" de valor_contagem_fisica no card mobile — ela não existe no código atual
-❌ NÃO mudar o padrão de toast (cor, posição, duração) para o novo erro `operador` — reaproveitar tal qual
-❌ NÃO alterar o card "sessão já aberta" (AberturaCaixa/FrenteDeCaixa) — está correto, RF-06 é validação em produção, não redesign
-❌ NÃO criar endpoint novo de operadores se já for possível derivar a lista do próprio GET /pdv/sessoes/
+❌ NÃO criar componente novo além do popover "Vender em" — reaproveitar Select/Input/Button tal qual
+❌ NÃO usar overflow-hidden em nenhum container do popover de unidade no PDV — repete a armadilha já corrigida nas Manutenções #23/#24
+❌ NÃO usar window.confirm() para excluir linha de conversão dentro do modal — reservado a exclusão de produto inteiro
+❌ NÃO abrir modal cheio (Modal.jsx) para escolha de unidade no PDV — é decisão de 1 campo, popover inline é suficiente
+❌ NÃO forçar seleção de unidade em produto sem conversão cadastrada — mantém clique direto, zero fricção nova
+❌ NÃO truncar a mensagem de erro RN-06 (lista de dependência) no toast — usar whitespace-pre-line já existente
+❌ NÃO alterar unidade enviada pelas chamadas de adicionarProduto vindas de RF-17 (Enter/código físico) ou RF-19 (câmera) — continuam na unidade base
 ```
 
 ---
@@ -280,19 +293,16 @@ telas afetadas (não trocar nenhum):
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #36)
-   Telas analisadas: 4 (AberturaCaixa, FechamentoCaixa + ResumoSessao,
-   RelatorioSessoesCaixa) + 1 componente de card (sessão já aberta,
-   confirmado sem alteração)
-   Componentes reutilizados: Card, Select, Input, Button, Modal, Pagination
-   (100% reaproveitados, 0 mudança de props/estilo)
-   Novos padrões: 1 — Select de operador em RelatorioSessoesCaixa.jsx,
-   clone visual exato do Select de Conta já existente
+✅ Especificação UI concluída — UidCore (Manutenção #37)
+   Telas analisadas: 3 (Produtos.jsx, FrenteDeCaixa.jsx, CarrinhoItem.jsx)
+   Componentes reutilizados: 5 existentes (Select, Input, Button, Card, Modal)
+   Novos padrões: 1 — popover inline "Vender em:" no PDV (não é modal,
+   não é o dropdown de busca — anotado explicitamente para o Loom não
+   confundir com nenhum dos dois)
 
 📁 Arquivo: Especificacao_UI_Hotfix.md (em /var/www/uidcore/)
 
 ➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md antes de
-   implementar RF-04/RF-05 em RelatorioSessoesCaixa.jsx e o tratamento de
-   erro `operador` em AberturaCaixa.jsx (RF-02). FechamentoCaixa.jsx e
-   ResumoSessao.jsx não precisam de nenhuma edição de código.
+   implementar RF-01/RF-02/RF-03/RF-04/RF-08 em Produtos.jsx e
+   RF-05/RF-06/RF-07 em FrenteDeCaixa.jsx + CarrinhoItem.jsx.
 ```
