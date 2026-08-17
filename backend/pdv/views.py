@@ -8,6 +8,7 @@ Permissões (RF-16 / Seção 11 da spec / ADR-007):
 """
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.shortcuts import get_object_or_404
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
@@ -18,6 +19,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
 from produtos.models import Produto, UnidadeBase
+from produtos.services import fator_para_base
 
 from .models import ItemVenda, MovimentoCaixa, PagamentoVenda, SessaoCaixa, Venda
 from .serializers import (
@@ -258,12 +260,29 @@ class VendaViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # RF-06/RN-04: valor_unitario segue sendo sempre snapshot calculado
+        # pelo backend (nunca aceito do payload) — agora convertido pela
+        # unidade escolhida quando != unidade_base do produto. RN-05: unidade
+        # sem conversão cadastrada (direta ou em cadeia) retorna 400 legível,
+        # nunca mais cobra o preço da unidade base por uma unidade maior.
+        if unidade == produto.unidade_base:
+            valor_unitario = produto.preco_venda
+        else:
+            try:
+                fator = fator_para_base(produto, unidade)
+            except DjangoValidationError as exc:
+                return Response(
+                    {'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            valor_unitario = (produto.preco_venda * fator).quantize(Decimal('0.01'))
+
         item = ItemVenda.objects.create(
             venda=venda,
             produto=produto,
             quantidade=d['quantidade'],
             unidade=unidade,
-            valor_unitario=produto.preco_venda,  # RN-03: snapshot
+            valor_unitario=valor_unitario,  # RN-03/RN-04: snapshot calculado pelo backend
             desconto_item=d['desconto_item'],
         )
         venda.recalcular_total()

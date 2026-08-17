@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -29,7 +30,7 @@ class ProdutoViewSet(ModelViewSet):
         if request.method == 'GET':
             qs = ConversaoUnidade.objects.filter(produto=produto, is_active=True)
             return Response(ConversaoUnidadeSerializer(qs, many=True).data)
-        serializer = ConversaoUnidadeSerializer(data=request.data)
+        serializer = ConversaoUnidadeSerializer(data=request.data, context={'produto': produto})
         serializer.is_valid(raise_exception=True)
         serializer.save(produto=produto)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
@@ -41,11 +42,28 @@ class ProdutoViewSet(ModelViewSet):
             conversao = ConversaoUnidade.objects.get(pk=conv_id, produto=produto, is_active=True)
         except ConversaoUnidade.DoesNotExist:
             return Response({'detail': 'Conversão não encontrada.'}, status=status.HTTP_404_NOT_FOUND)
+
+        # RN-06: bloqueia editar/excluir uma conversão usada como elo
+        # intermediário por outra (ex.: excluir PT quando CX = "1 CX = 6 PT").
+        dependentes = ConversaoUnidade.objects.filter(
+            produto=produto, converte_para=conversao.unidade, is_active=True,
+        ).exclude(pk=conversao.pk)
+        if dependentes.exists():
+            return Response({
+                'detail': (
+                    f'A conversão de "{conversao.unidade}" é usada como referência '
+                    f'por outra(s) conversão(ões) e não pode ser editada nem excluída.'
+                ),
+                'dependentes': list(dependentes.values_list('unidade', flat=True)),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if request.method == 'DELETE':
             conversao.is_active = False
             conversao.save(update_fields=['is_active', 'updated_at'])
             return Response(status=status.HTTP_204_NO_CONTENT)
-        serializer = ConversaoUnidadeSerializer(conversao, data=request.data, partial=True)
+        serializer = ConversaoUnidadeSerializer(
+            conversao, data=request.data, partial=True, context={'produto': produto},
+        )
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return Response(serializer.data)
@@ -58,5 +76,13 @@ class ProdutoViewSet(ModelViewSet):
             return Response(EntradaEstoqueSerializer(qs, many=True).data)
         serializer = EntradaEstoqueSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(produto=produto, criado_por=request.user)
+        try:
+            serializer.save(produto=produto, criado_por=request.user)
+        except DjangoValidationError as exc:
+            # RN-05: unidade sem conversão cadastrada (direta ou em cadeia)
+            # — nunca mais soma no estoque com fallback 1:1 silencioso.
+            return Response(
+                {'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(serializer.data, status=status.HTTP_201_CREATED)

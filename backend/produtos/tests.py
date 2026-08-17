@@ -78,13 +78,18 @@ class EntradaEstoqueModelTest(TestCase):
         # 2 CX * 12 UN/CX = 24 UN
         self.assertEqual(self.produto.quantidade_estoque, Decimal('24'))
 
-    def test_entrada_sem_conversao_assume_1_para_1(self):
-        """Unidade sem conversão definida usa quantidade_base = quantidade."""
-        EntradaEstoque.objects.create(
-            produto=self.produto, quantidade=Decimal('5'), unidade='KG',
-        )
+    def test_entrada_sem_conversao_rejeitada(self):
+        """RN-05 (Manutencao 37): unidade sem conversão cadastrada NÃO faz
+        mais fallback 1:1 silencioso — levanta ValidationError, estoque
+        permanece intacto."""
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            EntradaEstoque.objects.create(
+                produto=self.produto, quantidade=Decimal('5'), unidade='KG',
+            )
         self.produto.refresh_from_db()
-        self.assertEqual(self.produto.quantidade_estoque, Decimal('5'))
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
 
     def test_quantidade_base_salva_corretamente(self):
         entrada = EntradaEstoque.objects.create(
@@ -92,6 +97,201 @@ class EntradaEstoqueModelTest(TestCase):
         )
         entrada.refresh_from_db()
         self.assertEqual(entrada.quantidade_base, Decimal('36'))
+
+
+class FatorParaBaseServiceTest(TestCase):
+    """
+    produtos/services.py::fator_para_base — Manutencao 37.
+    Cadeia CX -> PT -> UN (1 CX = 6 PT ; 1 PT = 50 UN -> 1 CX = 300 UN).
+    """
+
+    def setUp(self):
+        self.produto = _make_produto(unidade_base='UN')
+
+    def test_cadeia_dois_elos_resolve_para_base(self):
+        from .services import fator_para_base
+
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='PT', quantidade_por_base=Decimal('50'),
+        )
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', converte_para='PT', quantidade_por_base=Decimal('6'),
+        )
+        self.assertEqual(fator_para_base(self.produto, 'CX'), Decimal('300'))
+        self.assertEqual(fator_para_base(self.produto, 'PT'), Decimal('50'))
+        self.assertEqual(fator_para_base(self.produto, 'UN'), Decimal('1'))
+
+    def test_ciclo_rejeitado(self):
+        from django.core.exceptions import ValidationError
+        from .services import fator_para_base
+
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', converte_para='PT', quantidade_por_base=Decimal('6'),
+        )
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='PT', converte_para='CX', quantidade_por_base=Decimal('2'),
+        )
+        with self.assertRaises(ValidationError):
+            fator_para_base(self.produto, 'CX')
+
+    def test_cadeia_sem_terminar_na_base_rejeitada(self):
+        """CX aponta pra PT, mas PT nao tem conversao cadastrada — cadeia
+        quebrada nunca chega na unidade_base (RN-01)."""
+        from django.core.exceptions import ValidationError
+        from .services import fator_para_base
+
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', converte_para='PT', quantidade_por_base=Decimal('6'),
+        )
+        with self.assertRaises(ValidationError):
+            fator_para_base(self.produto, 'CX')
+
+    def test_unidade_sem_conversao_rejeitada(self):
+        """RN-05: sem nenhuma ConversaoUnidade cadastrada para a unidade."""
+        from django.core.exceptions import ValidationError
+        from .services import fator_para_base
+
+        with self.assertRaises(ValidationError):
+            fator_para_base(self.produto, 'KG')
+
+
+class EntradaEstoqueCadeiaTest(TestCase):
+    """EntradaEstoque.save() usando cadeia de conversao (Manutencao 37)."""
+
+    def setUp(self):
+        self.produto = _make_produto(unidade_base='UN')
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='PT', quantidade_por_base=Decimal('50'),
+        )
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', converte_para='PT', quantidade_por_base=Decimal('6'),
+        )
+
+    def test_entrada_cadeia_dois_elos_atualiza_estoque_correto(self):
+        entrada = EntradaEstoque.objects.create(
+            produto=self.produto, quantidade=Decimal('1'), unidade='CX',
+        )
+        entrada.refresh_from_db()
+        self.produto.refresh_from_db()
+        # 1 CX = 6 PT = 300 UN
+        self.assertEqual(entrada.quantidade_base, Decimal('300'))
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('300'))
+
+
+class ConversaoUnidadeAPITest(APITestCase):
+    """Endpoints /produtos/{id}/conversoes/ com cadeia (RF-01/RN-01/RN-03)."""
+
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.produto = _make_produto(unidade_base='UN')
+
+    def test_criar_conversao_cadeia_via_api(self):
+        resp_pt = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'PT', 'quantidade_por_base': '50'},
+            format='json',
+        )
+        self.assertEqual(resp_pt.status_code, status.HTTP_201_CREATED, resp_pt.data)
+
+        resp_cx = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'converte_para': 'PT', 'quantidade_por_base': '6'},
+            format='json',
+        )
+        self.assertEqual(resp_cx.status_code, status.HTTP_201_CREATED, resp_cx.data)
+        self.assertEqual(resp_cx.data['converte_para'], 'PT')
+
+    def test_criar_conversao_ciclo_rejeitada_400(self):
+        self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'converte_para': 'PT', 'quantidade_por_base': '6'},
+            format='json',
+        )
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'PT', 'converte_para': 'CX', 'quantidade_por_base': '2'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_criar_conversao_sem_terminar_na_base_rejeitada_400(self):
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'converte_para': 'PT', 'quantidade_por_base': '6'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class ConversaoUnidadeRN06Test(APITestCase):
+    """Editar/excluir conversao usada como elo intermediario e bloqueado."""
+
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.produto = _make_produto(unidade_base='UN')
+        self.pt = ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='PT', quantidade_por_base=Decimal('50'),
+        )
+        self.cx = ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', converte_para='PT', quantidade_por_base=Decimal('6'),
+        )
+
+    def test_excluir_elo_intermediario_bloqueado(self):
+        resp = self.client.delete(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/{self.pt.id}/',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('dependentes', resp.data)
+        self.pt.refresh_from_db()
+        self.assertTrue(self.pt.is_active)
+
+    def test_editar_elo_intermediario_bloqueado(self):
+        resp = self.client.patch(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/{self.pt.id}/',
+            {'quantidade_por_base': '60'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.pt.refresh_from_db()
+        self.assertEqual(self.pt.quantidade_por_base, Decimal('50'))
+
+    def test_excluir_conversao_sem_dependentes_permitido(self):
+        resp = self.client.delete(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/{self.cx.id}/',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_editar_conversao_sem_dependentes_permitido(self):
+        resp = self.client.patch(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/{self.cx.id}/',
+            {'quantidade_por_base': '12'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.cx.refresh_from_db()
+        self.assertEqual(self.cx.quantidade_por_base, Decimal('12'))
+
+
+class EntradaEstoqueAPICadeiaTest(APITestCase):
+    """POST /produtos/{id}/entradas/ com unidade sem conversao (RN-05)."""
+
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.produto = _make_produto(unidade_base='UN')
+
+    def test_entrada_unidade_sem_conversao_retorna_400(self):
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/entradas/',
+            {'quantidade': '5', 'unidade': 'KG'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('unidade', resp.data)
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
 
 
 class ProdutoAPITest(APITestCase):

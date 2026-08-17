@@ -51,9 +51,23 @@ class ConversaoUnidade(BaseModel):
         Produto, on_delete=models.CASCADE, related_name='conversoes',
     )
     unidade = models.CharField('unidade', max_length=2, choices=UnidadeBase.choices)
+    converte_para = models.CharField(
+        'converte para', max_length=2, choices=UnidadeBase.choices,
+        null=True, blank=True,
+        help_text=(
+            'Unidade de referência desta conversão (deve já existir como '
+            'unidade_base do produto ou como outra ConversaoUnidade dele). '
+            'Vazio = relativo à unidade_base do produto (comportamento '
+            'legado, retrocompatível — Manutenção #37).'
+        ),
+    )
     quantidade_por_base = models.DecimalField(
         'quantidade por unidade base', max_digits=12, decimal_places=3,
-        help_text='Ex: 1 CX = 30 UN → quantidade_por_base=30',
+        help_text=(
+            'Quantos de `converte_para` (ou da unidade_base, se '
+            '`converte_para` vazio) equivalem a 1 desta `unidade`. '
+            'Ex: 1 CX = 30 UN → quantidade_por_base=30'
+        ),
     )
 
     class Meta:
@@ -90,18 +104,16 @@ class EntradaEstoque(BaseModel):
         verbose_name_plural = 'Entradas de Estoque'
 
     def save(self, *args, **kwargs):
-        # Converter quantidade para unidade base
+        # Converter quantidade para unidade base — resolve cadeia (RN-01)
+        # via produtos.services.fator_para_base; RN-05: sem fallback 1:1
+        # silencioso — unidade sem conversão cadastrada levanta ValidationError.
+        from .services import fator_para_base
+
         if self.unidade == self.produto.unidade_base:
             self.quantidade_base = self.quantidade
         else:
-            try:
-                conversao = ConversaoUnidade.objects.get(
-                    produto=self.produto, unidade=self.unidade,
-                )
-                self.quantidade_base = self.quantidade * conversao.quantidade_por_base
-            except ConversaoUnidade.DoesNotExist:
-                # Sem conversão definida: assume 1:1
-                self.quantidade_base = self.quantidade
+            fator = fator_para_base(self.produto, self.unidade)
+            self.quantidade_base = self.quantidade * fator
 
         is_new = self.pk is None
         super().save(*args, **kwargs)

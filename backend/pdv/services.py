@@ -16,6 +16,7 @@ Baixa/reversão de estoque é a operação INVERSA exata de EntradaEstoque.save(
 from datetime import date, timedelta
 from decimal import Decimal
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection, transaction
 from django.db.models import F
 from django.shortcuts import get_object_or_404
@@ -25,7 +26,8 @@ from rest_framework.exceptions import ValidationError
 from financeiro.models import Conta, Receita, TipoConta
 from financeiro.services import estornar_receita
 from pagamentos.models import MetodoPagamento, NomeMetodoPagamento
-from produtos.models import ConversaoUnidade, Produto
+from produtos.models import Produto
+from produtos.services import fator_para_base
 
 from .models import (
     MovimentoCaixa,
@@ -41,19 +43,28 @@ from .models import (
 # Conversão de unidade (espelho de EntradaEstoque.save())
 # ---------------------------------------------------------------------------
 
-def _quantidade_base(item):
+def _fator_conversao(item):
     """
-    Converte item.quantidade para unidade base do produto.
-    Fallback 1:1 se não houver ConversaoUnidade — mesmo comportamento de
-    EntradaEstoque.save() (achado A7).
+    Fator de conversão de item.unidade para a unidade_base do produto,
+    delegando para produtos.services.fator_para_base (Manutenção #37) —
+    resolve cadeia (RN-01) e NUNCA cai em fallback 1:1 silencioso: unidade
+    sem conversão cadastrada levanta rest_framework.exceptions.ValidationError
+    (RN-05), convertida aqui a partir do django.core.exceptions.ValidationError
+    levantado pela função compartilhada.
     """
     if item.unidade == item.produto.unidade_base:
-        return item.quantidade
+        return Decimal('1')
     try:
-        conv = ConversaoUnidade.objects.get(produto=item.produto, unidade=item.unidade)
-        return item.quantidade * conv.quantidade_por_base
-    except ConversaoUnidade.DoesNotExist:
-        return item.quantidade
+        return fator_para_base(item.produto, item.unidade)
+    except DjangoValidationError as exc:
+        raise ValidationError({
+            'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)],
+        })
+
+
+def _quantidade_base(item):
+    """Converte item.quantidade para unidade base do produto (RN-05)."""
+    return item.quantidade * _fator_conversao(item)
 
 
 def _debitar_estoque(item):
@@ -66,14 +77,7 @@ def _debitar_estoque(item):
 
 def _reverter_estoque(item, quantidade_devolvida):
     """Reverte estoque para devolução parcial (RF-13)."""
-    if item.unidade == item.produto.unidade_base:
-        qtd_base = quantidade_devolvida
-    else:
-        try:
-            conv = ConversaoUnidade.objects.get(produto=item.produto, unidade=item.unidade)
-            qtd_base = quantidade_devolvida * conv.quantidade_por_base
-        except ConversaoUnidade.DoesNotExist:
-            qtd_base = quantidade_devolvida
+    qtd_base = quantidade_devolvida * _fator_conversao(item)
     Produto.objects.filter(pk=item.produto_id).update(
         quantidade_estoque=F('quantidade_estoque') + qtd_base,
     )

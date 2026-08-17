@@ -672,3 +672,121 @@ class VendaEstornoReceitaAPITest(PDVAPITestBase):
             'motivo': 'Teste',
         }, format='json')
         self.assertEqual(resp.status_code, 400)
+
+
+# ---------------------------------------------------------------------------
+# Conversao de unidade em cadeia no PDV (Manutencao 37)
+# ---------------------------------------------------------------------------
+
+class ConversaoUnidadePDVAPITest(PDVAPITestBase):
+    """
+    RF-05/RF-06/RN-04/RN-05: item vendido em unidade != unidade_base tem
+    valor_unitario convertido automaticamente e debita a quantidade correta
+    do estoque via resolucao de cadeia (produtos.services.fator_para_base).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._abrir_sessao()
+        from produtos.models import ConversaoUnidade
+
+        # self.produto (unidade_base='UN', preco_venda=10.00, estoque=10) ja
+        # existe via PDVAPITestBase — cadeia: 1 CX = 6 PT ; 1 PT = 50 UN
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='PT', quantidade_por_base=Decimal('50'),
+        )
+        ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', converte_para='PT', quantidade_por_base=Decimal('6'),
+        )
+        # Estoque grande o suficiente para vender em CX/PT sem barrar por falta de estoque
+        self.produto.quantidade_estoque = Decimal('10000')
+        self.produto.save(update_fields=['quantidade_estoque'])
+
+    def test_adicionar_item_unidade_intermediaria_calcula_valor_unitario(self):
+        """RF-06: valor_unitario = preco_venda * fator_para_base(unidade)."""
+        venda = self._criar_venda()
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/itens/', {
+            'produto': self.produto.id,
+            'quantidade': '1',
+            'unidade': 'PT',
+            'desconto_item': '0',
+        })
+        self.assertEqual(resp.status_code, 201, resp.data)
+        # 1 PT = 50 UN -> valor_unitario = 10.00 * 50 = 500.00
+        self.assertEqual(Decimal(resp.data['valor_unitario']), Decimal('500.00'))
+
+    def test_adicionar_item_unidade_base_mantem_preco_cru(self):
+        """RN-04: unidade == unidade_base continua usando preco_venda cru."""
+        venda = self._criar_venda()
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/itens/', {
+            'produto': self.produto.id,
+            'quantidade': '1',
+            'unidade': 'UN',
+            'desconto_item': '0',
+        })
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(Decimal(resp.data['valor_unitario']), self.produto.preco_venda)
+
+    def test_adicionar_item_unidade_sem_conversao_retorna_400(self):
+        """RN-05: unidade sem conversao cadastrada (nem em cadeia) -> 400, nunca 1:1 mudo."""
+        venda = self._criar_venda()
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/itens/', {
+            'produto': self.produto.id,
+            'quantidade': '1',
+            'unidade': 'KG',
+            'desconto_item': '0',
+        })
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn('unidade', resp.data)
+
+    def test_finalizar_venda_debita_estoque_em_unidade_intermediaria(self):
+        """RF-06/CA-07: vender 1 PT com cadeia CX->PT->UN debita 50 UN reais do estoque."""
+        venda = self._criar_venda()
+        self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/itens/', {
+            'produto': self.produto.id,
+            'quantidade': '1',
+            'unidade': 'PT',
+            'desconto_item': '0',
+        })
+        estoque_antes = self.produto.quantidade_estoque
+
+        venda_detalhe = self.client.get(f'/api/v1/pdv/vendas/{venda["id"]}/').data
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [{
+                'metodo': self.metodo_dinheiro.id,
+                'valor': venda_detalhe['valor_total'],
+                'conta': self.conta.id,
+            }],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+        self.produto.refresh_from_db()
+        # 1 PT = 50 UN -> estoque cai 50 UN reais, nao 1
+        self.assertEqual(self.produto.quantidade_estoque, estoque_antes - Decimal('50'))
+
+    def test_cancelar_venda_reverte_estoque_em_unidade_intermediaria(self):
+        """RF-06/RN-08: cancelamento reverte a mesma quantidade real (50 UN), nao 1 PT."""
+        venda = self._criar_venda()
+        self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/itens/', {
+            'produto': self.produto.id,
+            'quantidade': '1',
+            'unidade': 'PT',
+            'desconto_item': '0',
+        })
+        estoque_antes = self.produto.quantidade_estoque
+        venda_detalhe = self.client.get(f'/api/v1/pdv/vendas/{venda["id"]}/').data
+        self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [{
+                'metodo': self.metodo_dinheiro.id,
+                'valor': venda_detalhe['valor_total'],
+                'conta': self.conta.id,
+            }],
+        }, format='json')
+
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/cancelar/', {
+            'motivo': 'Teste RF-06 cancelamento em unidade intermediaria',
+        }, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, estoque_antes)
