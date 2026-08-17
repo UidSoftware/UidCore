@@ -93,9 +93,9 @@ class SessaoCaixaViewSet(ModelViewSet):
         sessao = SessaoCaixa.objects.filter(
             operador=request.user, status='ABERTA', is_active=True,
         ).first()
-        if not sessao:
-            return Response({'sessao': None})
-        return Response(SessaoCaixaSerializer(sessao).data)
+        return Response({
+            'sessao': SessaoCaixaSerializer(sessao).data if sessao else None,
+        })
 
     @action(detail=True, methods=['post'], url_path='movimento')
     def movimento(self, request, pk=None):

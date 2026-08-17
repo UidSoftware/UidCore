@@ -276,7 +276,7 @@ class SessaoCaixaAPITest(PDVAPITestBase):
         self._abrir_sessao(valor=Decimal('50.00'))
         resp = self.client.get('/api/v1/pdv/sessoes/atual/')
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.data['status'], 'ABERTA')
+        self.assertEqual(resp.data['sessao']['status'], 'ABERTA')
 
     def test_abrir_sessao_via_api(self):
         """POST /sessoes/ — RF-01."""
@@ -362,7 +362,7 @@ class SessaoCaixaAPITest(PDVAPITestBase):
 
         resp = self.client.get('/api/v1/pdv/sessoes/atual/')
         self.assertEqual(resp.status_code, 200)
-        resumo = resp.data['resumo']
+        resumo = resp.data['sessao']['resumo']
         self.assertEqual(Decimal(str(resumo['vendas_dinheiro'])), Decimal('10.00'))
         self.assertEqual(Decimal(str(resumo['sangrias'])), Decimal('15.00'))
         self.assertEqual(Decimal(str(resumo['suprimentos'])), Decimal('25.00'))
@@ -398,7 +398,7 @@ class VendaAPITest(PDVAPITestBase):
         """RF-02: sem sessao aberta → 400."""
         # Fechar sessao
         sess_resp = self.client.get('/api/v1/pdv/sessoes/atual/')
-        sessao_id = sess_resp.data['id']
+        sessao_id = sess_resp.data['sessao']['id']
         self.client.post(f'/api/v1/pdv/sessoes/{sessao_id}/fechar/', {
             'valor_fechamento_informado': '0',
         })
