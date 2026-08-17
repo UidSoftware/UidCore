@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db.models import Prefetch
 from rest_framework import status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -16,7 +17,12 @@ class ProdutoViewSet(ModelViewSet):
     ordering = ['nome']
 
     def get_queryset(self):
-        return Produto.objects.filter(is_active=True).prefetch_related('conversoes')
+        # CA-03: prefetch já filtrado por is_active — o campo aninhado
+        # 'conversoes' do ProdutoSerializer nunca deve expor conversão
+        # soft-deletada (ver ProdutoSerializer.get_conversoes).
+        return Produto.objects.filter(is_active=True).prefetch_related(
+            Prefetch('conversoes', queryset=ConversaoUnidade.objects.filter(is_active=True)),
+        )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -30,8 +36,30 @@ class ProdutoViewSet(ModelViewSet):
         if request.method == 'GET':
             qs = ConversaoUnidade.objects.filter(produto=produto, is_active=True)
             return Response(ConversaoUnidadeSerializer(qs, many=True).data)
+
         serializer = ConversaoUnidadeSerializer(data=request.data, context={'produto': produto})
         serializer.is_valid(raise_exception=True)
+
+        # unique_together = ('produto', 'unidade') não distingue is_active
+        # — reexcluir e recriar a mesma unidade batia direto no
+        # IntegrityError (500). Registro soft-deletado pra essa unidade
+        # é reativado com os dados novos em vez de INSERT.
+        unidade = serializer.validated_data.get('unidade')
+        existente = ConversaoUnidade.objects.filter(produto=produto, unidade=unidade).first()
+        if existente is not None:
+            if existente.is_active:
+                return Response(
+                    {'unidade': ['Já existe uma conversão ativa para esta unidade.']},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            for campo, valor in serializer.validated_data.items():
+                setattr(existente, campo, valor)
+            existente.is_active = True
+            existente.save()
+            return Response(
+                ConversaoUnidadeSerializer(existente).data, status=status.HTTP_201_CREATED,
+            )
+
         serializer.save(produto=produto)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 

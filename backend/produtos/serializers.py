@@ -71,7 +71,7 @@ class EntradaEstoqueSerializer(serializers.ModelSerializer):
 class ProdutoSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     unidade_base_display = serializers.CharField(source='get_unidade_base_display', read_only=True)
-    conversoes = ConversaoUnidadeSerializer(many=True, read_only=True)
+    conversoes = serializers.SerializerMethodField()
 
     class Meta:
         model = Produto
@@ -84,3 +84,15 @@ class ProdutoSerializer(serializers.ModelSerializer):
             'conversoes',
         ]
         read_only_fields = ['quantidade_estoque', 'created_at', 'updated_at']
+
+    def get_conversoes(self, obj):
+        # CA-03: conversão soft-deletada (is_active=False) nunca pode
+        # aparecer aqui — mesmo filtro do endpoint dedicado
+        # GET /produtos/{id}/conversoes/. Se a queryset já veio com
+        # Prefetch filtrado (ProdutoViewSet.get_queryset()), filtra em
+        # Python pra reaproveitar o cache; senão faz o .filter() direto.
+        if 'conversoes' in getattr(obj, '_prefetched_objects_cache', {}):
+            conversoes = [c for c in obj.conversoes.all() if c.is_active]
+        else:
+            conversoes = obj.conversoes.filter(is_active=True)
+        return ConversaoUnidadeSerializer(conversoes, many=True).data

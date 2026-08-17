@@ -223,6 +223,80 @@ class ConversaoUnidadeAPITest(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_conversao_soft_deletada_nao_aparece_no_produto_aninhado(self):
+        """CA-03: campo 'conversoes' do ProdutoSerializer (GET /produtos/{id}/
+        e GET /produtos/?search=) nunca deve expor conversão excluída —
+        mesmo filtro do endpoint dedicado /produtos/{id}/conversoes/."""
+        conv = ConversaoUnidade.objects.create(
+            produto=self.produto, unidade='CX', quantidade_por_base=Decimal('12'),
+        )
+        resp = self.client.get(f'/api/v1/produtos/{self.produto.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['conversoes']), 1)
+
+        conv.is_active = False
+        conv.save(update_fields=['is_active', 'updated_at'])
+
+        resp = self.client.get(f'/api/v1/produtos/{self.produto.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['conversoes'], [])
+
+        resp_busca = self.client.get(f'/api/v1/produtos/?search={self.produto.nome}')
+        self.assertEqual(resp_busca.status_code, status.HTTP_200_OK)
+        produto_resp = next(r for r in resp_busca.data['results'] if r['id'] == self.produto.id)
+        self.assertEqual(produto_resp['conversoes'], [])
+
+    def test_recriar_conversao_apos_exclusao_reativa_sem_500(self):
+        """Bug real: unique_together=(produto, unidade) não distingue
+        is_active — criar, excluir (soft delete) e recriar a MESMA unidade
+        batia em IntegrityError cru (500). Deve reativar o registro
+        existente com os dados novos e responder 201."""
+        resp_criar = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'quantidade_por_base': '12.000'},
+            format='json',
+        )
+        self.assertEqual(resp_criar.status_code, status.HTTP_201_CREATED)
+        conv_id = resp_criar.data['id']
+
+        resp_excluir = self.client.delete(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/{conv_id}/',
+        )
+        self.assertEqual(resp_excluir.status_code, status.HTTP_204_NO_CONTENT)
+
+        resp_recriar = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'quantidade_por_base': '24.000'},
+            format='json',
+        )
+        self.assertEqual(resp_recriar.status_code, status.HTTP_201_CREATED, resp_recriar.data)
+        self.assertEqual(resp_recriar.data['id'], conv_id)
+        self.assertEqual(Decimal(resp_recriar.data['quantidade_por_base']), Decimal('24.000'))
+        self.assertTrue(resp_recriar.data['is_active'])
+
+        self.assertEqual(
+            ConversaoUnidade.objects.filter(produto=self.produto, unidade='CX').count(), 1,
+        )
+
+        resp_listar = self.client.get(f'/api/v1/produtos/{self.produto.id}/conversoes/')
+        self.assertEqual(len(resp_listar.data), 1)
+        self.assertEqual(resp_listar.data[0]['id'], conv_id)
+
+    def test_criar_conversao_duplicada_ativa_retorna_400(self):
+        """Guarda-corpo: já existe conversão ATIVA pra mesma unidade —
+        400 explícito, nunca IntegrityError (500)."""
+        self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'quantidade_por_base': '12.000'},
+            format='json',
+        )
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'quantidade_por_base': '99.000'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class ConversaoUnidadeRN06Test(APITestCase):
     """Editar/excluir conversao usada como elo intermediario e bloqueado."""
