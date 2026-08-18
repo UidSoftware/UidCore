@@ -1,162 +1,119 @@
-# Especificação UI Hotfix — UidCore (Manutenção #39)
+# Especificação UI Hotfix — UidCore (Manutenção #40)
 **Elaborado por:** Brush (MODO HOTFIX)
-**Data:** 2026-08-17
-**Base:** Especificacao_Hotfix.md (Analista, Manutenção #39 — fix `sessao_atual` + navegação PDV/Caixas)
+**Data:** 2026-08-18
+**Base:** Especificacao_Hotfix.md (Analista, Manutenção #40 — fix `converteParaOptions`
+dependente de ordem + reordenação topológica no `handleSubmit`, seção "Conversões de
+Unidade" de `Produtos.jsx`)
 
 ---
 
-## Escopo desta especificação
+## Design System do Projeto (referência)
 
-Manutenção majoritariamente **sem** peso visual — 2 dos 3 itens são
-correção de lógica, sem UI nova:
+UidCore é **light mode por padrão** (divergência documentada em `design_system.md` —
+não é o padrão escuro da Uid, decisão arquitetural do projeto, não alterar aqui).
 
-1. `FrenteDeCaixa.jsx` + `AberturaCaixa.jsx` (+ `FechamentoCaixa.jsx`,
-   achado adicional do Analista) — **fora do escopo do Brush**. RF-02,
-   RF-03, RF-04 são correção de parsing de resposta HTTP
-   (`res.data.sessao` em vez de `res.data`). Zero mudança de layout, zero
-   componente novo, zero token novo. Loom implementa direto a partir da
-   Especificação técnica — Frontend já detalhada pelo Analista.
-2. `Sidebar.jsx` — remoção pura de item de menu (RF-06). Sem substituição
-   visual, sem reposicionamento dos itens restantes.
-3. `Vendas.jsx` — **único ponto com peso de UI real** (RF-07): dois
-   botões novos, "PDV" e "Caixas", visíveis lado a lado. Esta seção é o
-   foco do restante deste documento.
+- **Cores primárias:** `primary-600` (#2563eb) — ações/links; `primary-800` — hover de
+  texto de ação (usado no botão "+ Adicionar Conversao" desta mesma seção)
+- **Cores de fundo:** `bg-gray-50` (seções agrupadas dentro do modal) /
+  `dark:bg-navy-900/50` — já aplicado no container "Conversões de Unidade", sem mudança
+- **Cores de feedback:** `bg-red-600` (toast de erro) / `bg-accent-600` (toast de
+  sucesso) — componente de toast já existente na própria página, local a cada `.jsx`
+  (padrão replicado em Vendas/Fornecedores/Conciliacao/Clientes), não um componente
+  compartilhado
+- **Fonte:** Plus Jakarta Sans (títulos) + DM Sans (corpo) — herdadas globalmente,
+  nenhum ajuste nesta tela
+- **BorderRadius padrão:** `rounded-lg` (seções/cards), `rounded` (inputs/selects via
+  `Select.jsx`/`Input.jsx`)
+- **Padrão de card/seção agrupada:** `bg-gray-50 rounded-lg border border-gray-200 p-4
+  dark:bg-navy-900/50 dark:border-navy-700` — usado tanto em "Conversões de Unidade"
+  quanto em "Entradas de Estoque", mesmo padrão visual
 
 ---
 
-## Design System do Projeto (referência — lido em tailwind.config.js + Button.jsx + código real)
+## Escopo desta manutenção (confirmação do Brush)
 
-- Cores primárias: `primary-600` (light) / `violet-600` (dark) — botão
-  variant `primary`; `accent-600` usado em toasts de sucesso.
-- Cores de fundo: `white`/`gray-50` (light) / `navy-900`/`navy-800`
-  (dark, dark mode já configurado via classe `dark`).
-- Fonte: Plus Jakarta Sans (headings) + DM Sans (body) — já carregadas
-  globalmente, nenhuma ação necessária.
-- BorderRadius padrão: `rounded-lg` (botões, cards, inputs).
-- Padrão de botão (`components/ui/Button.jsx`): só 3 variantes existem —
-  `primary`, `secondary`, `danger`. **Não existe variante `outline` ou
-  `ghost`** — não inventar uma nova, usar `secondary` (já é
-  outline-like: fundo branco/navy-800 + borda, texto neutro) para não
-  competir visualmente com o `primary` já usado no "+ Novo Orcamento" da
-  tab Orçamentos.
-- Ícones: Lucide React em todo o módulo PDV (`Search`, `Lock`, `Unlock`,
-  `ClipboardList`, `AlertTriangle`, `CheckCircle`, etc. — ver
-  `pages/pdv/*.jsx`). `Vendas.jsx` já importa `Trash2, Search` de
-  `lucide-react` — só adicionar aos imports existentes, não criar novo
-  import block.
-- Padrão de reaproveitamento de ícone entre botão de entrada e header da
-  tela de destino já existe no projeto: `RelatorioSessoesCaixa.jsx`
-  usa `ClipboardList` no próprio `<h1>` (linha 311). Reaproveitar o
-  mesmo ícone no botão "Caixas" de `Vendas.jsx` mantém a associação
-  visual botão → destino.
+Lido `Especificacao_Hotfix.md`: **RF-01 e RF-02 são 100% lógica, zero mudança
+visual.** O próprio Analista já confirma: *"Nenhuma mudança visual nova: o Select
+'Converte para' passa a listar mais opções ... em vez de só as que já têm linha
+criada"* e RF-03 mantém o aviso por linha exatamente como está hoje.
+
+Confirmado lendo `Produtos.jsx` diretamente (linhas ~522-635):
+
+- O `<Select>` "Converte para" já é o componente `Select.jsx` existente — só a prop
+  `options={converteParaOptions}` passa a receber mais itens (todas as unidades de
+  `UNIDADE_OPTIONS` exceto a base e a própria linha, em vez de só as unidades já
+  criadas em outras linhas). Aparência, largura (`flex-1`), label ("Converte para"),
+  posição no layout: **nada muda**.
+- O layout responsivo da linha de conversão já é mobile-first:
+  `flex flex-col gap-2 sm:flex-row sm:items-end` — empilha verticalmente abaixo do
+  breakpoint `sm` (640px) e vira linha horizontal acima disso. Não precisa de ajuste.
+- O toast de erro (RF-02, ciclo de dependência) usa o `showToast(msg, 'error')` já
+  implementado na própria página (linha 90-93) — mesmo componente inline usado em
+  "Erro ao remover conversao." (linha 197) e nas demais páginas do projeto
+  (Vendas/Fornecedores/Conciliacao/Clientes têm o mesmo padrão local). Estilo:
+  `fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm
+  font-medium text-white whitespace-pre-line break-words bg-red-600`, timeout 7000ms
+  (padrão já usado para `type === 'error'`, mais longo que o de sucesso). A mensagem
+  do RF-02 (`"Conversões em ciclo: CX → PT → CX. Corrija antes de salvar."`) cabe
+  dentro de `max-w-sm` e `whitespace-pre-line` já existente — nenhum ajuste de
+  container necessário.
+
+**Conclusão: nenhum token novo, nenhum componente novo, nenhum ícone novo.** Esta
+especificação existe para confirmar formalmente que o Loom não precisa criar nada
+visual além do que já está implementado — só trocar a lógica que monta o array
+`converteParaOptions` e adicionar a função de ordenação topológica antes do loop de
+`handleSubmit`, exatamente como descrito na Especificação técnica do Analista.
 
 ---
 
 ## Especificação Visual por Tela
 
-### `Vendas.jsx` — botões "PDV" e "Caixas"
+### `Produtos.jsx` — Modal de cadastro/edição, seção "Conversões de Unidade"
 
-**Layout geral:**
-- Não é uma tela nova nem uma tab nova — dois botões adicionados ao
-  header existente do componente principal `Vendas()` (linhas 1017–1050
-  do arquivo atual), entre o bloco de título (`<h1>Vendas</h1>` +
-  subtítulo) e a linha de tabs Orçamentos/Pedidos.
-- Motivo de ficar no header do componente principal (não dentro de
-  `OrcamentosTab`/`PedidosTab`, onde vive o botão "+ Novo Orcamento"):
-  os botões navegam para fora do módulo Vendas (para `/pdv` e
-  `/pdv/sessoes`) e devem estar visíveis **independente da tab ativa**
-  — colocar dentro de uma tab violaria a instrução explícita do
-  Analista ("não dentro de uma tab específica").
-- Novo bloco `<div className="flex items-center gap-2">` inserido logo
-  abaixo do bloco de título, acima da linha de tabs:
-  ```jsx
-  <div className="flex items-center gap-2">
-    <Button variant="secondary" size="sm" onClick={() => navigate('/pdv')}>
-      <Store size={16} />
-      PDV
-    </Button>
-    <Button variant="secondary" size="sm" onClick={() => navigate('/pdv/sessoes')}>
-      <ClipboardList size={16} />
-      Caixas
-    </Button>
-  </div>
-  ```
-- Padding/espaçamento: `gap-2` entre os dois botões (8px, padrão do
-  projeto para grupos de botão — ver `SplitPagamento.jsx`); `mt-2`
-  (ou o `space-y-4` já existente no container raiz do componente cobre
-  o espaçamento vertical entre este bloco e o título acima / tabs
-  abaixo — não é necessário CSS adicional).
-- `size="sm"` (não `md`, o padrão do `Button`) — estes são botões de
-  navegação secundária, não a ação principal da tela; `size="sm"` os
-  diferencia hierarquicamente do "+ Novo Orcamento" (`size` padrão,
-  dentro da tab) sem disputar atenção visual com ele.
+**Layout geral (inalterado):**
+- Seção dentro do modal: `bg-gray-50 rounded-lg border border-gray-200 p-4` (light) /
+  `dark:bg-navy-900/50 dark:border-navy-700` (dark)
+- Header da seção: título "Conversoes de Unidade" (`text-sm font-semibold
+  text-gray-700 dark:text-slate-200`) + botão "+ Adicionar Conversao"
+  (`<Plus size={14} />` + texto, `text-primary-600 dark:text-violet-400`) alinhados
+  com `flex items-center justify-between`
+- Cada linha de conversão: `flex flex-col gap-2 sm:flex-row sm:items-end` — 3 campos
+  (`Select` Unidade, `Select` Converte para, `Input` Qtd por X) + botão remover
+  (`<Trash2 size={16} />`, `text-red-400 hover:text-red-600`)
+- Preview do resultado da cadeia abaixo de cada linha: `<ArrowRight size={12} />` +
+  texto (`text-gray-500 dark:text-slate-400`), ou aviso âmbar
+  (`text-amber-700 dark:text-amber-400`) quando a cadeia não fecha — **RF-03 mantém
+  exatamente esse comportamento**, sem alteração
 
-**Ícones (Lucide React):**
-- "PDV" → `<Store size={16} />` — ícone novo neste arquivo, adicionar
-  ao import existente: `import { Trash2, Search, Store, ClipboardList } from 'lucide-react'`.
-  `Store` não é usado em nenhum outro lugar do projeto ainda — está
-  livre e é semanticamente direto (ponto de venda / balcão).
-- "Caixas" → `<ClipboardList size={16} />` — reaproveitado do mesmo
-  ícone já usado no `<h1>` de `RelatorioSessoesCaixa.jsx` (a tela para a
-  qual o botão navega), reforçando a associação visual.
-- Tamanho `16px`, consistente com o padrão de ícone-dentro-de-botão já
-  usado em `SplitPagamento.jsx`/`CarrinhoItem.jsx` (ícones pequenos
-  acompanhando label curto).
+**Select "Converte para" (RF-01 — única mudança de dado, zero mudança visual):**
+- Componente: `Select.jsx` existente, mesma instância já usada (label "Converte
+  para", `value={convertePara}`, `onChange` inalterado)
+- Options: passam de "base + unidades já criadas em outras linhas" para "base +
+  todas as unidades de `UNIDADE_OPTIONS` exceto a própria linha" — mais itens na
+  mesma lista, mesmo estilo de `<option>` nativo herdado do `Select.jsx`
+- Ordem das opções: manter "(base)" sempre primeiro (já é o padrão), demais unidades
+  na ordem de `UNIDADE_OPTIONS` (UN, PT, CX, KG, L, M, filtrando base e própria linha)
+  — ordem estável e previsível, sem necessidade de ordenação alfabética adicional
 
-**Variante e cor:**
-- Ambos os botões usam `variant="secondary"` do `Button.jsx` existente
-  — fundo branco/borda cinza no light mode, `navy-800`/borda `navy-500`
-  no dark mode (classes já definidas no componente, nenhum token novo).
-- Não usar `variant="danger"` nem `variant="primary"` — nenhum dos dois
-  é ação destrutiva nem a ação primária da tela (essa continua sendo
-  "+ Novo Orcamento"/"+ Novo Pedido" dentro de cada tab).
-
-**Dark mode:**
-- 100% herdado do `Button.jsx` (`dark:bg-navy-800 dark:border-navy-500
-  dark:text-slate-200 dark:hover:bg-navy-700`) — nenhum ajuste manual
-  necessário, os ícones Lucide herdam `currentColor` automaticamente.
+**Toast de erro de ciclo (RF-02 — reaproveita componente existente):**
+- Nenhum componente novo — usar `showToast(mensagem, 'error')` já implementado
+  (linha 90-93 de `Produtos.jsx`)
+- Estilo herdado: `fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg
+  text-sm font-medium text-white bg-red-600`, `whitespace-pre-line break-words`,
+  timeout 7000ms
+- Texto da mensagem: usar literalmente o `error.message` lançado por
+  `ordenarConversoesPorDependencia` (ex.: `"Conversões em ciclo: CX → PT → CX.
+  Corrija antes de salvar."`) — sem ícone adicional, sem cor diferente da já usada
+  para erro
 
 **Mobile-first (375px):**
-- `flex items-center gap-2` quebra naturalmente se necessário — mas com
-  apenas 2 botões `size="sm"` + label curta ("PDV", "Caixas"), cabem
-  lado a lado mesmo em 375px sem overflow. Não usar `flex-wrap`
-  forçado nem empilhar verticalmente — manter lado a lado em todas as
-  larguras, como pedido explicitamente pelo Analista ("dois botões
-  distintos e lado a lado").
-- Testar visualmente que o bloco de título + botões não ultrapassa a
-  largura da viewport em 375px (label + ícone + padding `size="sm"` =
-  ~70-80px por botão, folga suficiente).
-
-**Estado/comportamento:**
-- Nenhum estado de loading, disabled ou feedback visual adicional —
-  `onClick` dispara `navigate()` direto (RN-03: mesma guarda de rota
-  `ProtectedRoute` já existente, nenhuma permissão nova).
-- Sem tooltip, sem badge, sem contador — apenas navegação direta.
-
----
-
-### `Sidebar.jsx` — remoção do item "PDV / Caixa"
-
-- Ação puramente de remoção (RF-06): apagar a linha
-  `{ to: '/pdv', label: 'PDV / Caixa', icon: '🏪' },` do array
-  `navItems`.
-- Sem reposicionamento dos itens restantes, sem novo espaçamento — o
-  array simplesmente perde um item, o layout do menu se ajusta
-  automaticamente (mesmo padrão de lista vertical já existente).
-- Nenhuma outra alteração visual no Sidebar.
-
----
-
-### `FrenteDeCaixa.jsx` / `AberturaCaixa.jsx` / `FechamentoCaixa.jsx`
-
-- **Fora do escopo do Brush** — confirmado pelo Analista: "Sem mudança
-  de layout/UX — é puramente correção do parsing da resposta" e
-  "Fora do escopo: Qualquer mudança em FrenteDeCaixa.jsx,
-  AberturaCaixa.jsx ou FechamentoCaixa.jsx além do parsing de
-  res.data.sessao".
-- Loom implementa RF-02/RF-03/RF-04 direto da Especificação técnica —
-  Frontend do `Especificacao_Hotfix.md`, sem necessidade de spec visual
-  adicional.
+- Já coberto pelo breakpoint `sm:` existente na linha de conversão — abaixo de 640px,
+  os 3 campos + botão remover empilham em coluna (`flex-col`), acima disso viram
+  linha (`sm:flex-row sm:items-end`). Nenhum ajuste necessário: a mudança é só na
+  quantidade de `<option>` dentro do `<select>` nativo, que não afeta layout em
+  nenhuma largura de tela.
+- Toast `fixed top-4 right-4 max-w-sm` já é seguro em 375px (não ultrapassa a
+  viewport, `max-w-sm` = 24rem com margem via `right-4`).
 
 ---
 
@@ -164,31 +121,30 @@ correção de lógica, sem UI nova:
 
 | Componente | Origem | Uso nesta manutenção |
 |---|---|---|
-| `Button` (`variant="secondary"`, `size="sm"`) | `components/ui/Button.jsx` | Botões "PDV" e "Caixas" em `Vendas.jsx` |
-| `Store` (ícone) | `lucide-react` | Botão "PDV" — primeiro uso no projeto, ícone livre |
-| `ClipboardList` (ícone) | `lucide-react`, já usado em `RelatorioSessoesCaixa.jsx` | Botão "Caixas" — reaproveitado do header da tela de destino |
+| `Select` | `components/ui/Select.jsx` | Campo "Converte para" — mesma instância, só mais `options` |
+| Toast inline (`showToast`) | Já existente em `Produtos.jsx` (padrão replicado em outras páginas) | Mensagem de erro de ciclo (RF-02) |
+| `Plus`, `Trash2`, `ArrowRight` (ícones) | `lucide-react`, já importados em `Produtos.jsx` | Inalterados — nenhum ícone novo necessário |
 
-Nenhum componente novo criado. Nenhum token de cor/espaçamento novo
-adicionado ao `tailwind.config.js`.
+Nenhum componente novo criado. Nenhum ícone novo. Nenhum token de cor/espaçamento
+novo adicionado ao `tailwind.config.js`.
 
 ---
 
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #39)
-   Telas analisadas: 4 (Vendas.jsx com UI real; FrenteDeCaixa.jsx,
-   AberturaCaixa.jsx, FechamentoCaixa.jsx confirmadas fora de escopo;
-   Sidebar.jsx remoção pura sem UI nova)
-   Componentes reutilizados: 1 (Button variant="secondary")
-   Ícones novos no projeto: 1 (Store — ClipboardList já existia)
-   Novos padrões visuais: 0 — 100% reaproveitamento do design system
-   existente
+✅ Especificação UI concluída — UidCore (Manutenção #40)
+   Telas analisadas: 1 (Produtos.jsx — Modal de Produto, seção
+   Conversões de Unidade)
+   Componentes reutilizados: 2 (Select.jsx, toast inline showToast)
+   Novos padrões visuais: 0 — mudança é puramente de dados
+   (options do Select) e de ordem de chamadas HTTP (handleSubmit),
+   sem impacto em layout, cor, espaçamento ou ícone
 
 📁 Arquivo: Especificacao_UI_Hotfix.md (neste diretório)
 
 ➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md antes
-   de implementar o frontend. Forge segue direto pela Especificação
-   técnica — Backend do Analista (RF-01/RF-05), sem dependência deste
-   documento.
+   de implementar RF-01/RF-02/RF-03 — nenhuma mudança visual a
+   implementar além da lógica já detalhada na Especificação técnica
+   do Analista.
 ```
