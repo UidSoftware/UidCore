@@ -39,8 +39,8 @@ export default function AberturaCaixa() {
       api.get('/pdv/sessoes/atual/').catch(() => null),
       api.get('/financeiro/contas/?tipo=CAIXA&page_size=100'),
     ]).then(([sessaoRes, contasRes]) => {
-      if (sessaoRes?.data) {
-        setSessaoAtiva(sessaoRes.data)
+      if (sessaoRes?.data?.sessao) {
+        setSessaoAtiva(sessaoRes.data.sessao)
       }
       const lista = contasRes.data.results || contasRes.data || []
       setContas(lista)

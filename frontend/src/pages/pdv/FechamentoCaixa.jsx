@@ -39,8 +39,13 @@ export default function FechamentoCaixa() {
   useEffect(() => {
     api.get('/pdv/sessoes/atual/')
       .then((res) => {
-        setSessao(res.data)
-        setResumo(res.data.resumo || {})
+        const s = res.data.sessao
+        if (!s) {
+          navigate('/pdv/abertura')
+          return
+        }
+        setSessao(s)
+        setResumo(s.resumo || {})
       })
       .catch(() => {
         navigate('/pdv/abertura')

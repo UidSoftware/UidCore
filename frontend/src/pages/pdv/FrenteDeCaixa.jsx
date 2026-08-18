@@ -72,7 +72,12 @@ export default function FrenteDeCaixa() {
   useEffect(() => {
     api.get('/pdv/sessoes/atual/')
       .then((res) => {
-        setSessao(res.data)
+        const s = res.data.sessao
+        if (!s) {
+          navigate('/pdv/abertura')
+          return
+        }
+        setSessao(s)
       })
       .catch(() => {
         navigate('/pdv/abertura')

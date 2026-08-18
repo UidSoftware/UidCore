@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Trash2, Search } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Trash2, Search, Store, ClipboardList } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -1006,6 +1007,7 @@ const EMPTY_PEDIDO = {
 
 // --- Componente principal ---
 export default function Vendas() {
+  const navigate = useNavigate()
   const [tab, setTab] = useState('orcamentos')
   const [toast, setToast] = useState(null)
 
@@ -1025,6 +1027,17 @@ export default function Vendas() {
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Vendas</h1>
         <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Orcamentos, pedidos e funil comercial</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button variant="secondary" size="sm" onClick={() => navigate('/pdv')}>
+          <Store size={16} />
+          PDV
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => navigate('/pdv/sessoes')}>
+          <ClipboardList size={16} />
+          Caixas
+        </Button>
       </div>
 
       <div className="flex gap-1 overflow-x-auto pb-1">
