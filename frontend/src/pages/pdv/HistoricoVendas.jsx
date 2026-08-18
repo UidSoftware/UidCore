@@ -301,7 +301,7 @@ export default function HistoricoVendas() {
                     {BRL(venda.valor_total)}
                   </span>
                   <span className="text-xs text-gray-400 dark:text-slate-500">
-                    {venda.operador?.first_name || venda.operador?.username || '—'}
+                    {venda.operador_nome || '—'}
                   </span>
                 </div>
                 <div className="mt-3 flex gap-2 flex-wrap">
@@ -346,7 +346,7 @@ export default function HistoricoVendas() {
                           {formatarDataHora(venda.data_hora)}
                         </td>
                         <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
-                          {venda.operador?.first_name || venda.operador?.username || '—'}
+                          {venda.operador_nome || '—'}
                         </td>
                         <td className="px-4 py-3 text-gray-600 max-w-[150px] truncate dark:text-slate-400">
                           {venda.cliente?.nome_completo || venda.cliente?.nome_razao_social || 'Consumidor Final'}
@@ -415,9 +415,7 @@ export default function HistoricoVendas() {
               </span>
               <span className="text-gray-300 dark:text-slate-600">·</span>
               <span>
-                {vendaDetalhe.operador?.first_name ||
-                  vendaDetalhe.operador?.username ||
-                  '—'}
+                {vendaDetalhe.operador_nome || '—'}
               </span>
               <span className="text-gray-300 dark:text-slate-600">·</span>
               <span>{formatarDataHora(vendaDetalhe.data_hora)}</span>

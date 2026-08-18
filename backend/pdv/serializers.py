@@ -25,7 +25,7 @@ from .models import (
 class MovimentoCaixaSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     tipo_label = serializers.CharField(source='get_tipo_display', read_only=True)
-    operador_nome = serializers.CharField(source='operador.get_full_name', read_only=True)
+    operador_nome = serializers.CharField(source='operador.nome_completo', read_only=True)
 
     class Meta:
         model = MovimentoCaixa
@@ -44,7 +44,7 @@ class SessaoCaixaSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
-    operador_nome = serializers.CharField(source='operador.get_full_name', read_only=True)
+    operador_nome = serializers.CharField(source='operador.nome_completo', read_only=True)
     movimentos = MovimentoCaixaSerializer(many=True, read_only=True)
     resumo = serializers.SerializerMethodField()
 
@@ -179,7 +179,7 @@ class VendaSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     cliente_nome = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
-    operador_nome = serializers.CharField(source='operador.get_full_name', read_only=True)
+    operador_nome = serializers.CharField(source='operador.nome_completo', read_only=True)
     sessao_conta_nome = serializers.CharField(source='sessao_caixa.conta.nome', read_only=True)
     itens = ItemVendaSerializer(many=True, read_only=True)
     pagamentos = PagamentoVendaSerializer(many=True, read_only=True)

@@ -88,7 +88,7 @@ function ResumoSessaoModal({ sessao }) {
         <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
           <p className="text-xs text-gray-500 dark:text-slate-400">Operador</p>
           <p className="font-semibold text-gray-900 dark:text-slate-100">
-            {sessao.operador?.first_name || sessao.operador?.username || '—'}
+            {sessao.operador_nome || '—'}
           </p>
         </div>
         <div className="bg-gray-50 rounded-lg p-3 dark:bg-navy-900/50">
@@ -404,7 +404,7 @@ export default function RelatorioSessoesCaixa() {
                           {sessao.conta?.nome || sessao.conta_nome || '—'}
                         </p>
                         <p className="text-xs text-gray-500 dark:text-slate-400 mt-0.5">
-                          {sessao.operador?.first_name || sessao.operador?.username || '—'}
+                          {sessao.operador_nome || '—'}
                         </p>
                       </div>
                       <Badge status={sessao.status} />
@@ -466,7 +466,7 @@ export default function RelatorioSessoesCaixa() {
                             {sessao.conta?.nome || sessao.conta_nome || '—'}
                           </td>
                           <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
-                            {sessao.operador?.first_name || sessao.operador?.username || '—'}
+                            {sessao.operador_nome || '—'}
                           </td>
                           <td className="px-4 py-3 text-gray-600 dark:text-slate-400 whitespace-nowrap">
                             {formatarDataHora(sessao.data_abertura)}
