@@ -49,7 +49,8 @@ class CategoriaViewSet(ModelViewSet):
 class ContaViewSet(ModelViewSet):
     queryset = Conta.objects.filter(is_active=True).order_by('nome')
     serializer_class = ContaSerializer
-    filter_backends = [SearchFilter]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['tipo']
     search_fields = ['nome']
 
     def perform_create(self, serializer):
