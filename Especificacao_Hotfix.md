@@ -1,28 +1,31 @@
-# Especificação — Manutenção #37
+# Especificação — Manutenção #39
 **Elaborado por:** Analista (MODO HOTFIX)
 **Data:** 2026-08-17
 **Sistema:** UidCore (OS #7)
-**Solicitação original (verbatim):** "Produtos tanto Novo, quanto editar, Conversões de
-unidade seja possível fazer mais de uma conversão, exemplo: 1cx = 6pt, e 6pt = 50un, pois
-na entrada seja via manual ou nota fiscal vai ser CX e vendas pode ser tanto PT quanto UN."
-
-**Instrução do Planner:** decompor em RF/RN/telas, verificar se já existe estrutura de
-conversão de unidade antes de desenhar algo novo, e cobrir tanto a entrada (NF/manual)
-quanto a venda com conversão automática de quantidade/preço.
+**Solicitação original (verbatim, resumida):**
+1. "BUG — GET /pdv/sessoes/atual/ tratado errado no frontend" — `FrenteDeCaixa.jsx`
+   (linhas 68-75) e `AberturaCaixa.jsx` (linhas 41-44) tratam `res.data` inteiro como se
+   já fosse a sessão, em vez de `res.data.sessao`.
+2. "MUDANÇA DE NAVEGAÇÃO — tirar PDV / Caixa do menu lateral, dois botões SEPARADOS
+   dentro de Vendas" — remover item top-level do `Sidebar.jsx` e adicionar botões "PDV"
+   e "Caixas" na tela de Vendas, cada um navegando pra sua rota já existente.
 
 ---
 
 ## Classificação
 
 ```
-tipo: feature_pequena (evolução de estrutura já existente, dentro do módulo produtos/pdv)
+tipo: bug (item 1) + melhoria_ux (item 2) — agrupados na mesma manutenção, ambos
+      Pipeline B (direto, sem Blueprint/Brush — sistema e arquitetura já existem)
 sistema: UidCore
-caminho_afetado: backend/produtos/* (models, serializers, views)
-                 backend/pdv/* (services, views)
-                 frontend/src/pages/Produtos.jsx
+caminho_afetado: backend/pdv/views.py (action sessao_atual)
+                 backend/pdv/tests.py
                  frontend/src/pages/pdv/FrenteDeCaixa.jsx
-                 frontend/src/pages/pdv/components/CarrinhoItem.jsx
-complexidade: media
+                 frontend/src/pages/pdv/AberturaCaixa.jsx
+                 frontend/src/pages/pdv/FechamentoCaixa.jsx (achado adicional, ver abaixo)
+                 frontend/src/components/layout/Sidebar.jsx
+                 frontend/src/pages/Vendas.jsx
+complexidade: baixa
 requer_aprovacao_comercial: false
 ```
 
@@ -30,114 +33,107 @@ requer_aprovacao_comercial: false
 
 ## Diagnóstico confirmado (leitura direta dos arquivos — não do pedido)
 
-O pedido presume que "fazer mais de uma conversão" não existe. **Não é bem assim.** Já
-existe `produtos.models.ConversaoUnidade` (desde o desenho original do módulo) e o
-formulário de Produto em `Produtos.jsx` já tem botão "Adicionar Conversão" permitindo N
-linhas por produto. Ou seja: hoje já dá pra cadastrar CX **e** PT **e** UN no mesmo
-produto. O problema real, encontrado lendo o código, é mais específico e mais grave do
-que "falta permitir mais de uma":
+### Item 1 — bug do endpoint `sessao_atual`
 
-### O que já existe e funciona
-- `Produto.unidade_base` + `ConversaoUnidade(produto, unidade, quantidade_por_base)` —
-  cada conversão já é relativa à unidade base do produto.
-- `EntradaEstoque` já aceita `unidade` livre (inclusive CX) e já converte pra base no
-  `save()` antes de somar no `Produto.quantidade_estoque`.
-- `pdv/services.py` já espelha essa mesma conversão na baixa/reversão de estoque de uma
-  venda (`_quantidade_base`, `_debitar_estoque`, `_reverter_estoque`).
-- Múltiplas conversões por produto já são aceitas pelo backend (`unique_together` é só
-  `(produto, unidade)`, não limita quantidade de unidades diferentes).
+O pedido descreve o backend como **sempre** retornando `{"sessao": <objeto ou null>}`
+(200) e pede a correção **só no frontend**. Lendo `backend/pdv/views.py` linhas 87-98,
+isso **não é exatamente o que o código faz hoje**:
 
-### O que NÃO existe / está quebrado (achados reais)
-
-**ACHADO 1 — Cadeia não é suportada, só conversão direta pra base (o pedido literal).**
-Hoje cada `ConversaoUnidade.quantidade_por_base` tem que ser o fator **já multiplicado**
-até a unidade base. Pra reproduzir o exemplo do cliente (1 CX = 6 PT, 6 PT-ish = 50 UN),
-o usuário precisa calcular `300` de cabeça e digitar direto em "Qtd por UN" pra CX — o
-sistema não deixa ele digitar "1 CX = 6 PT" e "1 PT = X UN" separadamente e compor sozinho.
-É exatamente o que o pedido descreve.
-
-**ACHADO 2 — Editar/excluir conversão já salva não funciona pela tela, apesar do backend
-já ter os endpoints prontos.** `ProdutoViewSet.conversao_detalhe` (PATCH/DELETE) já existe
-em `backend/produtos/views.py`. Mas no frontend:
-- `handleSubmit` em `Produtos.jsx` só faz `POST` de conversões **sem `id`** (linha 172:
-  `if (!conv.id && conv.unidade && conv.quantidade_por_base)`). Editar o valor de uma
-  conversão já salva e clicar em Salvar **não persiste nada**.
-- `removeConversao` (linha 145) só tira a linha do estado local do React — nunca chama
-  `DELETE /produtos/{id}/conversoes/{conv_id}/`. A conversão continua existindo no banco.
-
-Isso bate direto com a primeira frase do pedido: **"Produtos tanto Novo, quanto editar"**
-— editar já estava quebrado antes mesmo de pensar em cadeia.
-
-**ACHADO 3 — CRÍTICO: fallback silencioso 1:1 quando não há conversão cadastrada.**
-`EntradaEstoque.save()` e `pdv/services.py._quantidade_base`/`_reverter_estoque` caem em
-`except ConversaoUnidade.DoesNotExist: assume 1:1` sem avisar ninguém. Se o operador
-lançar uma entrada de 1 CX num produto sem a conversão cadastrada, o sistema soma **1**
-no estoque em vez de 300 — silenciosamente. Isso é mais perigoso do que a ausência de
-cadeia; precisa virar erro 400 explícito (ver RN-05).
-
-**ACHADO 4 — CRÍTICO: preço de venda não é convertido por unidade.** Em
-`backend/pdv/views.py::adicionar_item` (linha 266):
 ```python
-valor_unitario=produto.preco_venda,  # RN-03: snapshot
+@action(detail=False, methods=['get'], url_path='atual')
+def sessao_atual(self, request):
+    sessao = SessaoCaixa.objects.filter(
+        operador=request.user, status='ABERTA', is_active=True,
+    ).first()
+    if not sessao:
+        return Response({'sessao': None})
+    return Response(SessaoCaixaSerializer(sessao).data)
 ```
-`valor_unitario` é sempre `produto.preco_venda` cru, **independente da `unidade`
-enviada**. Como `preco_venda` é definido por unidade base (ex. preço por UN), vender "1
-CX" hoje cobraria o preço de **1 UN** por uma caixa inteira. É o motivo pelo qual, mesmo
-que o item tivesse um seletor de unidade, vender em PT/CX estaria quebrado hoje.
 
-**ACHADO 5 — PDV nunca deixa escolher a unidade na venda.** Em
-`FrenteDeCaixa.jsx::adicionarProduto` a unidade enviada é sempre fixa:
+O contrato é **assimétrico**:
+- **Sem sessão aberta** → `{"sessao": None}` (confere com o pedido).
+- **Com sessão aberta** → o dicionário **cru** do serializer, **sem** a chave `"sessao"`
+  (ex.: `{"id": 5, "status": "ABERTA", "conta_nome": "Caixa 1", ...}` direto na raiz).
+
+Isso é confirmado pelos próprios testes já existentes, que hoje **documentam esse
+comportamento assimétrico como correto**:
+- `pdv/tests.py:274-279` (`test_sessao_atual_com_sessao_aberta`) lê
+  `resp.data['status']` direto, não `resp.data['sessao']['status']`.
+- `pdv/tests.py:342-374` (`test_sessao_atual_retorna_resumo_populado`) lê
+  `resp.data['resumo']` direto.
+- `pdv/tests.py:397-401` (`test_criar_venda_sem_sessao_retorna_400`) lê
+  `resp.data['id']` direto.
+
+**Consequência prática para a correção pedida:** se o fix for feito **só no frontend**,
+seguindo literalmente `res.data.sessao` como o pedido pede, o caso "COM sessão aberta"
+quebra — `res.data.sessao` seria `undefined`, porque hoje o backend não aninha nesse
+caso. Ou seja, aplicar o fix só no frontend resolveria o bug relatado (falso positivo de
+"sessão encerrada" quando não há sessão) mas introduziria o **mesmo bug ao contrário**
+para quem TEM sessão aberta (a maioria dos operadores, na maior parte do tempo).
+
+**Correção real: o backend também precisa mudar** — normalizar `sessao_atual` para
+**sempre** devolver `{"sessao": <dados ou null>}`, e então ajustar os 3 consumidores do
+frontend (não 2 — ver achado adicional abaixo) para ler `res.data.sessao`. Isso contraria
+a instrução literal do pedido ("zero alterações backend"), mas é a única forma de
+resolver o bug relatado sem quebrar o fluxo que hoje funciona por acidente.
+
+**Achado adicional — terceiro consumidor não mencionado no pedido.**
+`frontend/src/pages/pdv/FechamentoCaixa.jsx` (linhas 39-49) consome o mesmo endpoint com
+o mesmo padrão problemático:
 ```js
-unidade: produto.unidade_base || 'UN',
+api.get('/pdv/sessoes/atual/')
+  .then((res) => {
+    setSessao(res.data)
+    setResumo(res.data.resumo || {})
+  })
+  .catch(() => { navigate('/pdv/abertura') })
 ```
-Não existe seletor de unidade no carrinho. `ItemVenda.unidade` (backend) já aceita
-qualquer unidade — só o frontend nunca oferece escolha. É o motivo técnico central do
-pedido ("vendas pode ser tanto PT quanto UN").
+Hoje funciona por acidente na tela de Fechamento porque, na prática, só se chega nela
+com uma sessão aberta (fluxo normal: Frente de Caixa → Fechar Caixa). Mas se normalizarmos
+o backend para sempre aninhar em `"sessao"` (correção necessária acima), este arquivo
+**precisa** do mesmo ajuste — senão passa a quebrar (hoje funciona só porque o backend
+retorna os dados crus quando há sessão; com a normalização, `res.data.sessao` é quem vai
+ter os dados reais). Incluído no escopo desta manutenção por ser a mesma causa raiz.
 
-**ACHADO 6 — bug cosmético já existente, some junto.** `CarrinhoItem.jsx` lê
-`item.produto_unidade`, um campo que **não existe** no serializer (`ItemVendaSerializer`
-retorna `unidade`, não `produto_unidade`). Hoje passa despercebido porque a unidade é
-sempre UN; ao habilitar seleção de unidade (ACHADO 5) isso ficaria visivelmente errado
-(carrinho sempre mostrando "UN" mesmo vendendo em CX).
+### Item 2 — navegação PDV/Caixas
 
-**Conclusão:** a infraestrutura de conversão de unidade já existe e já é usada de verdade
-em estoque (entrada e baixa por venda). O pedido do cliente é real, mas o gap não é "criar
-do zero" — é (a) permitir cadastrar a conversão em cadeia em vez de forçar cálculo manual,
-(b) destravar edição/exclusão que já deveria funcionar, (c) corrigir dois bugs que
-inviabilizam vender em unidade diferente da base (preço errado + sem seletor), e (d)
-fechar um fallback silencioso perigoso no cálculo de estoque.
+Confirmado em `Sidebar.jsx` linha 8: item top-level `{ to: '/pdv', label: 'PDV / Caixa',
+icon: '🏪' }` dentro do array `navItems`, sem tratamento especial — remoção é direta.
+
+Confirmado em `Vendas.jsx`: componente principal (`export default function Vendas()`,
+linha 1008) renderiza título, tabs (Orçamentos/Pedidos) e delega pro `OrcamentosTab`/
+`PedidosTab`. Não importa `useNavigate` hoje — precisa ser adicionado. As rotas alvo já
+existem e não mudam (`frontend/src/routes/index.jsx` linhas 54-59):
+`/pdv` → `FrenteDeCaixa`, `/pdv/sessoes` → `RelatorioSessoesCaixa`. Nenhuma rota nova
+precisa ser criada.
 
 ---
 
 ## Requisitos Funcionais (RF)
 
 ```
-RF-01 (Must) - Produto (Novo/Editar): permitir cadastrar uma conversão de unidade
-        relativa a QUALQUER unidade já definida no produto (base ou intermediária),
-        não só direto à unidade base — cobre o exemplo literal do pedido
-        (1 CX = 6 PT, 1 PT = 50 UN).
-RF-02 (Must) - Corrigir edição de conversão já salva: alterar o valor de uma conversão
-        existente e salvar deve persistir via PATCH real no backend (ACHADO 2).
-RF-03 (Must) - Corrigir exclusão de conversão já salva: remover uma linha da lista deve
-        chamar DELETE real no backend, não só sumir da tela (ACHADO 2).
-RF-04 (Should) - Exibir, ao lado de cada conversão cadastrada em cadeia, o fator composto
-        equivalente à unidade base (ex.: "1 CX = 6 PT = 300 UN") para conferência antes
-        de salvar.
-RF-05 (Must) - PDV (Frente de Caixa): permitir escolher a unidade de venda do item
-        (unidade base OU qualquer unidade com conversão cadastrada para o produto),
-        em vez de travar sempre em `unidade_base` (ACHADO 5).
-RF-06 (Must) - Corrigir `valor_unitario` do item vendido em unidade diferente da base:
-        calcular automaticamente a partir de `preco_venda` × fator de conversão da
-        unidade escolhida (ACHADO 4) — é o "conversão automática de quantidade/preço"
-        citado na instrução do Planner.
-RF-07 (Must) - Corrigir exibição da unidade real no carrinho (`CarrinhoItem.jsx`
-        usa prop inexistente `produto_unidade`) (ACHADO 6).
-RF-08 (Should) - Entrada de Estoque (manual, com ou sem número de NF já suportado pelo
-        campo `nota_fiscal`): mostrar preview da quantidade equivalente em unidade base
-        (ex. "= 300 UN") antes de confirmar, quando a unidade escolhida ≠ unidade base.
-RF-09 (Could) - Preço de venda específico por unidade (override manual, para casos em
-        que o preço não é estritamente proporcional — ex. desconto por caixa fechada).
-        Fora do MVP desta manutenção, registrado como sugestão futura.
+RF-01 (Must) - Normalizar backend/pdv/views.py::sessao_atual para SEMPRE retornar
+        {"sessao": <dados da sessão ou null>}, eliminando a assimetria hoje existente
+        entre "sem sessão" (já aninhado) e "com sessão" (dados crus na raiz).
+RF-02 (Must) - FrenteDeCaixa.jsx (linhas 68-75): setSessao(res.data.sessao) em vez de
+        setSessao(res.data) — corrige o bug relatado (sessão-fantasma disparando
+        criarVenda() com sessao_caixa undefined → 400 → redirecionamento enganoso).
+RF-03 (Must) - AberturaCaixa.jsx (linhas 41-44): checar res.data?.sessao (não
+        res.data direto) antes de setSessaoAtiva — corrige o banner "Conta: #undefined"
+        e "Aberta às Invalid Date" exibido incorretamente para operador sem sessão.
+RF-04 (Must) - FechamentoCaixa.jsx (linhas 39-49, achado adicional): mesmo ajuste —
+        setSessao(res.data.sessao); setResumo(res.data.sessao?.resumo || {}) — mesma
+        causa raiz do RF-02, não reportada no pedido original mas com o mesmo padrão de
+        bug, necessária para não quebrar quando o RF-01 for aplicado.
+RF-05 (Must) - Atualizar os 3 testes existentes que hoje validam o contrato assimétrico
+        como correto (pdv/tests.py:274-279, 342-374, 397-401) para o novo formato
+        sempre-aninhado — sem isso a suite quebra com a mudança do RF-01.
+RF-06 (Must) - Remover o item top-level { to: '/pdv', label: 'PDV / Caixa' } do array
+        navItems em Sidebar.jsx (linha 8).
+RF-07 (Must) - Adicionar dois botões distintos e lado a lado na tela de Vendas
+        (Vendas.jsx), próximos às tabs Orçamentos/Pedidos e ao botão "+ Novo Orcamento":
+        "PDV" → navigate('/pdv'); "Caixas" → navigate('/pdv/sessoes'). Não é uma aba
+        nova nem um botão único — dois destinos separados, como pedido.
 ```
 
 ---
@@ -145,200 +141,192 @@ RF-09 (Could) - Preço de venda específico por unidade (override manual, para c
 ## Regras de Negócio (RN)
 
 ```
-RN-01 - Toda ConversaoUnidade deve, direta ou indiretamente (em cadeia), terminar na
-        unidade_base do produto. Cadeia que não termina na base, ou que forma ciclo
-        (A→B, B→A), é inválida e deve ser rejeitada com erro 400 legível. Cobre RF-01.
-RN-02 - Uma unidade só pode ter UMA conversão definida por produto — mantém a
-        constraint já existente `unique_together (produto, unidade)`. Evita
-        ambiguidade (ex. CX não pode valer "6 PT" e "300 UN direto" ao mesmo tempo).
-RN-03 - Profundidade máxima de cadeia: 5 elos. Proteção técnica contra configuração
-        cíclica ou erro de cadastro, não é requisito do cliente.
-RN-04 - valor_unitario de ItemVenda continua sendo SEMPRE calculado/definido pelo
-        backend, nunca aceito do payload (regra já existente do módulo, preservada) —
-        agora calculado como preco_venda × fator_de_conversão(unidade) quando
-        unidade ≠ unidade_base. Cobre RF-06.
-RN-05 (ACHADO CRÍTICO) - Se o produto não tiver conversão cadastrada (direta ou em
-        cadeia) para a unidade informada numa entrada de estoque ou item de venda, o
-        sistema NÃO pode mais assumir silenciosamente fator 1:1 — deve rejeitar com
-        erro 400 legível ("Conversão de unidade não cadastrada para X"). O
-        comportamento atual (fallback mudo) é o risco mais grave encontrado nesta
-        análise: uma entrada de 1 CX sem conversão cadastrada soma 1 no estoque em vez
-        do valor real.
-RN-06 - Excluir ou editar uma conversão que é elo intermediário de outra (ex.: excluir
-        PT quando CX está definida "1 CX = 6 PT") deve ser bloqueada com mensagem
-        clara listando quem depende dela — nunca deixar uma cadeia quebrada em
-        silêncio.
+RN-01 - O contrato de GET /pdv/sessoes/atual/ é {"sessao": SessaoCaixaSerializer|null},
+        sempre — sem exceção para o caso "sessão existe". Qualquer novo consumidor
+        futuro deste endpoint deve assumir esse formato desde o início.
+RN-02 - Nenhuma ação que dependa de sessao.id (criarVenda, fechar sessão) pode disparar
+        com um objeto de sessão que não veio de fato do backend (proteção reforçada:
+        os efeitos que leem `sessao` só devem rodar quando `sessao?.id` é um valor
+        real, não apenas quando `sessao` é truthy) — evita reintroduzir a mesma classe
+        de bug caso outro consumidor apareça no futuro.
+RN-03 - Os botões "PDV" e "Caixas" em Vendas.jsx usam a mesma autenticação/guarda de
+        rota já existente em routes/index.jsx (ProtectedRoute) — nenhuma permissão nova
+        é criada.
+RN-04 - Rotas /pdv, /pdv/abertura, /pdv/venda, /pdv/fechamento, /pdv/vendas e
+        /pdv/sessoes permanecem exatamente como estão — apenas o ponto de entrada
+        (menu lateral → botões em Vendas) muda.
 ```
 
 ---
 
 ## Telas afetadas (detalhamento)
 
-### Tela: Produtos — Novo/Editar (`Produtos.jsx`, seção "Conversões de Unidade")
-- Trocar o campo único "Qtd por {unidade_base}" por: Select "Unidade" (já existe) +
-  novo Select "Converte para" (opções: unidade base do produto + demais unidades já
-  adicionadas na lista, exceto a própria linha; default = unidade base) + Input
-  "Quantidade" (já existe, reaproveitar).
-- Ao montar o payload de cada linha pro backend: enviar `{unidade, converte_para,
-  quantidade_por_base}` — `converte_para` omitido/vazio quando a referência é a
-  unidade base (mantém compatibilidade com o que já existe).
-- RF-04: exibir ao lado de cada linha o fator composto até a base (calculado no
-  cliente replicando a mesma lógica de resolução em cadeia do backend — só para
-  conferência visual, backend continua sendo a fonte de verdade).
-- RF-02/RF-03: `handleSubmit` passa a fazer `PATCH /produtos/{id}/conversoes/{id}/`
-  para linhas com `id` cujo valor mudou, e `removeConversao` passa a chamar
-  `DELETE /produtos/{id}/conversoes/{id}/` de verdade quando a linha já existe no
-  backend (hoje só mexe em estado local do React).
-
-### Tela: Produtos — Entrada de Estoque (dentro do modal de edição, `Produtos.jsx`)
-- RF-08: ao escolher unidade diferente da base no formulário de nova entrada, exibir
-  preview "= X {unidade_base}" ao lado do campo quantidade.
-
 ### Tela: PDV — Frente de Caixa (`FrenteDeCaixa.jsx`)
-- RF-05: `adicionarProduto` deixa de forçar `unidade: produto.unidade_base`. Se o
-  produto tiver conversões cadastradas, oferecer escolha de unidade (dropdown rápido
-  ou passo extra leve) antes de confirmar a adição ao carrinho; produto sem conversão
-  cadastrada mantém o fluxo atual (adiciona direto na unidade base, sem fricção extra).
+- Corrigir `useEffect` de carregamento de sessão (linhas 72-81): ler `res.data.sessao`.
+- Sem mudança de layout/UX — é puramente correção do parsing da resposta.
 
-### Componente: Carrinho (`components/CarrinhoItem.jsx`)
-- RF-07: trocar as duas ocorrências de `item.produto_unidade` (prop que não existe)
-  por `item.unidade` (campo real devolvido pela API).
+### Tela: PDV — Abertura de Caixa (`AberturaCaixa.jsx`)
+- Corrigir `useEffect` de carregamento (linhas 37-50): ler `sessaoRes?.data?.sessao` em
+  vez de `sessaoRes?.data`.
+- Banner "Você já tem uma sessão aberta" (linhas 117-132) só deve aparecer quando
+  `sessaoAtiva` tiver dados reais (`id`, `conta_nome`, `data_abertura` válidos).
+
+### Tela: PDV — Fechamento de Caixa (`FechamentoCaixa.jsx`) — achado adicional
+- Corrigir `useEffect` de carregamento (linhas 39-49): mesmo padrão do RF-04.
+
+### Menu lateral (`Sidebar.jsx`)
+- Remover a linha do item "PDV / Caixa" (`to: '/pdv'`) do array `navItems`.
+- Demais itens do menu permanecem inalterados, sem reordenação.
+
+### Tela: Vendas (`Vendas.jsx`)
+- Componente principal (`export default function Vendas()`): adicionar
+  `import { useNavigate } from 'react-router-dom'` e `const navigate = useNavigate()`.
+- Na área de cabeçalho/ações (perto do título "Vendas" e das tabs Orçamentos/Pedidos,
+  ou dentro da barra de ações ao lado do botão "+ Novo Orcamento" — decisão de layout
+  fina cabe ao Loom, desde que os dois botões fiquem visíveis e lado a lado, não dentro
+  de uma tab específica): dois botões —
+  - "PDV" → `onClick={() => navigate('/pdv')}`
+  - "Caixas" → `onClick={() => navigate('/pdv/sessoes')}`
+- Sugestão de estilo: reaproveitar o componente `Button` já usado no restante da tela
+  (`import Button from '../components/ui/Button.jsx'`, já importado neste arquivo),
+  variante secundária/outline para diferenciar visualmente do "+ Novo Orcamento".
 
 ---
 
 ## Especificação técnica — Backend (Forge)
 
-1. `backend/produtos/models.py`:
-   - `ConversaoUnidade`: adicionar campo `converte_para = models.CharField(max_length=2,
-     choices=UnidadeBase.choices, null=True, blank=True)` — quando vazio, significa
-     "relativo à unidade_base do produto" (mesmo comportamento de hoje, 100%
-     retrocompatível: todas as linhas existentes continuam com `converte_para=NULL` e
-     seguem funcionando sem qualquer migração de dado). `quantidade_por_base` passa a
-     significar "quantos de `converte_para` (ou da base, se vazio) equivalem a 1 desta
-     unidade" — nome do campo mantido para não quebrar consumidores existentes.
-   - Migration: apenas 1 coluna nova nullable. **Sem necessidade de data migration** —
-     ponto que reduz bastante o risco desta manutenção comparado a uma reescrita de
-     schema.
-   - Criar `produtos/services.py` (novo arquivo) com `fator_para_base(produto, unidade)`
-     — resolve recursivamente a cadeia (máx. 5 saltos, RN-03), detecta ciclo, levanta
-     `django.core.exceptions.ValidationError` legível se a unidade não tiver conversão
-     cadastrada (RN-05) ou se a cadeia não terminar na base (RN-01). Esta função
-     substitui a lógica hoje **triplicada** em `EntradaEstoque.save()`,
-     `pdv/services.py._quantidade_base` e `pdv/services.py._reverter_estoque` — os
-     três pontos devem passar a chamá-la em vez de repetir
-     `ConversaoUnidade.objects.get(...)` cada um com seu próprio fallback 1:1 (achado
-     de duplicação de código independente do pedido, mas que esta manutenção já
-     resolve de graça ao consolidar a função).
-2. `backend/produtos/models.py::EntradaEstoque.save()`: usar `fator_para_base`; deixar
-   de silenciar `ConversaoUnidade.DoesNotExist` (RN-05) — erro deve subir até a view
-   pra virar 400.
-3. `backend/pdv/services.py::_quantidade_base` / `_reverter_estoque`: idem, delegar
-   para `fator_para_base` compartilhado.
-4. `backend/pdv/views.py::adicionar_item`: calcular
-   `valor_unitario = produto.preco_venda * fator_para_base(produto, unidade)` quando
-   `unidade != produto.unidade_base`, senão manter `produto.preco_venda` (RF-06/RN-04).
-   Capturar `ValidationError` de `fator_para_base` e devolver 400 legível (RN-05).
-5. `backend/produtos/serializers.py::ConversaoUnidadeSerializer`: adicionar
-   `converte_para` + `converte_para_display` (`SerializerMethodField` ou
-   `get_converte_para_display`); `validate()` chama a mesma resolução de cadeia
-   considerando as conversões já existentes do produto (RN-01/RN-03) — rejeitar antes
-   de salvar, não só no uso posterior.
-6. `backend/produtos/views.py`: endpoints de conversão (`conversoes` GET/POST e
-   `conversao_detalhe` PATCH/DELETE) já existem e já cobrem edição/exclusão — nenhuma
-   rota nova. Adicionar checagem em `conversao_detalhe` (PATCH e DELETE) que bloqueia
-   a operação se outra `ConversaoUnidade` ativa do mesmo produto tiver
-   `converte_para == unidade` desta linha, retornando 400 com a lista de quem depende
-   dela (RN-06).
-7. Testes (`backend/produtos/tests.py`, `backend/pdv/tests.py`):
-   - Cadeia de 2 elos (CX→PT, PT→UN) resolvendo corretamente para a base.
-   - Ciclo (A→B, B→A) rejeitado com 400.
-   - Cadeia que não termina na base rejeitada com 400.
-   - Unidade sem conversão cadastrada agora retorna 400 em `EntradaEstoque` e em
-     `adicionar_item` do PDV (RN-05) — teste explícito de que o fallback 1:1 mudo foi
-     removido.
-   - `valor_unitario` correto ao vender em unidade não-base (RF-06).
-   - Baixa/reversão de estoque correta vendendo em unidade intermediária da cadeia.
-   - Exclusão/edição de conversão usada como elo por outra é bloqueada (RN-06).
-   - Regressão: os testes já existentes de `EntradaEstoque` e baixa de estoque do PDV
-     continuam passando com a nova função compartilhada.
+1. `backend/pdv/views.py::sessao_atual` (action `atual`, linhas 87-98):
+   ```python
+   @action(detail=False, methods=['get'], url_path='atual')
+   def sessao_atual(self, request):
+       sessao = SessaoCaixa.objects.filter(
+           operador=request.user, status='ABERTA', is_active=True,
+       ).first()
+       return Response({
+           'sessao': SessaoCaixaSerializer(sessao).data if sessao else None,
+       })
+   ```
+   Único ponto de mudança de código de produção no backend.
+2. `backend/pdv/tests.py` — atualizar para o novo formato sempre-aninhado:
+   - `test_sessao_atual_com_sessao_aberta` (linha ~274-279): trocar
+     `resp.data['status']` por `resp.data['sessao']['status']`.
+   - `test_sessao_atual_retorna_resumo_populado` (linha ~342-374): trocar
+     `resp.data['resumo']` por `resp.data['sessao']['resumo']`.
+   - `test_criar_venda_sem_sessao_retorna_400` (linha ~397-401): trocar
+     `sess_resp.data['id']` por `sess_resp.data['sessao']['id']`.
+   - `test_sessao_atual_sem_sessao_aberta` (linha ~268-272) já está correto, não muda.
+3. Nenhuma migration necessária — mudança é só de shape de resposta HTTP, nenhum campo
+   de model é alterado.
+4. Nenhuma outra view/serializer do módulo `pdv` é afetada — grep confirmou que
+   `sessoes/atual` é consumido apenas pelos 3 arquivos de frontend listados acima.
+
+---
 
 ## Especificação técnica — Frontend (Loom)
 
-1. `frontend/src/pages/Produtos.jsx`:
-   - Seção Conversões: adicionar `Select` "Converte para" por linha; opções dinâmicas
-     = `[unidade_base do form, ...conversoes.map(c => c.unidade).filter(u => u !==
-     linha atual)]`.
-   - `EMPTY_CONVERSAO` ganha `converte_para: ''`.
-   - `handleSubmit`: além do `POST` já existente para linhas sem `id`, adicionar
-     `PATCH /produtos/{id}/conversoes/{conv.id}/` para linhas com `id` que mudaram
-     (comparar contra snapshot carregado) (RF-02).
-   - `removeConversao`: se a linha tiver `id`, chamar
-     `DELETE /produtos/{id}/conversoes/{id}/` antes de tirar do estado local; tratar
-     erro 400 de RN-06 com toast explicando a dependência (RF-03).
-   - RF-04: função local `resolverFatorBase(conversoes, unidadeBase, unidade)` —
-     mesma lógica recursiva do backend, só para preview; não substitui validação do
-     servidor.
-   - RF-08: preview "= X {unidade_base}" no formulário de nova entrada usando a mesma
-     função.
-2. `frontend/src/pages/pdv/FrenteDeCaixa.jsx`:
-   - `adicionarProduto`: se `produto.conversoes?.length` (já vem no payload do
-     `ProdutoSerializer` — campo `conversoes` já existe, nested, confirmado em
-     `produtos/serializers.py`), oferecer seletor de unidade (base + unidades com
-     conversão) antes do POST; produto sem conversão mantém comportamento atual.
-   - Repassar a unidade escolhida em `unidade` no `POST /pdv/vendas/{id}/itens/`.
-3. `frontend/src/pages/pdv/components/CarrinhoItem.jsx`: trocar as 2 ocorrências de
-   `item.produto_unidade` por `item.unidade` (RF-07).
+1. `frontend/src/pages/pdv/FrenteDeCaixa.jsx` (linhas 72-81):
+   ```js
+   useEffect(() => {
+     api.get('/pdv/sessoes/atual/')
+       .then((res) => {
+         setSessao(res.data.sessao)
+       })
+       .catch(() => {
+         navigate('/pdv/abertura')
+       })
+       .finally(() => setLoadingSessao(false))
+   }, [navigate])
+   ```
+   Nota: quando não há sessão, `res.data.sessao` é `null` — isso é intencional. O
+   `useEffect` de `criarVenda` (linha 114-118) já tem guarda `if (sessao && !venda)`,
+   então `sessao === null` simplesmente não dispara `criarVenda`. Avaliar se vale
+   redirecionar direto para `/pdv/abertura` quando `sessao` vier `null` (hoje a tela só
+   redireciona no `.catch`, nunca no caso 200 com `sessao: null`) — comportamento atual
+   pode deixar a Frente de Caixa "vazia" sem sessão em vez de redirecionar. Recomenda-se
+   ao Loom tratar esse caso explicitamente (redirecionar para `/pdv/abertura` também
+   quando `res.data.sessao` vier `null`), fechando o bug por completo em vez de só
+   parcialmente.
+2. `frontend/src/pages/pdv/AberturaCaixa.jsx` (linhas 37-50):
+   ```js
+   useEffect(() => {
+     Promise.all([
+       api.get('/pdv/sessoes/atual/').catch(() => null),
+       api.get('/financeiro/contas/?tipo=CAIXA&page_size=100'),
+     ]).then(([sessaoRes, contasRes]) => {
+       if (sessaoRes?.data?.sessao) {
+         setSessaoAtiva(sessaoRes.data.sessao)
+       }
+       const lista = contasRes.data.results || contasRes.data || []
+       setContas(lista)
+     }).catch((err) => {
+       mostrarToast(extractErrorMessage(err, 'Erro ao carregar dados.'), 'error')
+     }).finally(() => setLoadingContas(false))
+   }, [])
+   ```
+3. `frontend/src/pages/pdv/FechamentoCaixa.jsx` (linhas 39-49):
+   ```js
+   useEffect(() => {
+     api.get('/pdv/sessoes/atual/')
+       .then((res) => {
+         const s = res.data.sessao
+         if (!s) {
+           navigate('/pdv/abertura')
+           return
+         }
+         setSessao(s)
+         setResumo(s.resumo || {})
+       })
+       .catch(() => {
+         navigate('/pdv/abertura')
+       })
+       .finally(() => setLoading(false))
+   }, [navigate])
+   ```
+4. `frontend/src/components/layout/Sidebar.jsx` (linha 8): remover a linha
+   `{ to: '/pdv', label: 'PDV / Caixa', icon: '🏪' },` do array `navItems`.
+5. `frontend/src/pages/Vendas.jsx`:
+   - Adicionar `import { useNavigate } from 'react-router-dom'` no topo.
+   - Dentro de `export default function Vendas()`: `const navigate = useNavigate()`.
+   - Renderizar os dois botões conforme detalhado na seção "Telas afetadas" acima.
 
 ---
 
-## Fora do Escopo
+## Fora do escopo
 
 ```
-- frontend/src/pages/Vendas.jsx (Orçamento/Pedido): ItemOrcamento e ItemPedido não têm
-  campo `unidade` hoje e, por decisão de arquitetura já registrada (ADR-015), não
-  fazem baixa de estoque — adicionar conversão de unidade nesse fluxo é uma feature
-  nova e maior, de escopo próprio. O pedido fala em "entrada" (estoque) e "vendas" no
-  sentido de venda de balcão (PDV), que é o par natural de "entrada de estoque" — mas
-  se o cliente também quiser isso em Orçamento/Pedido, precisa de confirmação
-  explícita antes de entrar em uma próxima rodada (não é ambiguidade que bloqueie
-  esta manutenção, é escopo adicional).
-- RF-09 (preço de venda específico por unidade, não-proporcional) — sugestão futura,
-  não faz parte deste MVP.
-- Importação automática de XML de NF-e — não existe hoje no sistema. "Entrada via nota
-  fiscal" continua sendo lançamento manual referenciando o número da NF (campo
-  `nota_fiscal` de `EntradaEstoque`, já existente) — nenhuma mudança nesta manutenção.
-- Qualquer mudança em PagamentoVenda, RecebivelCartao, SessaoCaixa — módulos tratados
-  na Manutenção #36, sem relação com este pedido.
+- Redesenho da tela de Vendas além dos dois botões pedidos.
+- Qualquer mudança em FrenteDeCaixa.jsx, AberturaCaixa.jsx ou FechamentoCaixa.jsx além
+  do parsing de res.data.sessao (nenhuma mudança de layout/UX pedida ou necessária).
+- Alteração de outros itens do menu lateral (Sidebar.jsx) além da remoção do item PDV.
+- Novas rotas — todas as rotas de PDV já existem e não mudam.
 ```
 
 ---
 
-## Critérios de Aceite (para o Sentinel)
+## Critérios de Aceite (CA)
 
 ```
-CA-01 - Cadastrar produto com unidade_base=UN e duas conversões em cadeia
-        (1 CX = 6 PT; 1 PT = 50 UN) sem precisar digitar o fator composto (300) na
-        mão — testado via formulário/API real (RF-01).
-CA-02 - Editar o valor de uma conversão já salva e confirmar reflete via PATCH real
-        no backend, visível após reload da página (RF-02).
-CA-03 - Remover uma conversão já salva chama DELETE real; ela não reaparece após
-        reload (RF-03).
-CA-04 - Cadeia circular (A→B, B→A) rejeitada com 400 legível (RN-01).
-CA-05 - Cadeia que não termina na unidade_base rejeitada com 400 legível (RN-01).
-CA-06 - Entrada de estoque ou item de venda em unidade sem conversão cadastrada
-        retorna 400 legível — não soma/debita mais estoque com fallback 1:1 mudo
-        (RN-05, achado crítico desta análise).
-CA-07 - PDV: vender 1 PT de um produto com cadeia CX→PT→UN debita a quantidade
-        correta em UN do estoque (via resolução de cadeia, não só conversão direta).
-CA-08 - PDV: valor_unitario do item vendido em PT/CX é calculado automaticamente a
-        partir de preco_venda × fator de conversão — não é mais o preco_venda cru
-        (RF-06).
-CA-09 - Carrinho do PDV exibe a unidade real vendida (ex. "PT"), não sempre "UN"
-        fixo (RF-07).
-CA-10 - Excluir/editar uma conversão usada como elo intermediário por outra é
-        bloqueado com mensagem clara (RN-06).
-CA-11 - Suite backend/produtos/tests.py e backend/pdv/tests.py 100% passando,
-        incluindo os novos testes de cadeia/ciclo/erro 400 — 0 falhas, sem @skip.
+CA-01 - GET /api/v1/pdv/sessoes/atual/ SEM sessão aberta → 200, {"sessao": null}.
+CA-02 - GET /api/v1/pdv/sessoes/atual/ COM sessão aberta → 200,
+        {"sessao": {"id": ..., "status": "ABERTA", ...}} (dados reais aninhados).
+CA-03 - FrenteDeCaixa: operador SEM sessão aberta não fica preso tentando criar venda
+        com sessao_caixa undefined; é corretamente direcionado para /pdv/abertura.
+CA-04 - FrenteDeCaixa: operador COM sessão aberta cria venda normalmente
+        (sessao_caixa = id real, sem 400).
+CA-05 - AberturaCaixa: operador SEM sessão nenhuma NÃO vê o banner "Você já tem uma
+        sessão aberta".
+CA-06 - AberturaCaixa: operador COM sessão aberta vê o banner com conta_nome real e
+        data_abertura válida (não "Conta: #undefined" nem "Invalid Date").
+CA-07 - FechamentoCaixa: mesmo comportamento corrigido, sem regressão no fluxo normal
+        (Frente de Caixa → Fechar Caixa).
+CA-08 - Sidebar.jsx não exibe mais o item "PDV / Caixa" top-level.
+CA-09 - Tela de Vendas exibe dois botões distintos, lado a lado — "PDV" (navega para
+        /pdv) e "Caixas" (navega para /pdv/sessoes) — funcionando de fato ao clicar.
+CA-10 - Rotas /pdv, /pdv/abertura, /pdv/venda, /pdv/fechamento, /pdv/vendas e
+        /pdv/sessoes continuam acessíveis e inalteradas (acesso direto por URL
+        continua funcionando, inclusive para quem só usa os botões novos).
+CA-11 - Suite backend/pdv/tests.py 100% passando, incluindo os 3 testes atualizados
+        para o novo contrato — 0 falhas, sem @skip/@xfail.
 CA-12 - npm run build limpo, 0 erros.
 ```
 
@@ -346,38 +334,33 @@ CA-12 - npm run build limpo, 0 erros.
 
 ## Observações finais do Analista
 
-- O pedido presumia ausência total de estrutura de conversão de unidade; a leitura
-  direta do código mostrou o oposto — a estrutura já existe e já é usada de verdade em
-  `EntradaEstoque` e na baixa de estoque do PDV. O trabalho real não é "criar do zero",
-  é evoluir de fator-direto-à-base para cadeia, destravar edição/exclusão que já
-  deveriam funcionar, e corrigir dois bugs (preço não convertido, seletor de unidade
-  ausente no PDV) que hoje inviabilizam a segunda metade do pedido ("vendas pode ser
-  tanto PT quanto UN").
-- O achado mais grave (RN-05, ACHADO 3) não veio do pedido do cliente — é um
-  comportamento silencioso já em produção (fallback 1:1 quando falta conversão
-  cadastrada) que pode estar mascarando erro de estoque hoje, em qualquer produto que
-  já tenha entrada/venda em unidade sem `ConversaoUnidade` correspondente. Recomendo
-  ao Sentinel, antes do deploy, uma consulta rápida em produção
-  (`EntradaEstoque.objects.exclude(unidade=F('produto__unidade_base'))` cruzado com
-  produtos sem `ConversaoUnidade` correspondente) para medir se já existe dado
-  histórico afetado — não bloqueia esta manutenção, mas é um risco operacional real
-  que vale reportar a Luiz Eduardo separadamente se aparecer.
-- O exemplo numérico do próprio cliente ("1cx = 6pt, e 6pt = 50un") é literalmente
-  ambíguo — "6pt = 50un" não é múltiplo redondo de "1pt = X un", o que sugere ou um
-  erro de digitação (provavelmente queria dizer "1 pt = 50 un") ou um caso legítimo de
-  conversão não-proporcional. O desenho desta especificação (campo quantidade livre,
-  não travado em múltiplos inteiros) suporta ambas as leituras sem precisar confirmar
-  com o cliente antes de iniciar — não é uma lacuna bloqueante.
-- Não há lacuna que exija pausar o pipeline: RF-01 a RF-08 são acionáveis
-  imediatamente com o que já foi lido no código. RF-09 e a extensão para
-  Orçamento/Pedido ficam registrados como possível próxima rodada, não como pendência
-  desta.
+- O pedido presumia que o backend já era consistente ("sempre retorna
+  `{"sessao": ...}`") e pedia correção só no frontend. A leitura direta de
+  `backend/pdv/views.py` e dos testes já existentes mostrou que isso é verdade apenas
+  para o caso "sem sessão" — no caso "com sessão" o backend retorna os dados crus, sem
+  aninhar. Segui a regra de não aceitar a premissa do pedido sem verificar: corrigir só
+  o frontend, como pedido literalmente descreve, teria trocado o bug relatado (falso
+  "sessão encerrada") por um bug simétrico e mais grave (operador COM sessão aberta
+  passaria a não conseguir usar o PDV). Por isso RF-01 inclui uma mudança de backend
+  que o pedido original descartava — com justificativa técnica registrada acima.
+- Achado adicional não reportado no pedido: `FechamentoCaixa.jsx` consome o mesmo
+  endpoint com o mesmo padrão de bug (RF-04). Hoje não se manifesta porque o fluxo
+  normal só chega lá com sessão aberta, mas passaria a quebrar assim que o RF-01 for
+  aplicado se não for corrigido junto — por isso entra no escopo desta manutenção em
+  vez de virar uma manutenção futura separada.
+- Item 2 (navegação) é puramente frontend, sem dependência do item 1 — Forge e Loom
+  podem trabalhar em paralelo sem risco de conflito (Forge só toca
+  `backend/pdv/views.py` e `backend/pdv/tests.py`; Loom toca os 5 arquivos de
+  frontend listados).
+- Nenhuma lacuna bloqueante identificada — pedido tinha informação suficiente
+  (caminhos de arquivo, linhas, comportamento observado) para especificar sem precisar
+  voltar ao solicitante.
 
 ---
 
-➡️ **Planner: rotear para Pipeline C (feature pequena sobre módulo existente) — Forge
-(produtos/models.py, produtos/services.py novo, produtos/serializers.py,
-produtos/views.py, pdv/services.py, pdv/views.py, testes) e Loom (Produtos.jsx,
-pdv/FrenteDeCaixa.jsx, pdv/components/CarrinhoItem.jsx) em paralelo → Sentinel (validar
-CA-01 a CA-12, com atenção especial a CA-06/RN-05 por ser o achado de maior risco) →
+➡️ **Planner: rotear para Pipeline B (bug + melhoria_ux sobre módulo existente) —
+Forge (`backend/pdv/views.py`, `backend/pdv/tests.py`) e Loom (`FrenteDeCaixa.jsx`,
+`AberturaCaixa.jsx`, `FechamentoCaixa.jsx`, `Sidebar.jsx`, `Vendas.jsx`) em paralelo →
+Sentinel (validar CA-01 a CA-12, com atenção especial a CA-02/CA-04/CA-06 por serem os
+casos que o pedido original teria deixado quebrados se corrigido só no frontend) →
 Pilot.**
