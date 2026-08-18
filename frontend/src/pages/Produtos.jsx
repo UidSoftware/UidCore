@@ -55,6 +55,38 @@ function resolverFatorBase(conversoes, unidadeBase, unidade, _visitados = new Se
   return { ok: true, fator: parseFloat(conv.quantidade_por_base) * resto.fator }
 }
 
+// RF-02 (Manutencao 40): o backend exige que a unidade referenciada em
+// `converte_para` ja exista persistida no banco no momento do POST/PATCH
+// daquela linha (produtos/services.py::_resolver_fator). Como agora o
+// Select (RF-01) permite escolher qualquer unidade como destino antes dela
+// ter linha propria criada, o handleSubmit precisa salvar as linhas em
+// ordem de dependencia (topologica), nao na ordem em que aparecem na tela.
+// Detecta ciclo e lanca Error com o caminho, para o submit abortar antes de
+// disparar qualquer POST/PATCH de conversao (RN-03).
+function ordenarConversoesPorDependencia(lista) {
+  const porUnidade = new Map(lista.map((c) => [c.unidade, c]))
+  const estado = new Map() // unidade -> 'visitando' | 'pronto'
+  const ordenado = []
+
+  function visitar(unidade, caminho) {
+    if (!porUnidade.has(unidade)) return // referencia unidade_base ou linha inexistente
+    if (estado.get(unidade) === 'pronto') return
+    if (estado.get(unidade) === 'visitando') {
+      throw new Error(`Conversões em ciclo: ${[...caminho, unidade].join(' → ')}. Corrija antes de salvar.`)
+    }
+    estado.set(unidade, 'visitando')
+    const conv = porUnidade.get(unidade)
+    if (conv.converte_para) visitar(conv.converte_para, [...caminho, unidade])
+    estado.set(unidade, 'pronto')
+    ordenado.push(conv)
+  }
+
+  for (const conv of lista) {
+    if (conv.unidade) visitar(conv.unidade, [])
+  }
+  return ordenado
+}
+
 const EMPTY_FORM = {
   nome: '',
   codigo_barras: '',
@@ -223,8 +255,24 @@ export default function Produtos() {
         showToast('Produto cadastrado com sucesso.')
       }
       // Salvar conversoes — POST das novas, PATCH das existentes que mudaram (RF-02)
+      // RF-02/RN-03: ordena por dependencia topologica antes de salvar, para
+      // que uma linha nova referenciando outra linha nova (ex.: CX -> PT,
+      // ambas ainda sem id) seja persistida na ordem correta independente
+      // de como foram criadas na tela. Se houver ciclo, aborta so a secao de
+      // conversoes (o produto principal ja foi salvo acima) e avisa o usuario.
       if (produtoId) {
-        for (const conv of conversoes) {
+        let conversoesOrdenadas
+        try {
+          conversoesOrdenadas = ordenarConversoesPorDependencia(
+            conversoes.filter((c) => c.unidade && c.quantidade_por_base),
+          )
+        } catch (error) {
+          showToast(error.message, 'error')
+          closeModal()
+          fetchProdutos()
+          return
+        }
+        for (const conv of conversoesOrdenadas) {
           if (!conv.unidade || !conv.quantidade_por_base) continue
           const payload = stripEmptyStrings({
             unidade: conv.unidade,
@@ -539,14 +587,16 @@ export default function Produtos() {
                 {conversoes.map((conv, idx) => {
                   const unidadeBase = form.unidade_base || 'UN'
                   const convertePara = conv.converte_para || unidadeBase
-                  // Converte-para: unidade base do produto (sempre primeira opcao)
-                  // + demais unidades ja usadas em outras linhas, exceto a propria.
+                  // RF-01/RN-02 (Manutencao 40): Converte-para oferece TODAS as
+                  // unidades do catalogo fixo UNIDADE_OPTIONS, exceto a base
+                  // (que ja entra separadamente como "(base)") e a propria
+                  // unidade da linha — nao depende mais de quais outras linhas
+                  // ja foram criadas em `conversoes` (bug de ordem corrigido).
                   const converteParaOptions = [
                     { value: unidadeBase, label: `${unidadeLabel(unidadeBase)} (base)` },
-                    ...conversoes
-                      .filter((c, i) => i !== idx && c.unidade && c.unidade !== unidadeBase)
-                      .map((c) => ({ value: c.unidade, label: unidadeLabel(c.unidade) }))
-                      .filter((opt, i, arr) => arr.findIndex((o) => o.value === opt.value) === i),
+                    ...UNIDADE_OPTIONS
+                      .filter((u) => u.value !== unidadeBase && u.value !== conv.unidade)
+                      .map((u) => ({ value: u.value, label: u.label })),
                   ]
                   const resultado =
                     conv.unidade && conv.quantidade_por_base
