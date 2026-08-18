@@ -202,6 +202,43 @@ class ConversaoUnidadeAPITest(APITestCase):
         self.assertEqual(resp_cx.status_code, status.HTTP_201_CREATED, resp_cx.data)
         self.assertEqual(resp_cx.data['converte_para'], 'PT')
 
+    def test_criar_cx_antes_de_pt_sem_pt_cadastrada_rejeitada_400(self):
+        """Manutencao 40 — cenario exato relatado pelo usuario: criar CX
+        (converte_para=PT, quantidade_por_base=6) ANTES de existir uma
+        linha PT persistida. Confirma RN-04 da Especificacao_Hotfix.md:
+        isso NAO e bug de backend — e o comportamento intencional (a
+        cadeia so pode ser resolvida ate a unidade base se cada elo
+        referenciado ja estiver persistido no momento do POST daquela
+        linha). O fix do cenario completo do usuario fica no frontend
+        (RF-02, ordenacao topologica das chamadas POST/PATCH antes de
+        disparar), nao aqui."""
+        resp_cx_primeiro = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'converte_para': 'PT', 'quantidade_por_base': '6'},
+            format='json',
+        )
+        self.assertEqual(resp_cx_primeiro.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('PT', str(resp_cx_primeiro.data))
+
+        # Criando PT primeiro (ordem correta) e depois CX apontando para
+        # ela funciona normalmente — confirma que a resolucao da cadeia e
+        # agnostica a ordem HISTORICA de criacao, so exige que a unidade
+        # referenciada esteja persistida no momento exato do POST.
+        resp_pt = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'PT', 'quantidade_por_base': '50'},
+            format='json',
+        )
+        self.assertEqual(resp_pt.status_code, status.HTTP_201_CREATED, resp_pt.data)
+
+        resp_cx_depois = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/conversoes/',
+            {'unidade': 'CX', 'converte_para': 'PT', 'quantidade_por_base': '6'},
+            format='json',
+        )
+        self.assertEqual(resp_cx_depois.status_code, status.HTTP_201_CREATED, resp_cx_depois.data)
+        self.assertEqual(resp_cx_depois.data['converte_para'], 'PT')
+
     def test_criar_conversao_ciclo_rejeitada_400(self):
         self.client.post(
             f'/api/v1/produtos/{self.produto.id}/conversoes/',
