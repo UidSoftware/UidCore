@@ -211,6 +211,45 @@ class AbrirSessaoServiceTest(TestCase):
         resumo_fechada = calcular_resumo_sessao(sessao_fechada)
         self.assertEqual(resumo_fechada['valor_calculado_dinheiro'], sessao_fechada.valor_fechamento_calculado)
 
+    def test_venda_pix_nao_entra_no_valor_calculado_dinheiro(self):
+        """
+        RN-07 (18/08/2026): PIX/debito liquidam direto na conta bancaria,
+        nunca passam pela gaveta fisica -- nao podem contar em
+        vendas_dinheiro/valor_calculado_dinheiro (isso gerava quebra de
+        caixa falsa toda vez que havia venda por PIX). Continuam
+        aparecendo em por_metodo, que e so a conferencia por forma de
+        pagamento.
+        """
+        from .services import calcular_resumo_sessao
+
+        conta_corrente = _criar_conta('Banco Teste', 'CORRENTE')
+        sessao = abrir_sessao(
+            conta_id=self.conta.id,
+            valor_abertura=Decimal('100.00'),
+            usuario=self.usuario,
+        )
+        metodo_pix = _criar_metodo('PIX')
+        produto = _criar_produto()
+
+        venda = Venda.objects.create(sessao_caixa=sessao, operador=self.usuario)
+        ItemVenda.objects.create(
+            venda=venda, produto=produto, quantidade=Decimal('1'),
+            unidade='UN', valor_unitario=produto.preco_venda,
+        )
+        venda.recalcular_total()
+        finalizar_venda(
+            venda=venda,
+            pagamentos_payload=[{'metodo': metodo_pix.id, 'valor': venda.valor_total, 'conta': conta_corrente.id}],
+            usuario=self.usuario,
+        )
+
+        resumo = calcular_resumo_sessao(sessao)
+        self.assertEqual(resumo['vendas_dinheiro'], Decimal('0'))
+        self.assertEqual(resumo['valor_calculado_dinheiro'], Decimal('100.00'))
+        self.assertEqual(len(resumo['por_metodo']), 1)
+        self.assertEqual(resumo['por_metodo'][0]['metodo_nome'], 'PIX')
+        self.assertEqual(resumo['por_metodo'][0]['total'], produto.preco_venda)
+
 
 # ---------------------------------------------------------------------------
 # Testes de API (integration)

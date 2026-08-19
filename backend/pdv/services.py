@@ -237,12 +237,19 @@ def calcular_resumo_sessao(sessao):
       - fechar_sessao() — mesma fórmula, agora extraída daqui (RN-07).
 
     valor_calculado_dinheiro = valor_abertura
-                               + vendas finalizadas à vista (dinheiro/pix/débito)
+                               + vendas finalizadas em DINHEIRO
                                + suprimentos
                                - sangrias
-    (Apenas métodos à vista entram no cálculo físico do caixa — cartão de
-    crédito não entra na gaveta física, mas continua listado em por_metodo
-    para a conferência de "vendas por forma de pagamento".)
+    (18/08/2026: só DINHEIRO entra aqui — é literalmente a gaveta física
+    que o operador vai contar no fechamento. PIX/débito liquidam direto
+    na conta bancária (finalizar_venda já credita a Conta correta por
+    forma de pagamento), nunca passam pela gaveta — somar eles aqui
+    inflava o valor esperado e gerava "quebra de caixa" falsa toda vez
+    que havia uma venda por PIX/débito. Cartão de crédito também nunca
+    entrou aqui, mas por motivo diferente: é recebível com prazo, não
+    dinheiro nem na gaveta nem na conta na hora da venda. Todos os
+    métodos continuam listados em por_metodo, que é só a conferência de
+    "quanto vendi por forma de pagamento", não o cálculo físico do caixa.)
     """
     from django.db.models import Sum
 
@@ -265,11 +272,7 @@ def calcular_resumo_sessao(sessao):
     ]
 
     vendas_dinheiro = pagamentos_qs.filter(
-        metodo__nome__in=[
-            NomeMetodoPagamento.DINHEIRO,
-            NomeMetodoPagamento.PIX,
-            NomeMetodoPagamento.CARTAO_DEBITO,
-        ],
+        metodo__nome=NomeMetodoPagamento.DINHEIRO,
     ).aggregate(v=Sum('valor'))['v'] or Decimal('0')
 
     suprimentos = sessao.movimentos.filter(
