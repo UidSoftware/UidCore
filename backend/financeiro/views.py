@@ -53,6 +53,16 @@ class ContaViewSet(ModelViewSet):
     filterset_fields = ['tipo']
     search_fields = ['nome']
 
+    def get_permissions(self):
+        # RN (18/08/2026): criar/editar/apagar Conta (bancaria ou Caixa)
+        # e acao administrativa -- so IsAdmin. Leitura (list/retrieve)
+        # continua IsAuthenticated: PDV precisa ler contas tipo=CAIXA pra
+        # abrir sessao, e o resto do app ja segue esse padrao mais aberto
+        # pra leitura.
+        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+            return [IsAdmin()]
+        return super().get_permissions()
+
     def perform_create(self, serializer):
         serializer.save(criado_por=self.request.user)
 
