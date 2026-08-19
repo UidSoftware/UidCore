@@ -243,3 +243,62 @@ class ColaboradorCriarUsuarioAPITest(APITestCase):
         self.assertIsNone(resp.data['usuario_email'])
         colab = Colaborador.objects.get(pk=resp.data['id'])
         self.assertIsNone(colab.usuario_id)
+
+
+class ColaboradorAtualizarUsuarioAPITest(APITestCase):
+    """Manutencao #45 -- RF-04/RN-01/RN-02: criar acesso tambem ao editar
+    um Colaborador existente que ainda nao tem acesso, com a mesma guarda
+    tudo-ou-nada da criacao e a guarda extra de nao dar acesso duas vezes.
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email='admin.rh45@teste.com', password='x', nome_completo='Admin RH', is_staff=True,
+        )
+        self.cargo = _make_cargo(nome='Vendedor 45', salario_base=Decimal('2500.00'))
+
+    @patch('accounts.services.enviar_email_sistema')
+    def test_update_colaborador_sem_acesso_ganha_acesso(self, mock_enviar):
+        colaborador = _make_colaborador(self.cargo, cpf='90066677788', nome='Sem Acesso 45')
+        colaborador.email = 'semacesso.45@teste.com'
+        colaborador.save(update_fields=['email'])
+        self.assertIsNone(colaborador.usuario_id)
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            f'/api/v1/rh/colaboradores/{colaborador.pk}/',
+            {'criar_usuario': 'true'},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        self.assertTrue(resp.data['tem_acesso'])
+        self.assertEqual(resp.data['usuario_email'], 'semacesso.45@teste.com')
+
+        colaborador.refresh_from_db()
+        self.assertIsNotNone(colaborador.usuario_id)
+        usuario = User.objects.get(email='semacesso.45@teste.com')
+        self.assertFalse(usuario.has_usable_password())
+        mock_enviar.assert_called_once()
+
+    def test_update_colaborador_com_acesso_rejeita_criar_usuario(self):
+        colaborador = _make_colaborador(self.cargo, cpf='90077788899', nome='Com Acesso 45')
+        usuario_existente = User.objects.create_user(
+            email='comacesso.45@teste.com', password='x', nome_completo='Com Acesso 45',
+        )
+        colaborador.usuario = usuario_existente
+        colaborador.save(update_fields=['usuario'])
+        user_antes = User.objects.count()
+
+        self.client.force_authenticate(self.admin)
+        resp = self.client.patch(
+            f'/api/v1/rh/colaboradores/{colaborador.pk}/',
+            {'criar_usuario': 'true', 'usuario_email': 'outronovo.45@teste.com'},
+            format='json',
+        )
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(User.objects.count(), user_antes)
+
+        colaborador.refresh_from_db()
+        self.assertEqual(colaborador.usuario_id, usuario_existente.pk)
