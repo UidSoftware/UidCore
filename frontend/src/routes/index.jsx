@@ -12,6 +12,7 @@ import Vendas from '../pages/Vendas.jsx'
 import Pagamentos from '../pages/Pagamentos.jsx'
 import Administrativo from '../pages/Administrativo.jsx'
 import Rh from '../pages/Rh.jsx'
+import Usuarios from '../pages/Usuarios.jsx'
 import Agendamento from '../pages/Agendamento.jsx'
 import Portal from '../pages/Portal.jsx'
 import Produtos from '../pages/Produtos.jsx'
@@ -24,6 +25,12 @@ import RelatorioSessoesCaixa from '../pages/pdv/RelatorioSessoesCaixa.jsx'
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
   if (!isAuthenticated) return <Navigate to="/login" replace />
+  return children
+}
+
+function StaffRoute({ children }) {
+  const isStaff = useAuthStore((s) => s.user?.is_staff)
+  if (!isStaff) return <Navigate to="/dashboard" replace />
   return children
 }
 
@@ -51,6 +58,14 @@ export default function AppRoutes() {
         <Route path="/conciliacao" element={<Conciliacao />} />
         <Route path="/administrativo" element={<Administrativo />} />
         <Route path="/rh" element={<Rh />} />
+        <Route
+          path="/usuarios"
+          element={
+            <StaffRoute>
+              <Usuarios />
+            </StaffRoute>
+          }
+        />
         <Route path="/agendamento" element={<Agendamento />} />
         <Route path="/portal" element={<Portal />} />
         <Route path="/pdv" element={<FrenteDeCaixa />} />

@@ -34,6 +34,9 @@ export default function ResourceCrud({
   emptyForm,
   titleField,
   deleteConfirm,
+  rowActions = [],
+  deleteLabel = 'Excluir',
+  onBeforeSubmit,
 }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -125,6 +128,14 @@ export default function ResourceCrud({
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (onBeforeSubmit) {
+      const result = onBeforeSubmit(form, editingId)
+      if (result === false) return
+      if (typeof result === 'string') {
+        showToast(result, 'error')
+        return
+      }
+    }
     setSaving(true)
     try {
       const payload = buildPayload()
@@ -147,7 +158,7 @@ export default function ResourceCrud({
 
   const handleDelete = async (item) => {
     const label = titleField ? item[titleField] : `#${item.id}`
-    const msg = deleteConfirm ? deleteConfirm(item) : `Excluir "${label}"?`
+    const msg = deleteConfirm ? deleteConfirm(item) : `${deleteLabel} "${label}"?`
     if (!window.confirm(msg)) return
     try {
       await api.delete(`/${resource}/${item.id}/`)
@@ -155,6 +166,16 @@ export default function ResourceCrud({
       fetchItems()
     } catch (error) {
       showToast(extractErrorMessage(error, 'Erro ao remover registro.'), 'error')
+    }
+  }
+
+  const handleRowAction = async (action, item) => {
+    try {
+      await action.onClick(item)
+      if (action.successMessage) showToast(action.successMessage)
+      if (action.refresh !== false) fetchItems()
+    } catch (error) {
+      showToast(extractErrorMessage(error, action.errorMessage || 'Erro ao executar ação.'), 'error')
     }
   }
 
@@ -190,15 +211,24 @@ export default function ResourceCrud({
       onChange: handleChange,
       required: f.required,
     }
+    if (f.type === 'divider') {
+      return <div key={f.name} className="sm:col-span-2 pt-2 mt-2 border-t border-gray-100 dark:border-navy-700" />
+    }
     if (f.type === 'checkbox') {
       return (
-        <div key={f.name} className="flex items-center gap-2 pt-6">
+        <div key={f.name} className={`flex items-center gap-2 pt-6 ${f.colSpan2 ? 'sm:col-span-2' : ''}`}>
           <input
             id={f.name}
             type="checkbox"
             name={f.name}
             checked={!!form[f.name]}
-            onChange={(e) => setForm((prev) => ({ ...prev, [f.name]: e.target.checked }))}
+            onChange={(e) => {
+              const checked = e.target.checked
+              setForm((prev) => {
+                const next = { ...prev, [f.name]: checked }
+                return f.onToggle ? f.onToggle(checked, next) : next
+              })
+            }}
             className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-navy-500 dark:bg-navy-800 dark:text-violet-600 dark:focus:ring-violet-500"
           />
           <label htmlFor={f.name} className="text-sm font-medium text-gray-700 dark:text-slate-300">{f.label}</label>
@@ -248,15 +278,29 @@ export default function ResourceCrud({
       )
     }
     return (
-      <Input
-        {...commonProps}
-        type={f.type || 'text'}
-        step={f.step}
-        min={f.min}
-        placeholder={f.placeholder}
-      />
+      <div key={f.name} className={f.colSpan2 ? 'sm:col-span-2' : undefined}>
+        <Input
+          {...commonProps}
+          key={undefined}
+          type={f.type || 'text'}
+          step={f.step}
+          min={f.min}
+          placeholder={f.placeholder}
+        />
+        {f.helpText && (
+          <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">
+            {typeof f.helpText === 'function' ? f.helpText(!!editingId) : f.helpText}
+          </p>
+        )}
+      </div>
     )
   }
+
+  const visibleFields = fields.filter((f) => {
+    if (f.hideOnEdit && editingId) return false
+    if (f.showIf && !f.showIf(form)) return false
+    return true
+  })
 
   return (
     <div className="space-y-4">
@@ -310,8 +354,24 @@ export default function ResourceCrud({
                           <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>
                             Editar
                           </Button>
+                          {rowActions
+                            .filter((action) => !action.showIf || action.showIf(item))
+                            .map((action, idx) => {
+                              const Icon = action.icon
+                              return (
+                                <Button
+                                  key={`${action.label}-${idx}`}
+                                  size="sm"
+                                  variant={action.variant || 'secondary'}
+                                  onClick={() => handleRowAction(action, item)}
+                                >
+                                  {Icon && <Icon size={14} />}
+                                  {action.label}
+                                </Button>
+                              )
+                            })}
                           <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>
-                            Excluir
+                            {deleteLabel}
                           </Button>
                         </div>
                       </td>
@@ -329,7 +389,7 @@ export default function ResourceCrud({
         <Modal title={editingId ? `Editar ${title}` : createLabel} onClose={closeModal} maxW="max-w-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {fields.map((f) => renderField(f))}
+              {visibleFields.map((f) => renderField(f))}
             </div>
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>

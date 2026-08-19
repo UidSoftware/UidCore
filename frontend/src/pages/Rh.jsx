@@ -67,6 +67,8 @@ export default function Rh() {
             { key: 'regime_label', label: 'Regime', badge: true },
             { key: 'salario_atual', label: 'Salário', money: true },
             { key: 'data_admissao', label: 'Admissão', date: true },
+            { key: 'tem_acesso', label: 'Acesso', boolean: true },
+            { key: 'usuario_email', label: 'E-mail de Acesso' },
           ]}
           fields={[
             { name: 'nome', label: 'Nome', type: 'text' },
@@ -78,8 +80,43 @@ export default function Rh() {
             { name: 'data_admissao', label: 'Data de Admissão', type: 'date' },
             { name: 'data_demissao', label: 'Data de Demissão', type: 'date' },
             { name: 'observacoes', label: 'Observações', type: 'textarea' },
+            { name: 'acesso_divider', type: 'divider', hideOnEdit: true },
+            {
+              name: 'criar_usuario',
+              label: 'Criar acesso ao sistema',
+              type: 'checkbox',
+              colSpan2: true,
+              hideOnEdit: true,
+              onToggle: (checked, next) => (checked && !next.usuario_email ? { ...next, usuario_email: next.email } : next),
+            },
+            {
+              name: 'usuario_email',
+              label: 'E-mail de acesso',
+              type: 'email',
+              colSpan2: true,
+              hideOnEdit: true,
+              showIf: (form) => !!form.criar_usuario,
+            },
+            {
+              name: 'usuario_senha',
+              label: 'Senha (opcional)',
+              type: 'password',
+              colSpan2: true,
+              hideOnEdit: true,
+              showIf: (form) => !!form.criar_usuario,
+              helpText: 'Deixe em branco para enviar link de definição de senha por e-mail.',
+            },
           ]}
-          emptyForm={{ nome: '', cpf: '', email: '', cargo: '', regime: 'CLT', salario_atual: '', data_admissao: '', data_demissao: '', observacoes: '' }}
+          emptyForm={{
+            nome: '', cpf: '', email: '', cargo: '', regime: 'CLT', salario_atual: '', data_admissao: '', data_demissao: '', observacoes: '',
+            criar_usuario: false, usuario_email: '', usuario_senha: '',
+          }}
+          onBeforeSubmit={(form, editingId) => {
+            if (!editingId && form.criar_usuario && !form.usuario_email) {
+              return 'Informe o e-mail de acesso para criar o usuário.'
+            }
+            return true
+          }}
         />
       )}
 

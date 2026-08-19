@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import useAuthStore from '../../stores/authStore.js'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '📊' },
@@ -11,11 +12,15 @@ const navItems = [
   { to: '/conciliacao', label: 'Conciliação', icon: '🔄' },
   { to: '/administrativo', label: 'Administrativo', icon: '📁' },
   { to: '/rh', label: 'RH', icon: '👔' },
+  { to: '/usuarios', label: 'Usuários', icon: '👤', staffOnly: true },
   { to: '/agendamento', label: 'Agendamento', icon: '📅' },
   { to: '/portal', label: 'Portal do Cliente', icon: '🌐' },
 ]
 
 export default function Sidebar({ collapsed, onToggle }) {
+  const isStaff = useAuthStore((s) => s.user?.is_staff)
+  const visibleItems = navItems.filter((item) => !item.staffOnly || isStaff)
+
   return (
     <aside
       className={`
@@ -43,7 +48,7 @@ export default function Sidebar({ collapsed, onToggle }) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-4 space-y-1 px-2">
-        {navItems.map(({ to, label, icon }) => (
+        {visibleItems.map(({ to, label, icon }) => (
           <NavLink
             key={to}
             to={to}
