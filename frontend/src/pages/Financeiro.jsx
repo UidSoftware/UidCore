@@ -799,6 +799,8 @@ function ContasTab({ showToast }) {
   const [transferOrigem, setTransferOrigem] = useState(null)
   const [transferForm, setTransferForm] = useState(EMPTY_TRANSFER)
   const [transferSaving, setTransferSaving] = useState(false)
+  const [sessoesCaixa, setSessoesCaixa] = useState([])
+  const [sessaoSelecionada, setSessaoSelecionada] = useState('')
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -852,11 +854,39 @@ function ContasTab({ showToast }) {
 
   const handleTransferChange = (e) => setTransferForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
-  const openTransfer = (item) => {
+  const openTransfer = async (item) => {
     setTransferOrigem(item)
     setTransferForm({ ...EMPTY_TRANSFER, data: new Date().toISOString().split('T')[0] })
+    setSessaoSelecionada('')
+    setSessoesCaixa([])
+    if (item.tipo === 'CAIXA') {
+      try {
+        const { data } = await api.get('/pdv/sessoes/', {
+          params: { conta: item.id, status: 'FECHADA', ordering: '-data_abertura', page_size: 50 },
+        })
+        setSessoesCaixa(data.results || [])
+      } catch { /* combobox e so um atalho -- se falhar, descricao livre continua funcionando */ }
+    }
   }
-  const closeTransfer = () => { setTransferOrigem(null); setTransferForm(EMPTY_TRANSFER) }
+  const closeTransfer = () => {
+    setTransferOrigem(null); setTransferForm(EMPTY_TRANSFER)
+    setSessoesCaixa([]); setSessaoSelecionada('')
+  }
+
+  const handleSelecionarSessao = (e) => {
+    const sessaoId = e.target.value
+    setSessaoSelecionada(sessaoId)
+    if (!sessaoId) return
+    const sessao = sessoesCaixa.find((s) => String(s.id) === sessaoId)
+    if (!sessao) return
+    const dataFmt = sessao.data_fechamento
+      ? new Date(sessao.data_fechamento).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : '—'
+    setTransferForm((p) => ({
+      ...p,
+      descricao: `Sessão #${sessao.id} — ${sessao.operador_nome || 'operador'} — fechada ${dataFmt}`,
+    }))
+  }
 
   const handleTransferSubmit = async (e) => {
     e.preventDefault(); setTransferSaving(true)
@@ -946,6 +976,24 @@ function ContasTab({ showToast }) {
                   .map((c) => ({ value: c.id, label: `${c.nome} (${c.tipo})` })),
               ]}
             />
+            {transferOrigem.tipo === 'CAIXA' && sessoesCaixa.length > 0 && (
+              <Select
+                label="Sessão de caixa (opcional — preenche a descrição)"
+                value={sessaoSelecionada}
+                onChange={handleSelecionarSessao}
+                options={[
+                  { value: '', label: 'Nenhuma / descrição manual' },
+                  ...sessoesCaixa.map((s) => ({
+                    value: String(s.id),
+                    label: `#${s.id} — ${s.operador_nome || 'operador'} — fechada ${
+                      s.data_fechamento
+                        ? new Date(s.data_fechamento).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+                        : '—'
+                    } — dif. ${BRL(s.diferenca)}`,
+                  })),
+                ]}
+              />
+            )}
             <Input
               label="Valor (R$)" name="valor" type="number" step="0.01"
               value={transferForm.valor} onChange={handleTransferChange}
