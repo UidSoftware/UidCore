@@ -2,13 +2,30 @@ from django.contrib.auth.tokens import default_token_generator
 from django.utils.encoding import force_str
 from django.utils.http import urlsafe_base64_decode
 from rest_framework import generics, permissions, status
+from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
 
 from common.permissions import IsAdmin
 
 from .models import User
-from .serializers import RegisterSerializer, UserSerializer
+from .serializers import RegisterSerializer, UserAdminSerializer, UserSerializer
+
+
+class UserViewSet(ModelViewSet):
+    """Tela de Usuarios (IsAdmin) — cria/edita/lista/desativa qualquer User do sistema."""
+    queryset = User.objects.all().select_related('colaborador').order_by('-date_joined')
+    serializer_class = UserAdminSerializer
+    permission_classes = [IsAdmin]
+    filter_backends = [SearchFilter]
+    search_fields = ['email', 'nome_completo']
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RegisterView(generics.CreateAPIView):

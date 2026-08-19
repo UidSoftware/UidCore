@@ -16,6 +16,8 @@ class ColaboradorSerializer(serializers.ModelSerializer):
     id           = serializers.IntegerField(source='pk', read_only=True)
     cargo_nome   = serializers.CharField(source='cargo.nome', read_only=True)
     regime_label = serializers.CharField(source='get_regime_display', read_only=True)
+    tem_acesso   = serializers.SerializerMethodField()
+    usuario_email = serializers.CharField(source='usuario.email', read_only=True, default=None)
 
     class Meta:
         model = Colaborador
@@ -23,8 +25,12 @@ class ColaboradorSerializer(serializers.ModelSerializer):
             'id', 'nome', 'cpf', 'email', 'cargo', 'cargo_nome',
             'data_admissao', 'data_demissao', 'salario_atual',
             'regime', 'regime_label', 'observacoes', 'is_active', 'created_at',
+            'tem_acesso', 'usuario_email',
         ]
-        read_only_fields = ['id', 'cargo_nome', 'regime_label', 'created_at']
+        read_only_fields = ['id', 'cargo_nome', 'regime_label', 'created_at', 'tem_acesso', 'usuario_email']
+
+    def get_tem_acesso(self, obj):
+        return obj.usuario_id is not None
 
 
 class FolhaPagamentoSerializer(serializers.ModelSerializer):

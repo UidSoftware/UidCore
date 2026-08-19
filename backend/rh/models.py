@@ -32,6 +32,9 @@ class Colaborador(BaseModel):
     cargo          = models.ForeignKey(
         Cargo, null=True, blank=True, on_delete=models.PROTECT, related_name='colaboradores',
     )
+    usuario        = models.OneToOneField(
+        'accounts.User', null=True, blank=True, on_delete=models.SET_NULL, related_name='colaborador',
+    )
     data_admissao  = models.DateField(null=True, blank=True)
     data_demissao  = models.DateField(null=True, blank=True)
     salario_atual  = models.DecimalField(max_digits=12, decimal_places=2, default=0)

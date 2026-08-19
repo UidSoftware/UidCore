@@ -2,9 +2,13 @@
 
 Cobre RF-R01 a RF-R04 e RN-R01 a RN-R03 da Especificacao_Hotfix.md.
 Atualizado na Manutencao #33: Funcionario renomeado para Colaborador.
+Atualizado na Manutencao #44: cobertura de criar_usuario em
+ColaboradorViewSet.perform_create (RF-01/RN-03 -- Colaborador+User
+tudo-ou-nada).
 """
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.test import TestCase
 from rest_framework import status
@@ -150,3 +154,92 @@ class CargoAPITest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         cargo = Cargo.objects.get(pk=cargo_id)
         self.assertFalse(cargo.is_active)
+
+
+class ColaboradorCriarUsuarioAPITest(APITestCase):
+    """Manutencao #44 -- RF-01/RN-03: criar_usuario e tudo-ou-nada.
+
+    Cobre a RN-CRITICA reportada pelo Analista: nenhum Colaborador orfao
+    pode ficar no banco se a criacao de acesso falhar (403 nao-staff, 400
+    email duplicado, 400 senha curta).
+    """
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email='admin.rh44@teste.com', password='x', nome_completo='Admin RH', is_staff=True,
+        )
+        self.comum = User.objects.create_user(
+            email='comum.rh44@teste.com', password='x', nome_completo='Comum RH', is_staff=False,
+        )
+        self.cargo = _make_cargo(nome='Vendedor 44', salario_base=Decimal('2500.00'))
+
+    def _payload(self, cpf, **overrides):
+        data = {
+            'nome': 'Fulano de Tal', 'cpf': cpf, 'email': 'fulano.44@teste.com',
+            'cargo': self.cargo.id, 'data_admissao': '2026-08-01', 'salario_atual': '3000.00',
+            'regime': 'CLT', 'criar_usuario': 'true',
+        }
+        data.update(overrides)
+        return data
+
+    @patch('accounts.services.enviar_email_sistema')
+    def test_criar_com_acesso_por_admin_ok(self, mock_enviar):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload('90011122233'), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        self.assertTrue(resp.data['tem_acesso'])
+        self.assertEqual(resp.data['usuario_email'], 'fulano.44@teste.com')
+
+        colab = Colaborador.objects.get(pk=resp.data['id'])
+        self.assertIsNotNone(colab.usuario_id)
+        usuario = User.objects.get(email='fulano.44@teste.com')
+        self.assertFalse(usuario.has_usable_password())
+        mock_enviar.assert_called_once()
+
+    def test_criar_com_acesso_por_nao_staff_retorna_403_zero_registros(self):
+        self.client.force_authenticate(self.comum)
+        colab_antes, user_antes = Colaborador.objects.count(), User.objects.count()
+
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload('90022233344'), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(Colaborador.objects.count(), colab_antes)
+        self.assertEqual(User.objects.count(), user_antes)
+
+    def test_criar_com_email_duplicado_retorna_400_zero_registros(self):
+        User.objects.create_user(email='ja.existe.44@teste.com', password='x', nome_completo='Ja Existe')
+        self.client.force_authenticate(self.admin)
+        colab_antes, user_antes = Colaborador.objects.count(), User.objects.count()
+
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload(
+            '90033344455', usuario_email='ja.existe.44@teste.com',
+        ), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Colaborador.objects.count(), colab_antes)
+        self.assertEqual(User.objects.count(), user_antes)
+
+    def test_criar_com_senha_curta_retorna_400_zero_registros(self):
+        self.client.force_authenticate(self.admin)
+        colab_antes, user_antes = Colaborador.objects.count(), User.objects.count()
+
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload(
+            '90044455566', usuario_senha='123',
+        ), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Colaborador.objects.count(), colab_antes)
+        self.assertEqual(User.objects.count(), user_antes)
+
+    def test_criar_sem_acesso_ok(self):
+        self.client.force_authenticate(self.admin)
+
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload(
+            '90055566677', criar_usuario='false',
+        ), format='json')
+
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        self.assertFalse(resp.data['tem_acesso'])
+        self.assertIsNone(resp.data['usuario_email'])
+        colab = Colaborador.objects.get(pk=resp.data['id'])
+        self.assertIsNone(colab.usuario_id)

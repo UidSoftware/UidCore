@@ -134,3 +134,109 @@ class DefinirSenhaViewTest(TestCase):
         self.assertEqual(r2.status_code, 400)
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password('PrimeiraTroca1'))
+
+
+class UserViewSetTest(TestCase):
+    """Manutencao #44 -- tela de Usuarios (IsAdmin): CRUD so para is_staff."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email='admin.uv44@teste.com', password='x', nome_completo='Admin UV', is_staff=True,
+        )
+        self.comum = User.objects.create_user(
+            email='comum.uv44@teste.com', password='x', nome_completo='Comum UV', is_staff=False,
+        )
+
+    def test_list_por_admin_ok(self):
+        c = APIClient()
+        c.force_authenticate(self.admin)
+        r = c.get('/api/v1/accounts/usuarios/')
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_list_por_nao_staff_403(self):
+        c = APIClient()
+        c.force_authenticate(self.comum)
+        r = c.get('/api/v1/accounts/usuarios/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_list_sem_autenticacao_401(self):
+        c = APIClient()
+        r = c.get('/api/v1/accounts/usuarios/')
+        self.assertEqual(r.status_code, 401)
+
+    def test_create_por_admin_senha_vazia_gera_unusable_password(self):
+        c = APIClient()
+        c.force_authenticate(self.admin)
+        r = c.post('/api/v1/accounts/usuarios/', {
+            'email': 'novo.uv44@teste.com', 'nome_completo': 'Novo Usuario',
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        novo = User.objects.get(email='novo.uv44@teste.com')
+        self.assertFalse(novo.has_usable_password())
+
+    def test_create_por_admin_com_senha(self):
+        c = APIClient()
+        c.force_authenticate(self.admin)
+        r = c.post('/api/v1/accounts/usuarios/', {
+            'email': 'novosenha.uv44@teste.com', 'nome_completo': 'Novo Com Senha',
+            'password': 'SenhaValida1',
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        novo = User.objects.get(email='novosenha.uv44@teste.com')
+        self.assertTrue(novo.check_password('SenhaValida1'))
+
+    def test_create_por_nao_staff_403_zero_registros(self):
+        c = APIClient()
+        c.force_authenticate(self.comum)
+        r = c.post('/api/v1/accounts/usuarios/', {
+            'email': 'bloqueado.uv44@teste.com', 'nome_completo': 'Bloqueado',
+        }, format='json')
+        self.assertEqual(r.status_code, 403)
+        self.assertFalse(User.objects.filter(email='bloqueado.uv44@teste.com').exists())
+
+    def test_update_com_senha_muda_hash(self):
+        alvo = User.objects.create_user(
+            email='alvo.uv44@teste.com', password='SenhaOriginal1', nome_completo='Alvo UV',
+        )
+        hash_antes = alvo.password
+        c = APIClient()
+        c.force_authenticate(self.admin)
+        r = c.patch(f'/api/v1/accounts/usuarios/{alvo.id}/', {'password': 'SenhaNovaUV1'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        alvo.refresh_from_db()
+        self.assertNotEqual(alvo.password, hash_antes)
+        self.assertTrue(alvo.check_password('SenhaNovaUV1'))
+
+    def test_destroy_faz_soft_disable(self):
+        alvo = User.objects.create_user(
+            email='desativar.uv44@teste.com', password='x', nome_completo='Desativar',
+        )
+        c = APIClient()
+        c.force_authenticate(self.admin)
+        r = c.delete(f'/api/v1/accounts/usuarios/{alvo.id}/')
+        self.assertEqual(r.status_code, 204)
+        alvo.refresh_from_db()
+        self.assertFalse(alvo.is_active)
+        self.assertTrue(User.objects.filter(pk=alvo.id).exists())
+
+    def test_destroy_por_nao_staff_403(self):
+        alvo = User.objects.create_user(
+            email='naomexer.uv44@teste.com', password='x', nome_completo='Nao Mexer',
+        )
+        c = APIClient()
+        c.force_authenticate(self.comum)
+        r = c.delete(f'/api/v1/accounts/usuarios/{alvo.id}/')
+        self.assertEqual(r.status_code, 403)
+        alvo.refresh_from_db()
+        self.assertTrue(alvo.is_active)
+
+    def test_search_filter_por_email_e_nome(self):
+        User.objects.create_user(
+            email='buscavel.uv44@teste.com', password='x', nome_completo='Fulano Buscavel',
+        )
+        c = APIClient()
+        c.force_authenticate(self.admin)
+        r = c.get('/api/v1/accounts/usuarios/?search=Buscavel')
+        self.assertEqual(r.status_code, 200, r.content)
+        emails = [u['email'] for u in r.data['results']]
+        self.assertIn('buscavel.uv44@teste.com', emails)
