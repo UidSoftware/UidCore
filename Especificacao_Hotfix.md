@@ -1,17 +1,14 @@
-# Especificação — Manutenção #44
+# Especificação — Manutenção #45
 **Elaborado por:** Analista (MODO HOTFIX)
 **Data:** 2026-08-19
 **Sistema:** UidCore (OS #7)
 
 **Solicitação original (resumida):**
-"Implementar gestão de Usuários e vínculo Colaborador→Usuário no UidCore."
-Contexto técnico informado como já existente em diff não commitado (backend
-`accounts` e `rh`) e trabalho pendente listado pelo solicitante: (1) gerar a
-migration da FK `usuario` em `Colaborador` — só depois de revisar o backend
-completo; (2) revisar e commitar o backend; (3) frontend completo — tela
-Usuários (CRUD admin) e tela/form de Colaborador com toggle "Criar acesso ao
-sistema"; (4) validar os fluxos de criação com/sem acesso e o CRUD de
-usuário pela tela admin.
+Complemento da Manutenção #44 (já deployada). Permitir criar acesso ao
+sistema também ao EDITAR um Colaborador que ainda não tem acesso
+(`tem_acesso=false`) — hoje o toggle "Criar acesso ao sistema" só aparece
+na criação. Motivo: já existem colaboradores cadastrados sem acesso, que
+precisam ganhar acesso depois sem precisar recriar o cadastro.
 
 ---
 
@@ -20,460 +17,429 @@ usuário pela tela admin.
 ```
 tipo: feature_pequena
 sistema: UidCore
-caminho_afetado: backend/accounts/ (serializers.py, urls.py, views.py — já em diff)
-                 backend/rh/ (models.py, serializers.py, views.py — já em diff)
-                 backend/rh/migrations/ (nova migration da FK usuario — AINDA NÃO GERADA)
-                 frontend/src/pages/Usuarios.jsx (novo)
-                 frontend/src/pages/Rh.jsx (aba Colaboradores)
-                 frontend/src/components/ui/ResourceCrud.jsx (extensão — ver RF-08)
-                 frontend/src/routes/index.jsx, frontend/src/components/layout/Sidebar.jsx
-complexidade: media
+caminho_afetado: backend/rh/views.py (ColaboradorViewSet — perform_create + novo perform_update)
+                 frontend/src/pages/Rh.jsx (aba Colaboradores — fields da tab)
+complexidade: baixa
 requer_aprovacao_comercial: false
 ```
 
 ---
 
-## Diagnóstico confirmado (leitura direta do diff e dos arquivos — não do pedido)
+## Diagnóstico confirmado (leitura direta do código)
 
-Lido `git diff HEAD` nos 6 arquivos indicados + arquivos correlatos
-(`accounts/models.py`, `accounts/services.py`, `accounts/managers.py`,
-`common/permissions.py`, `rh/models.py`, `rh/urls.py`, `core/settings.py`,
-`core/urls.py`, `frontend/src/components/ui/ResourceCrud.jsx`,
-`frontend/src/pages/Rh.jsx`, `frontend/src/routes/index.jsx`,
-`frontend/src/components/layout/Sidebar.jsx`, `frontend/src/stores/authStore.js`).
+Lido `backend/rh/views.py` (`ColaboradorViewSet.perform_create` completo),
+`backend/rh/models.py` (`Colaborador`), `backend/rh/serializers.py`
+(`ColaboradorSerializer`) e `frontend/src/pages/Rh.jsx` (tab
+`colaboradores`) + `frontend/src/components/ui/ResourceCrud.jsx`
+(mecânica de `hideOnEdit`, `showIf`, `fieldValue`, `openEdit`,
+`buildPayload`).
 
-### O que já está pronto no diff (confirmado linha a linha)
+### O que já existe hoje (confirmado linha a linha)
 
-- `UserAdminSerializer` (accounts/serializers.py): CRUD completo de `User`,
-  `id = IntegerField(source='pk')` no padrão do projeto, senha write-only
-  opcional (vazio → `set_unusable_password()`), `colaborador_nome` read-only.
-- `UserViewSet` (accounts/views.py): `ModelViewSet` com `IsAdmin`,
-  `SearchFilter` em `email`/`nome_completo`, `destroy` faz soft-disable
-  (`is_active=False`), **não é soft delete por `deleted_at`** — `User` não
-  herda `BaseModel`, é o `is_active` nativo do `AbstractBaseUser` do Django.
-- Rota real: `router.register('usuarios', UserViewSet, basename='usuario')`
-  dentro de `accounts/urls.py`, incluído em `core/urls.py` como
-  `path('api/v1/accounts/', include('accounts.urls'))`. **Caminho final
-  correto é `/api/v1/accounts/usuarios/`**, não `/api/usuarios/` como
-  citado de forma simplificada no pedido — usar o caminho real na spec de
-  frontend (RF-02) para não gerar 404.
-- `Colaborador.usuario` (rh/models.py): `OneToOneField('accounts.User',
-  null=True, blank=True, on_delete=SET_NULL, related_name='colaborador')`
-  — correto, colaborador desligado não arrasta exclusão do usuário.
-- `ColaboradorSerializer`: `tem_acesso` (`SerializerMethodField`, calcula
-  `obj.usuario_id is not None`) + `usuario_email` read-only. A queryset do
-  ViewSet já foi ajustada com `.select_related('cargo', 'usuario')`, então
-  não gera N+1.
-- `ColaboradorViewSet.perform_create`: cria o `User` vinculado quando o
-  request manda `criar_usuario` truthy, só se `request.user.is_staff`,
-  valida email (usa o do colaborador se `usuario_email` não vier, rejeita
-  duplicado) e senha (mínimo 6, opcional → dispara `enviar_primeiro_acesso`
-  já existente em `accounts/services.py`, reaproveitado sem duplicar lógica).
-- `enviar_primeiro_acesso` / fluxo de definir senha por link (token de uso
-  único, expira 24h) já existem e já têm 100% de cobertura de teste em
-  `accounts/tests.py` — não precisa reimplementar, só reaproveitar.
-
-### RN-CRÍTICA encontrada pelo Analista — ordem de operações em `perform_create` deixa Colaborador órfão em caso de erro
-
-`ColaboradorViewSet.perform_create` (rh/views.py, linhas 43-92) faz, nesta ordem:
-
-```python
-colaborador = serializer.save()          # 1. Colaborador JÁ PERSISTIDO
-
-criar_usuario = ...
-if not criar_usuario:
-    return
-if not self.request.user.is_staff:
-    raise PermissionDenied(...)           # 2. 403 -- mas o Colaborador do passo 1 continua salvo
-...
-if User.objects.filter(email__iexact=email).exists():
-    raise ValidationError(...)            # 3. 400 -- mesmo problema
-```
-
-Cenário de falha real: um usuário autenticado **não-admin** manda
-`criar_usuario=true` (ex.: bug de frontend, ou alguém testando a API
-direto) → a API responde `403 Forbidden`, o frontend mostra erro e o
-usuário acha que nada foi criado — **mas o registro de `Colaborador` já
-está no banco**, sem usuário vinculado, sem nenhum aviso. Mesmo problema
-se o e-mail já existir (`400`) ou a senha for curta (`400`): o
-`Colaborador` fica órfão, e uma nova tentativa de "criar com acesso" pelo
-mesmo formulário cria um **segundo** Colaborador duplicado.
-
-Isso não é o comportamento "tudo ou nada" que os RFs abaixo pedem (RF-02/
-RN-03) e é o tipo de bug que só aparece em produção, quando alguém erra o
-e-mail ou a senha na hora de cadastrar. **Bloqueante para o Forge**: mover
-toda a validação (permissão, e-mail duplicado, senha) para ANTES de
-`serializer.save()`, ou envolver a criação do `Colaborador` + `User` no
-mesmo bloco — ver RF-02/RN-03 abaixo. Reportado como diagnóstico, não
-corrigido aqui — Analista não edita código.
-
-### Lacuna encontrada — vincular usuário a Colaborador já existente não é suportado
-
-O diff só resolve "criar colaborador COM acesso" (via `perform_create`).
-Não existe `perform_update` equivalente: se um Colaborador foi criado SEM
-acesso e depois o admin quiser liberar acesso (ou vincular um `User` já
-existente), a API atual não tem esse caminho. Documentado como fora do
-escopo desta manutenção (RN-07 / MoSCoW: Won't) — a menos que Luiz Eduardo
-priorize antes do Sentinel validar.
+- `Colaborador.usuario` — `OneToOneField('accounts.User', null=True,
+  blank=True, on_delete=SET_NULL)`. Não tem acesso = `usuario_id is None`.
+- `ColaboradorSerializer.tem_acesso` — `SerializerMethodField` **read-only**
+  (`get_tem_acesso(self, obj): return obj.usuario_id is not None`). Já
+  volta em toda resposta da API (list e retrieve), sem precisar de nada
+  novo no serializer para o frontend consumir.
+- `ColaboradorViewSet.perform_create` (único método hoje) — lê
+  `criar_usuario`/`usuario_email`/`usuario_senha` direto de
+  `self.request.data` (campos que não existem no model nem no
+  serializer, mesmo padrão documentado no docstring do método). Sequência
+  atual: `criar_usuario` falsy → `serializer.save()` e retorna. Se truthy:
+  1) `IsAdmin` (`self.request.user.is_staff`, senão `PermissionDenied`);
+  2) monta `email` = `usuario_email` do request OU
+     `serializer.validated_data.get('email')`, `.strip().lower()`;
+  3) `ValidationError` se `email` vazio;
+  4) `ValidationError` se já existe `User` com esse email
+     (`iexact`);
+  5) `ValidationError` se `usuario_senha` informada com menos de 6 chars;
+  6) tudo dentro de **um único `transaction.atomic()`**: `serializer.save()`
+     cria o `Colaborador`, depois cria o `User` (`set_password` ou
+     `set_unusable_password`), depois `colaborador.usuario = usuario` +
+     `colaborador.save(update_fields=['usuario'])`;
+  7) fora do atomic, se não veio senha, chama `enviar_primeiro_acesso(usuario)`
+     dentro de `try/except Exception: pass` (silencioso — não derruba a
+     criação do colaborador por falha de e-mail).
+- Não existe `perform_update` — hoje um `PATCH`/`PUT` em `Colaborador`
+  passa direto pelo `ModelViewSet.perform_update` padrão (`serializer.save()`
+  puro), então **nenhuma validação de `criar_usuario` roda no update
+  hoje** — é por isso que o pedido não funciona: mesmo que o frontend
+  mandasse `criar_usuario=true` num PATCH hoje, o backend ignoraria (campo
+  não existe no serializer, DRF descarta silenciosamente).
+- Frontend (`Rh.jsx`, tab `colaboradores`): os 4 campos relacionados a
+  acesso (`acesso_divider`, `criar_usuario`, `usuario_email`,
+  `usuario_senha`) têm `hideOnEdit: true` — `ResourceCrud.jsx` linha 300
+  (`if (f.hideOnEdit && editingId) return false`) os esconde
+  incondicionalmente sempre que `editingId` existe, ou seja, em qualquer
+  edição, mesmo de colaborador sem acesso.
+- `ResourceCrud.openEdit(item)` popula `form` chamando `fieldValue(item, f)`
+  para **todo** field da lista `fields` — inclusive um novo field
+  `tem_acesso` que não é renderizado (basta declará-lo, sem precisar de
+  `type` especial: `fieldValue` só faz `item[field.name]`, e `tem_acesso`
+  já vem no payload de list/retrieve da API).
+- `ResourceCrud.buildPayload()` envia **todo** o objeto `form` via
+  `stripEmptyStrings` (só remove `''`, preserva `true`/`false`) —
+  portanto `tem_acesso` vai junto no PATCH, mas como é
+  `SerializerMethodField` (sempre read-only, nunca aceito em input), o
+  DRF descarta silenciosamente esse valor do payload. Não requer nenhum
+  tratamento extra no backend — só citado aqui para não gerar dúvida no
+  Sentinel ao ver `tem_acesso` no corpo do request.
 
 ---
 
 ## Requisitos Funcionais
 
-```
-RF-01 - O sistema deve corrigir a ordem de validação em
-        ColaboradorViewSet.perform_create: toda validação relacionada a
-        criar_usuario (permissão is_staff, e-mail obrigatório e não
-        duplicado, tamanho mínimo de senha) deve ocorrer ANTES de
-        persistir o Colaborador — ou a criação do Colaborador e do User
-        devem estar no mesmo transaction.atomic com rollback conjunto em
-        qualquer falha. Nenhum Colaborador órfão pode ficar no banco se
-        a criação de acesso falhar.
+**RF-01** — `ColaboradorViewSet` deve extrair a lógica de validação de
+`criar_usuario` (hoje só dentro de `perform_create`) para um método
+privado `_validar_criar_usuario(self, email_fallback)`, reutilizado por
+`perform_create` e pelo novo `perform_update`. Retorna a tupla
+`(email, senha)` já normalizados (`email` em minúsculo/sem espaços,
+`senha` como veio ou `''`). Levanta as mesmas exceções de hoje
+(`PermissionDenied` se não-admin; `ValidationError` se email vazio, email
+já usado, ou senha < 6 chars quando informada).
 
-RF-02 - O sistema deve ter a migration da FK Colaborador.usuario gerada e
-        aplicada (rh/migrations/) — campo null=True/blank=True, sem default
-        necessário, não deve pedir input interativo do makemigrations.
-        Gerar SOMENTE depois do RF-01 estar implementado, para não gerar 2
-        migrations por causa de um fix tardio no mesmo ciclo.
+**RF-02** — `ColaboradorViewSet` deve extrair a criação efetiva do
+`User` + vínculo para um método privado
+`_criar_usuario_para_colaborador(self, colaborador, email, senha)`,
+reutilizado por `perform_create` e `perform_update`: cria `User`
+(`set_password` se `senha`, senão `set_unusable_password()`), salva, seta
+`colaborador.usuario = user`, `colaborador.save(update_fields=['usuario'])`,
+e — só quando `senha` vazia — dispara `enviar_primeiro_acesso(usuario)`
+dentro do mesmo padrão `try/except Exception: pass` já existente hoje.
 
-RF-03 - O sistema deve prover uma tela "Usuários" (nova página
-        frontend/src/pages/Usuarios.jsx), acessível somente a
-        administradores (is_staff), consumindo GET/POST/PATCH/DELETE em
-        /api/v1/accounts/usuarios/:
-        - Listagem: nome_completo, email, colaborador_nome (— se null),
-          is_staff (badge), is_active (Sim/Não), date_joined.
-        - Criar: email, nome_completo, telefone, password (opcional —
-          texto de apoio "deixe em branco para enviar link de definição
-          de senha por e-mail"), is_staff.
-        - Editar: mesmos campos, password continua opcional ("deixe em
-          branco para não alterar a senha atual").
-        - "Excluir" na tela Usuários deve chamar DELETE (que no backend já
-          faz soft-disable, is_active=False) e o rótulo do botão/confirm
-          deve dizer "Desativar", não "Excluir" — evita o admin pensar que
-          o registro foi apagado (RN-09).
+**RF-03** — `perform_create` deve ser reescrito para usar `RF-01`+`RF-02`
+sem mudar nenhum comportamento observável (mesma sequência: valida tudo
+antes de salvar, tudo dentro do mesmo `transaction.atomic()`, mesmo
+fallback de email = `usuario_email` do request OU `email` do
+colaborador sendo criado).
 
-RF-04 - O sistema deve prover uma ação "Reenviar acesso" por linha na
-        tela Usuários, chamando POST /api/v1/accounts/solicitar-acesso/
-        {usuario_id}. Endpoint já existe e já tem teste cobrindo (accounts/
-        tests.py::SolicitarAcessoViewTest) — reaproveitar, não duplicar.
-        Ação deve ficar desabilitada/oculta quando is_active=False (não
-        faz sentido reenviar acesso pra usuário desativado).
+**RF-04** — Novo `perform_update(self, serializer)`: mesmo fluxo do
+`perform_create` (ler `criar_usuario` de `self.request.data`; se falsy,
+`serializer.save()` e retorna), mas com guarda extra ANTES de validar
+qualquer coisa: se `serializer.instance.usuario_id` já estiver
+preenchido (colaborador já tem acesso) **e** `criar_usuario` vier truthy
+no payload, levantar `ValidationError('Colaborador já tem acesso ao
+sistema')` — nada é salvo, nem o `Colaborador`, nem o `User`. Fallback de
+email para o update, nesta ordem: `usuario_email` do request →
+`serializer.validated_data.get('email')` → `serializer.instance.email`
+(diferente do `perform_create`, que não tem `instance.email` para cair
+de volta — no update o colaborador já existe, então o e-mail atual dele é
+um fallback válido mesmo que não venha no PATCH). Resto do fluxo idêntico
+ao `perform_create`: validar tudo antes, `serializer.save()` +
+criação/vínculo do `User` dentro do mesmo `transaction.atomic()`.
 
-RF-05 - O sistema deve adicionar, na aba "Colaboradores" de Rh.jsx:
-        - Colunas novas na listagem: tem_acesso (badge Sim/Não),
-          usuario_email (— se null).
-        - No formulário de CRIAÇÃO (não edição — ver RN-08): checkbox
-          "Criar acesso ao sistema" (nome: criar_usuario). Quando marcado,
-          exibir dois campos adicionais: usuario_email (pré-preenchido com
-          o e-mail do colaborador, editável) e usuario_senha (opcional,
-          com o mesmo texto de apoio do RF-03).
+**RF-05** — Frontend: remover `hideOnEdit: true` dos 4 campos
+`acesso_divider`, `criar_usuario`, `usuario_email`, `usuario_senha` na tab
+`colaboradores` de `Rh.jsx`.
 
-RF-06 - O sistema deve exibir o item de menu "Usuários" na Sidebar
-        (ícone sugerido: 👤) somente quando o usuário logado tiver
-        is_staff=true (useAuthStore.user.is_staff — já vem do payload de
-        /api/v1/accounts/me/, nenhuma mudança de backend necessária pra
-        isso). Rota /usuarios deve barrar quem não é staff na própria UI
-        (redirect para /dashboard), já que o backend vai rejeitar com 403
-        mas a UI não deve nem oferecer o link.
+**RF-06** — Frontend: adicionar um field oculto
+`{ name: 'tem_acesso', showIf: () => false }` ao array `fields` da tab
+`colaboradores` — nunca renderizado (por isso não precisa de `label`
+nem `type`), só existe para que `ResourceCrud.openEdit` popule
+`form.tem_acesso` a partir do valor real vindo da API
+(`ColaboradorSerializer.tem_acesso`). `emptyForm` da tab deve incluir
+`tem_acesso: false`, para que um colaborador **novo** (ainda sem
+`editingId`) também tenha `form.tem_acesso === false` e portanto veja a
+seção de acesso.
 
-RF-07 - O sistema deve validar no frontend, antes de enviar o POST de
-        Colaborador com criar_usuario=true, que usuario_email não está
-        vazio (mesma regra que o backend já aplica) — evita um round-trip
-        de erro 400 desnecessário e dá feedback imediato.
-
-RF-08 - (infraestrutura de frontend, necessária pros RF-03/RF-04/RF-05)
-        ResourceCrud.jsx (componente genérico reaproveitado por 15+ telas
-        do projeto) deve ganhar 3 capacidades novas, todas opt-in via
-        props/campos — nenhuma tela existente pode mudar de comportamento:
-        1. rowActions: array opcional de { label, onClick(item), variant,
-           showIf(item) } renderizado ao lado de "Editar"/"Excluir" na
-           coluna Ações — usado pelo RF-04.
-        2. showIf(form) por field: função opcional que decide se o campo
-           aparece no formulário, avaliada a cada render do form — usado
-           pelo RF-05 (mostrar usuario_email/usuario_senha só quando
-           criar_usuario estiver marcado).
-        3. hideOnEdit por field: boolean opcional, esconde o campo
-           inteiro quando editingId != null — usado pelo RF-05 (RN-08:
-           esconder o bloco "criar acesso" inteiro na edição).
-        4. deleteLabel customizável por tela (default mantém "Excluir" em
-           todas as 15 telas existentes) — usado pelo RF-03 pra virar
-           "Desativar" só na tela Usuários.
-```
+**RF-07** — Frontend: trocar o `showIf` de `acesso_divider` e de
+`criar_usuario` para `(form) => !form.tem_acesso` (ambos, mesmo predicado
+— hoje nenhum dos dois tem `showIf`, só `hideOnEdit`). `usuario_email` e
+`usuario_senha` **não mudam** — continuam com `showIf: (form) =>
+!!form.criar_usuario`, sem depender de `tem_acesso` diretamente (eles já
+ficam implicitamente escondidos quando a seção some, porque
+`criar_usuario` nunca fica `true` nesse caso).
 
 ---
 
 ## Regras de Negócio
 
-```
-RN-01 - Somente is_staff=true pode acessar /api/v1/accounts/usuarios/
-        (IsAdmin já implementado) e pode disparar criar_usuario=true em
-        Colaborador (já implementado, mas com o bug de ordem — ver RF-01).
+**RN-01** — Um colaborador só pode ganhar acesso uma vez. Se
+`Colaborador.usuario_id` já está preenchido, qualquer tentativa de mandar
+`criar_usuario=true` num PATCH é rejeitada com `ValidationError`, sem
+sobrescrever nem duplicar o vínculo existente. Vale tanto vindo da tela
+(que não deveria nem mostrar o toggle nesse caso — RF-07) quanto de um
+PATCH direto na API (defesa em profundidade, não só UI).
 
-RN-02 - Um Colaborador só pode ter 1 usuário vinculado — já garantido pelo
-        OneToOneField no model. Não há fluxo de "trocar" o usuário
-        vinculado nesta manutenção (ver RN-07).
+**RN-02** — Toda validação de `criar_usuario` no update (permissão, email
+vazio, email duplicado, senha curta) roda **antes** de qualquer
+persistência, e `Colaborador.save()` + `User.save()` ficam dentro do
+mesmo `transaction.atomic()` — mesma garantia já aplicada ao
+`perform_create` na Manutenção #44 (nenhum `Colaborador` fica com
+alteração parcial salva se a criação do `User` falhar no meio).
 
-RN-03 - Ver "RN-CRÍTICA" no diagnóstico acima — criação de Colaborador +
-        User deve ser tudo-ou-nada. Coberto por RF-01.
+**RN-03** — Só `IsAdmin` (`request.user.is_staff`) pode criar acesso,
+tanto na criação quanto na edição — `PermissionDenied` para qualquer
+outro perfil autenticado, mesmo que a rota de `Colaborador` em si seja
+aberta para qualquer autenticado.
 
-RN-04 - Se usuario_email não for enviado explicitamente ao criar acesso,
-        o backend usa o e-mail do próprio Colaborador — o formulário do
-        frontend deve deixar isso visível (campo pré-preenchido, não
-        escondido), porque o Colaborador pode não ter e-mail cadastrado
-        (campo é blank=True em Colaborador.email).
+**RN-04** — O fallback de e-mail é diferente entre criação e edição: na
+criação não há e-mail "atual" do colaborador salvo antes (ele está sendo
+criado agora), então o fallback é só `usuario_email` do request →
+`email` do form. Na edição, o colaborador já existe no banco, então o
+fallback final é o `email` já persistido nele (`serializer.instance.email`),
+não só o que vier no `validated_data` do PATCH (que pode nem incluir o
+campo `email` se o usuário só mexeu no toggle de acesso).
 
-RN-05 - Senha em branco → conta criada com set_unusable_password() e
-        link de primeiro acesso por e-mail (24h de validade). O envio de
-        e-mail pode falhar silenciosamente (perform_create engole a
-        exceção em `except Exception: pass`, comentário no próprio código
-        diz "o admin pode reenviar depois pela tela Usuários") — RF-04
-        existe justamente para cobrir essa falha; o frontend deve deixar
-        claro (texto de apoio, não popup bloqueante) que a confirmação do
-        envio de e-mail não é garantida.
-
-RN-06 - Desativar (soft-disable) um Colaborador que tem usuário vinculado
-        NÃO desativa o usuário automaticamente — nenhuma lógica no diff
-        faz isso, o `usuario` permanece com is_active=True e continua
-        logando após o colaborador ser desligado. Não é bug de código (o
-        diff não promete esse comportamento), mas é um risco de processo
-        real: documentado aqui para o Planner decidir se entra nesta
-        manutenção ou numa seguinte — MoSCoW: Should, não Must, pois o
-        pedido original não menciona desligamento. Se ficar de fora,
-        registrar como pendência explícita no fechamento do Pilot.
-
-RN-07 - Vincular um usuário existente (ou liberar acesso depois) a um
-        Colaborador que já existe sem usuário: fora do escopo desta
-        manutenção (backend não tem esse caminho — ver "Lacuna encontrada"
-        no diagnóstico). MoSCoW: Won't (nesta rodada).
-
-RN-08 - O checkbox "Criar acesso ao sistema" e os campos usuario_email/
-        usuario_senha só aparecem no formulário de CRIAÇÃO de Colaborador,
-        nunca na edição — o backend não tem lógica equivalente em update,
-        então mostrar esses campos na edição seria oferecer algo que não
-        funciona (payload seria ignorado silenciosamente pelo
-        perform_update padrão do ModelViewSet).
-
-RN-09 - "Excluir" na tela Usuários é soft-disable (is_active=False), não
-        apaga o registro — rótulo de UI deve dizer "Desativar" (RF-03).
-
-RN-10 - UserAdminSerializer permite editar is_staff de qualquer User,
-        inclusive o do próprio admin logado. Risco: um admin remove o
-        próprio is_staff e perde acesso à tela Usuários (não há outro
-        admin pra reverter sem acesso direto ao banco/Django admin). O
-        frontend deve pedir confirmação extra (window.confirm) quando o
-        formulário estiver editando o id do usuário logado
-        (useAuthStore.user.id) E desmarcando is_staff.
-
-RN-11 - Padrões obrigatórios Uid respeitados pelo diff: autenticação por
-        e-mail (USERNAME_FIELD='email', já era assim), paginação padrão
-        do projeto (StandardPagination, response.data.results). Não se
-        aplica: DecimalField (não há valor monetário neste módulo).
-```
+**RN-05** — Colaborador que já tem acesso (`tem_acesso=true`) nunca
+mostra a seção de "Criar acesso ao sistema" ao editar — nem o toggle, nem
+os campos de e-mail/senha de acesso. Evita o usuário achar que pode
+"recriar" ou "trocar" o acesso por ali (fluxo de troca de e-mail/senha do
+usuário já existente é responsabilidade da tela de Usuários, Manutenção
+#44 — fora de escopo aqui).
 
 ---
 
-## Telas detalhadas
+## Telas / UX (Frontend)
 
-### Tela "Usuários" (nova) — rota `/usuarios`
+Sem nenhuma tela nova. Mudança de comportamento na tab **Colaboradores**
+dentro de `Rh.jsx` (`ResourceCrud` genérico):
 
-```
-Acesso: somente is_staff (RF-06)
-Componente: ResourceCrud (com as extensões do RF-08)
-Resource: accounts/usuarios  →  GET/POST/PATCH/DELETE /api/v1/accounts/usuarios/
-
-Colunas:
-  nome_completo | email | colaborador_nome (— se null) | is_staff (badge) | is_active (Sim/Não) | date_joined (data)
-
-Ações por linha:
-  Editar | Reenviar acesso (RF-04, oculta se is_active=false) | Desativar (RF-03/RN-09)
-
-Formulário (criar/editar):
-  email (obrigatório, type=email)
-  nome_completo (obrigatório)
-  telefone (opcional)
-  password (opcional — texto de apoio conforme contexto criar/editar, RF-03)
-  is_staff (checkbox — RN-10 na hora de submeter, se for o próprio usuário)
-```
-
-### Tela "RH" → aba "Colaboradores" (existente, Rh.jsx) — ajustes
-
-```
-Colunas novas: tem_acesso (badge Sim/Não) | usuario_email (— se null)
-
-Formulário de CRIAÇÃO ganha, ao final:
-  [ ] Criar acesso ao sistema        (checkbox, name=criar_usuario)
-      └─ visível só quando marcado (RF-08 showIf):
-         usuario_email  (pré-preenchido = email do colaborador, editável)
-         usuario_senha  (opcional, texto de apoio "deixe em branco para
-                          enviar link de definição de senha por e-mail")
-
-Formulário de EDIÇÃO: bloco acima não aparece (RN-08/hideOnEdit)
-```
+- **Criar colaborador novo:** comportamento igual a hoje — seção "Criar
+  acesso ao sistema" visível desde o início do form (`tem_acesso` no
+  `emptyForm` é `false`).
+- **Editar colaborador SEM acesso:** antes (Manutenção #44) a seção
+  inteira sumia ao entrar em modo edição. Agora aparece igual à criação:
+  divider + toggle "Criar acesso ao sistema"; marcando o toggle, aparecem
+  "E-mail de acesso" (pré-preenchido com `next.email` se vazio, via
+  `onToggle` já existente) e "Senha (opcional)".
+- **Editar colaborador COM acesso:** nenhuma mudança visível — a seção
+  continua completamente oculta (mesmo resultado visual de hoje, agora
+  garantido por `showIf` em vez de `hideOnEdit`).
+- Nenhuma mudança de layout, cores, textos ou labels — reaproveita 100%
+  dos componentes/strings já existentes (`divider`, `checkbox`, `email`,
+  `password`, `helpText`).
 
 ---
 
-## Especificação Backend (para o Forge)
+## Spec Backend
 
+`backend/rh/views.py`, dentro de `ColaboradorViewSet`:
+
+```python
+def _validar_criar_usuario(self, email_fallback):
+    if not self.request.user.is_staff:
+        raise PermissionDenied('Somente administradores podem criar acesso ao sistema.')
+
+    from accounts.models import User
+
+    email = (
+        self.request.data.get('usuario_email')
+        or email_fallback
+        or ''
+    ).strip().lower()
+    if not email:
+        raise ValidationError({'usuario_email': 'Informe um email (do colaborador ou de acesso) para criar o usuario.'})
+    if User.objects.filter(email__iexact=email).exists():
+        raise ValidationError({'usuario_email': 'Ja existe um usuario com esse email.'})
+
+    senha = self.request.data.get('usuario_senha') or ''
+    if senha and len(senha) < 6:
+        raise ValidationError({'usuario_senha': 'A senha deve ter pelo menos 6 caracteres.'})
+
+    return email, senha
+
+def _criar_usuario_para_colaborador(self, colaborador, email, senha):
+    from accounts.models import User
+    from accounts.services import enviar_primeiro_acesso
+
+    usuario = User(email=email, nome_completo=colaborador.nome or email)
+    if senha:
+        usuario.set_password(senha)
+    else:
+        usuario.set_unusable_password()
+    usuario.save()
+
+    colaborador.usuario = usuario
+    colaborador.save(update_fields=['usuario'])
+
+    if not senha:
+        try:
+            enviar_primeiro_acesso(usuario)
+        except Exception:
+            pass
+
+def perform_create(self, serializer):
+    criar_usuario = str(self.request.data.get('criar_usuario', '')).lower() in ('1', 'true', 'on')
+    if not criar_usuario:
+        serializer.save()
+        return
+
+    email_fallback = serializer.validated_data.get('email') or ''
+    email, senha = self._validar_criar_usuario(email_fallback)
+
+    with transaction.atomic():
+        colaborador = serializer.save()
+        self._criar_usuario_para_colaborador(colaborador, email, senha)
+
+def perform_update(self, serializer):
+    criar_usuario = str(self.request.data.get('criar_usuario', '')).lower() in ('1', 'true', 'on')
+    if not criar_usuario:
+        serializer.save()
+        return
+
+    if serializer.instance.usuario_id:
+        raise ValidationError('Colaborador ja tem acesso ao sistema.')
+
+    email_fallback = (
+        serializer.validated_data.get('email')
+        or serializer.instance.email
+        or ''
+    )
+    email, senha = self._validar_criar_usuario(email_fallback)
+
+    with transaction.atomic():
+        colaborador = serializer.save()
+        self._criar_usuario_para_colaborador(colaborador, email, senha)
 ```
-1. Implementar RF-01 (RN-03) primeiro: mover as validações de permissão/
-   e-mail/senha de ColaboradorViewSet.perform_create para ANTES de
-   serializer.save(), ou envolver Colaborador.save() + User.save() no
-   mesmo transaction.atomic com validação prévia fora do bloco atômico.
-2. Só depois: gerar e revisar a migration da FK Colaborador.usuario
-   (rh/migrations/, RF-02) — conferir que não introduz default nem pede
-   input interativo (campo já null=True).
-3. Escrever/completar testes (rh/tests.py e accounts/tests.py):
-   - criar colaborador com criar_usuario=true por admin → sucesso, User
-     criado, e-mail de primeiro acesso disparado (mock) quando sem senha.
-   - criar colaborador com criar_usuario=true por usuário NÃO staff →
-     403 e ZERO Colaborador e ZERO User persistidos (cobre RF-01/RN-03
-     corrigido — este é o teste que vai pegar a regressão se o fix for
-     desfeito no futuro).
-   - criar_usuario=true com e-mail já existente → 400, zero registros
-     órfãos.
-   - criar_usuario=true com senha curta (<6) → 400, zero registros
-     órfãos.
-   - criar colaborador sem criar_usuario → sucesso, usuario=None,
-     tem_acesso=False.
-   - UserViewSet: list/create/update/partial_update/destroy (soft-disable)
-     + SearchFilter por email e nome_completo, tudo só acessível a
-     is_staff (403 pra usuário comum).
-   - UserAdminSerializer: senha em branco no create → unusable password;
-     senha preenchida no update → set_password chamado (checar hash
-     mudou, não checar a senha em texto puro).
-4. Confirmar rota final /api/v1/accounts/usuarios/ (já registrada em
-   accounts/urls.py via router — não precisa mudança, só confirmar no
-   teste de integração que bate com o que o frontend vai chamar).
-5. RN-06 (desativar colaborador não desativa o usuário vinculado): não
-   implementar nesta manutenção a menos que o Planner explicitamente
-   priorize — está documentado como pendência conhecida, não como bug.
-```
+
+Observações para o Forge:
+- `_validar_criar_usuario` recebe o fallback já resolvido pelo chamador
+  (create vs update têm fontes de fallback diferentes — RN-04) em vez de
+  decidir isso internamente, para não duplicar `if` de create/update
+  dentro do método compartilhado.
+- Guarda de `RN-01` (`serializer.instance.usuario_id`) fica **dentro** de
+  `perform_update`, antes de chamar `_validar_criar_usuario` — não faz
+  sentido validar e-mail/senha se a operação vai ser rejeitada de
+  qualquer forma por já ter acesso.
+- Import de `User`/`enviar_primeiro_acesso` mantido local (dentro dos
+  métodos), igual ao padrão já existente no arquivo — não subir para o
+  topo do módulo.
 
 ---
 
-## Especificação Frontend (para o Loom)
+## Spec Frontend
 
+`frontend/src/pages/Rh.jsx`, tab `colaboradores`, dentro de `fields`:
+
+```jsx
+{ name: 'acesso_divider', type: 'divider', showIf: (form) => !form.tem_acesso },
+{
+  name: 'criar_usuario',
+  label: 'Criar acesso ao sistema',
+  type: 'checkbox',
+  colSpan2: true,
+  showIf: (form) => !form.tem_acesso,
+  onToggle: (checked, next) => (checked && !next.usuario_email ? { ...next, usuario_email: next.email } : next),
+},
+{
+  name: 'usuario_email',
+  label: 'E-mail de acesso',
+  type: 'email',
+  colSpan2: true,
+  showIf: (form) => !!form.criar_usuario,
+},
+{
+  name: 'usuario_senha',
+  label: 'Senha (opcional)',
+  type: 'password',
+  colSpan2: true,
+  showIf: (form) => !!form.criar_usuario,
+  helpText: 'Deixe em branco para enviar link de definição de senha por e-mail.',
+},
+{ name: 'tem_acesso', showIf: () => false },
 ```
-1. ResourceCrud.jsx (frontend/src/components/ui/ResourceCrud.jsx) —
-   extensão aditiva, ver RF-08 para as 4 capacidades exatas. Confirmar que
-   as 15+ telas existentes (Clientes, Vendas, Financeiro, Rh abas
-   cargos/folhas/ferias etc.) continuam funcionando sem nenhuma prop nova
-   — todas as extensões são opt-in.
 
-2. frontend/src/pages/Usuarios.jsx (novo) — usar ResourceCrud com
-   resource="accounts/usuarios" e rowActions para "Reenviar acesso"
-   (POST direto via api client em accounts/solicitar-acesso, não é um
-   resource do ResourceCrud). deleteLabel="Desativar". Confirm de exclusão
-   customizado avisando que é uma desativação, não uma remoção definitiva.
+`emptyForm` da tab passa a incluir `tem_acesso: false`:
 
-3. frontend/src/pages/Rh.jsx — aba colaboradores: adicionar colunas
-   tem_acesso/usuario_email e os campos condicionais do formulário
-   (criar_usuario checkbox + showIf + hideOnEdit conforme RF-08). Validar
-   client-side (RF-07) antes do submit: se criar_usuario && !usuario_email
-   → toast de erro, não envia.
-
-4. frontend/src/routes/index.jsx — nova rota protegida `/usuarios`
-   (dentro do mesmo <ProtectedRoute><AppLayout/></ProtectedRoute> das
-   demais). Guardar contra acesso de não-staff (RF-06) — redirect simples
-   para /dashboard se !user.is_staff, mesmo padrão de ProtectedRoute já
-   usado no arquivo.
-
-5. frontend/src/components/layout/Sidebar.jsx — novo item condicional a
-   useAuthStore(s => s.user?.is_staff), inserido logo após "RH" (mesma
-   área temática de gestão interna).
-
-6. Fontes (Plus Jakarta Sans + DM Sans) e paleta navy/violet dark mode já
-   cobertas pelos componentes reaproveitados (Card, Modal, Input, Select,
-   ResourceCrud) — nenhuma tela nova introduz componente visual do zero,
-   então não precisa de nova passagem do Brush.
-
-7. RN-10 no formulário de edição de Usuários: antes de submeter, se
-   editingId === useAuthStore.getState().user.id e is_staff está sendo
-   desmarcado, window.confirm("Você está removendo seu próprio acesso de
-   administrador. Continuar?") — cancelar aborta o submit.
+```jsx
+emptyForm={{
+  nome: '', cpf: '', email: '', cargo: '', regime: 'CLT', salario_atual: '', data_admissao: '', data_demissao: '', observacoes: '',
+  criar_usuario: false, usuario_email: '', usuario_senha: '', tem_acesso: false,
+}}
 ```
+
+`onBeforeSubmit` não muda — a validação de e-mail obrigatório ao marcar
+`criar_usuario` já é genérica (`!editingId && ...` hoje só cobre
+criação; não é necessário estender para edição porque o backend já
+valida e retorna erro legível via `extractErrorMessage`, e o
+`onBeforeSubmit` atual não bloqueia incorretamente o novo fluxo de edição
+— só adiciona uma validação a mais na criação, que continua correta).
+Não é obrigatório mexer nele nesta manutenção; citado aqui só para o Loom
+não achar que esqueceu algo.
+
+Observação sobre o field `tem_acesso` oculto: não precisa de `type` —
+`fieldValue()` em `ResourceCrud.jsx` só lê `item[field.name]` quando o
+`type` não é `'file'`/`'datetime-local'`, então o valor booleano vindo da
+API (`item.tem_acesso`) é copiado para o form sem transformação.
 
 ---
 
-## Critérios de Aceite
+## Fora do Escopo
 
-```
-CA-01 - POST /api/v1/rh/colaboradores/ com criar_usuario=true por um
-        usuário is_staff cria Colaborador + User vinculados (usuario_id
-        preenchido), tem_acesso=true na resposta.
-CA-02 - POST idêntico ao CA-01 mas por usuário NÃO staff retorna 403 e
-        NÃO deixa nenhum Colaborador nem User órfão no banco (a
-        verificação real é: contar registros antes e depois da chamada).
-CA-03 - POST com criar_usuario=true e e-mail já existente retorna 400 e
-        não deixa nenhum registro órfão (mesma verificação do CA-02).
-CA-04 - POST com criar_usuario=true, senha=12345 (5 chars) retorna 400 e
-        não deixa registro órfão.
-CA-05 - POST sem criar_usuario cria Colaborador normalmente, usuario=null,
-        tem_acesso=false.
-CA-06 - Migration da FK Colaborador.usuario aplicada sem erro, 0 migrations
-        pendentes pós-deploy (showmigrations --plan).
-CA-07 - GET/POST/PATCH/DELETE em /api/v1/accounts/usuarios/ funcionam só
-        para is_staff (403 para usuário comum autenticado, 401 sem
-        autenticação).
-CA-08 - DELETE em /api/v1/accounts/usuarios/{id}/ faz is_active=False
-        (soft-disable) — usuário ainda existe no banco, só não consegue
-        mais logar (checar via login real ou via query direta).
-CA-09 - POST /api/v1/accounts/solicitar-acesso/ dispara e-mail (mockado
-        no teste) para o usuário certo — endpoint já existente,
-        confirmar que a tela nova consegue chamá-lo (integração, não
-        unidade).
-CA-10 - Tela Usuários carrega, lista, cria, edita e "desativa" um usuário
-        via UI real (não só API) — rótulo do botão diz "Desativar".
-CA-11 - Tela Colaboradores exibe tem_acesso/usuario_email nas colunas;
-        checkbox "Criar acesso" some no formulário de edição (RN-08).
-CA-12 - Item "Usuários" na Sidebar só aparece para usuário logado com
-        is_staff=true (testar com um usuário comum logado — item não
-        deve aparecer).
-CA-13 - As 15+ telas existentes que usam ResourceCrud continuam
-        funcionando sem alteração de comportamento após a extensão do
-        RF-08 (regressão — revisão de pelo menos 2-3 telas
-        representativas: Clientes, Vendas, Rh/cargos).
-CA-14 - npm run build limpo, 0 erros.
-CA-15 - Suíte Django completa (backend/) 0 falhas, incluindo os testes
-        novos listados na Especificação Backend acima.
-```
+- Trocar e-mail/senha de um usuário que já tem acesso (fluxo já existe na
+  tela de Usuários, Manutenção #44).
+- Revogar/desvincular acesso de um colaborador (não pedido).
+- Qualquer mudança visual/design system — reaproveita componentes
+  existentes sem alteração de estilo.
 
 ---
 
-## Fora do Escopo (MoSCoW: Won't nesta rodada)
+## Riscos e Dependências
 
-```
-- Vincular um User já existente a um Colaborador que já existe sem acesso
-  (RN-07) — requer endpoint novo, não pedido explicitamente no pedido
-  original.
-- Desativar automaticamente o User quando o Colaborador vinculado é
-  desligado (RN-06) — risco documentado, decisão de priorização do
-  Planner/Luiz Eduardo.
-- Troca de e-mail de login do próprio usuário via "Meus Dados" (fora do
-  escopo — este ciclo é só a tela ADMIN de gestão de usuários).
-```
-
----
-
-## Observações finais do Analista
-
-- O diff fornecido já resolve boa parte do trabalho de backend — o que
-  falta não é "escrever do zero", é (1) corrigir a ordem de validação em
-  `perform_create` antes de gerar a migration (RF-01, achado do Analista,
-  não estava no pedido), e (2) o frontend completo, que ainda não existe.
-- `backend/test_whitelist_pdv.py` (resíduo vazio, já documentado desde a
-  Manutenção #22) segue untracked — não faz parte desta manutenção, não
-  mexer.
-- Nenhum requisito aqui contradiz os padrões obrigatórios Uid (soft
-  delete/soft-disable, autenticação por e-mail, paginação padrão,
-  `response.data.results`) — confirmado por leitura direta, não por
-  suposição.
+- Depende 100% da Manutenção #44 já estar em produção (está — deploy
+  confirmado em 2026-08-19, commit `e346f45`). `tem_acesso` e
+  `usuario_email` no serializer, e o padrão de campos extras via
+  `self.request.data`, já existem e não precisam ser recriados.
+- Risco baixo: mudança é aditiva (`perform_update` novo + refactor DRY de
+  `perform_create` sem alterar seu comportamento) — não deveria haver
+  regressão no fluxo de criação (RF-03 é justamente a garantia de
+  paridade comportamental via extração de método, e é o critério de
+  aceite #5 do Sentinel).
 
 ---
 
-➡️ **Planner: rotear para Pipeline B (manutenção sobre módulo existente) —
-Forge (backend/accounts/, backend/rh/ — RF-01/RF-02 e testes) + Loom
-(frontend/src/pages/Usuarios.jsx novo, Rh.jsx, ResourceCrud.jsx, routes/
-index.jsx, Sidebar.jsx — RF-03 a RF-08) em paralelo → Sentinel (validar
-CA-01 a CA-15, com atenção especial a CA-02/CA-03/CA-04 por cobrirem a
-RN-CRÍTICA de registro órfão) → Pilot.**
+## Critérios de Aceite (para o Sentinel validar de verdade — não só leitura de código)
+
+**CA-01** — Editar colaborador existente **sem** acesso, marcar "Criar
+acesso ao sistema" com senha informada (≥6 chars): PATCH retorna sucesso,
+`Colaborador.usuario_id` passa a apontar para um `User` novo com a senha
+setada (login funciona com essa senha), `tem_acesso` no retorno da API
+vira `true`.
+
+**CA-02** — Mesmo fluxo do CA-01, mas sem informar senha: `User` criado
+com `set_unusable_password()`, `enviar_primeiro_acesso` disparado
+(confirmar e-mail enviado ou, no mínimo, que a chamada não lança exceção
+e não impede a criação — checar log/mailhog se disponível no ambiente de
+teste).
+
+**CA-03** — Colaborador que já tem acesso (`tem_acesso=true`) não mostra
+mais o toggle "Criar acesso ao sistema" ao abrir o modal de edição —
+verificar via teste de frontend (ou inspeção do form renderizado) que os
+4 campos (`acesso_divider`, `criar_usuario`, `usuario_email`,
+`usuario_senha`) não aparecem no DOM.
+
+**CA-04** — PATCH direto na API (sem passar pelo frontend) com
+`criar_usuario=true` para um colaborador cujo `usuario_id` já está
+preenchido: resposta `400` com `ValidationError` (`'Colaborador ja tem
+acesso ao sistema.'` ou equivalente), e confirmar no banco que **nada**
+mudou — nem o `Colaborador.usuario_id` foi sobrescrito, nem um `User`
+novo foi criado (checar `User.objects.count()` antes/depois).
+
+**CA-05** — Fluxo de criação (`perform_create`) sem regressão: criar
+colaborador novo com `criar_usuario=true` (com e sem senha) continua
+funcionando exatamente como antes da Manutenção #45 — mesmo
+comportamento validado na Manutenção #44 (validação prévia, atomic,
+e-mail duplicado rejeitado, senha curta rejeitada, `PermissionDenied`
+para não-admin).
+
+**CA-06** — Criar colaborador novo **sem** marcar "Criar acesso" (fluxo
+mais comum) continua funcionando sem nenhum campo extra sendo exigido —
+`Colaborador` salvo com `usuario_id=None`, `tem_acesso=false` no retorno.
+
+**CA-07** — Editar colaborador sem acesso e **não** marcar o toggle
+(só alterar outro campo, ex. salário): PATCH funciona normalmente, sem
+nenhuma tentativa de criar `User`, `usuario_id` continua `None`.
+
+---
+
+**Complexidade estimada:** baixa (extensão pontual de um `ViewSet` já
+existente + remoção de 4 flags `hideOnEdit` e adição de `showIf` no
+frontend — sem models novos, sem migration, sem tela nova).
+
+---
+✅ Análise concluída — UidCore
+   tipo: feature_pequena
+   - 7 RFs levantados | 0 entidades novas | Complexidade: baixa
+➡️  Planner: rotear conforme tipo (Pipeline C — lite: Forge + Loom direto, sem Blueprint/Brush, com Sentinel obrigatório antes do Pilot)
