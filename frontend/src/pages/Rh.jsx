@@ -80,13 +80,13 @@ export default function Rh() {
             { name: 'data_admissao', label: 'Data de Admissão', type: 'date' },
             { name: 'data_demissao', label: 'Data de Demissão', type: 'date' },
             { name: 'observacoes', label: 'Observações', type: 'textarea' },
-            { name: 'acesso_divider', type: 'divider', hideOnEdit: true },
+            { name: 'acesso_divider', type: 'divider', showIf: (form) => !form.tem_acesso },
             {
               name: 'criar_usuario',
               label: 'Criar acesso ao sistema',
               type: 'checkbox',
               colSpan2: true,
-              hideOnEdit: true,
+              showIf: (form) => !form.tem_acesso,
               onToggle: (checked, next) => (checked && !next.usuario_email ? { ...next, usuario_email: next.email } : next),
             },
             {
@@ -94,7 +94,6 @@ export default function Rh() {
               label: 'E-mail de acesso',
               type: 'email',
               colSpan2: true,
-              hideOnEdit: true,
               showIf: (form) => !!form.criar_usuario,
             },
             {
@@ -102,14 +101,14 @@ export default function Rh() {
               label: 'Senha (opcional)',
               type: 'password',
               colSpan2: true,
-              hideOnEdit: true,
               showIf: (form) => !!form.criar_usuario,
               helpText: 'Deixe em branco para enviar link de definição de senha por e-mail.',
             },
+            { name: 'tem_acesso', showIf: () => false },
           ]}
           emptyForm={{
             nome: '', cpf: '', email: '', cargo: '', regime: 'CLT', salario_atual: '', data_admissao: '', data_demissao: '', observacoes: '',
-            criar_usuario: false, usuario_email: '', usuario_senha: '',
+            criar_usuario: false, usuario_email: '', usuario_senha: '', tem_acesso: false,
           }}
           onBeforeSubmit={(form, editingId) => {
             if (!editingId && form.criar_usuario && !form.usuario_email) {
