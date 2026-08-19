@@ -796,6 +796,9 @@ function ContasTab({ showToast }) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_CONTA)
   const [totais, setTotais] = useState(null)
+  const [transferOrigem, setTransferOrigem] = useState(null)
+  const [transferForm, setTransferForm] = useState(EMPTY_TRANSFER)
+  const [transferSaving, setTransferSaving] = useState(false)
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -847,6 +850,24 @@ function ContasTab({ showToast }) {
     catch (error) { showToast(extractErrorMessage(error, 'Erro ao remover conta.'), 'error') }
   }
 
+  const handleTransferChange = (e) => setTransferForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  const openTransfer = (item) => {
+    setTransferOrigem(item)
+    setTransferForm({ ...EMPTY_TRANSFER, data: new Date().toISOString().split('T')[0] })
+  }
+  const closeTransfer = () => { setTransferOrigem(null); setTransferForm(EMPTY_TRANSFER) }
+
+  const handleTransferSubmit = async (e) => {
+    e.preventDefault(); setTransferSaving(true)
+    try {
+      await api.post(`/financeiro/contas/${transferOrigem.id}/transferir/`, transferForm)
+      showToast('Transferência registrada.')
+      closeTransfer(); fetch()
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao transferir.'), 'error') }
+    finally { setTransferSaving(false) }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
@@ -879,9 +900,10 @@ function ContasTab({ showToast }) {
               {(item.agencia || item.numero) && (
                 <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">Ag: {item.agencia || '—'} / CC: {item.numero || '—'}</p>
               )}
-              <p className="text-sm text-gray-600 mt-2 dark:text-slate-300">Saldo inicial: {BRL(item.saldo_inicial)}</p>
-              <div className="mt-3 flex gap-2">
+              <p className="text-sm text-gray-600 mt-2 dark:text-slate-300">Saldo atual: {BRL(item.saldo_atual)}</p>
+              <div className="mt-3 flex gap-2 flex-wrap">
                 <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>Editar</Button>
+                <Button size="sm" variant="secondary" onClick={() => openTransfer(item)}>Transferir</Button>
                 <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>Excluir</Button>
               </div>
             </Card>
@@ -907,12 +929,52 @@ function ContasTab({ showToast }) {
           </form>
         </Modal>
       )}
+
+      {transferOrigem && (
+        <Modal title={`Transferir de ${transferOrigem.nome}`} onClose={closeTransfer}>
+          <form onSubmit={handleTransferSubmit} className="space-y-4">
+            <p className="text-sm text-gray-500 dark:text-slate-400">
+              Saldo atual em {transferOrigem.nome}: <strong>{BRL(transferOrigem.saldo_atual)}</strong>
+            </p>
+            <Select
+              label="Conta destino" name="conta_destino" value={transferForm.conta_destino}
+              onChange={handleTransferChange}
+              options={[
+                { value: '', label: 'Selecione...' },
+                ...items
+                  .filter((c) => c.id !== transferOrigem.id)
+                  .map((c) => ({ value: c.id, label: `${c.nome} (${c.tipo})` })),
+              ]}
+            />
+            <Input
+              label="Valor (R$)" name="valor" type="number" step="0.01"
+              value={transferForm.valor} onChange={handleTransferChange}
+            />
+            <Input
+              label="Data" name="data" type="date"
+              value={transferForm.data} onChange={handleTransferChange}
+            />
+            <Input
+              label="Descrição" name="descricao" value={transferForm.descricao}
+              onChange={handleTransferChange} placeholder="Ex: Depósito do caixa no banco"
+            />
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={closeTransfer}>Cancelar</Button>
+              <Button type="submit" loading={transferSaving}>Transferir</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </div>
   )
 }
 
 const EMPTY_CONTA = {
   nome: '', tipo: 'CORRENTE', banco: '', agencia: '', numero: '', saldo_inicial: '0',
+}
+
+const EMPTY_TRANSFER = {
+  conta_destino: '', valor: '', data: '', descricao: '',
 }
 
 const MESES_OPTS = [

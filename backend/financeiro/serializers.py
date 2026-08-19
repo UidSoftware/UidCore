@@ -16,14 +16,19 @@ class CategoriaSerializer(serializers.ModelSerializer):
 
 class ContaSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
+    saldo_atual = serializers.SerializerMethodField()
 
     class Meta:
         model = Conta
         fields = [
             'id', 'nome', 'tipo', 'banco', 'agencia', 'numero',
-            'saldo_inicial', 'is_active', 'created_at',
+            'saldo_inicial', 'saldo_atual', 'is_active', 'created_at',
         ]
         read_only_fields = ['created_at']
+
+    def get_saldo_atual(self, obj):
+        from .services import saldo_real
+        return saldo_real(obj)
 
 
 class AporteSerializer(serializers.ModelSerializer):

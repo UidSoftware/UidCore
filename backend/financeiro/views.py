@@ -59,7 +59,7 @@ class ContaViewSet(ModelViewSet):
         # continua IsAuthenticated: PDV precisa ler contas tipo=CAIXA pra
         # abrir sessao, e o resto do app ja segue esse padrao mais aberto
         # pra leitura.
-        if self.action in ('create', 'update', 'partial_update', 'destroy'):
+        if self.action in ('create', 'update', 'partial_update', 'destroy', 'transferir'):
             return [IsAdmin()]
         return super().get_permissions()
 
@@ -74,6 +74,8 @@ class ContaViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='transferir')
     def transferir(self, request, pk=None):
+        from financeiro.services import saldo_real
+
         conta_origem = self.get_object()
         conta_destino_id = request.data.get('conta_destino')
         valor_str = request.data.get('valor')
@@ -109,7 +111,7 @@ class ContaViewSet(ModelViewSet):
                 cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta_origem.id])
                 cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta_destino.id])
 
-            saldo_ant_origem = _saldo_real(conta_origem)
+            saldo_ant_origem = saldo_real(conta_origem)
             LivroCaixa.objects.create(
                 conta=conta_origem,
                 tipo='SAIDA',
@@ -123,7 +125,7 @@ class ContaViewSet(ModelViewSet):
             )
             _reconstruir_cadeia(conta_origem)
 
-            saldo_ant_destino = _saldo_real(conta_destino)
+            saldo_ant_destino = saldo_real(conta_destino)
             LivroCaixa.objects.create(
                 conta=conta_destino,
                 tipo='ENTRADA',
@@ -398,16 +400,6 @@ class LivroCaixaViewSet(ReadCreateViewSet):
             'total_saidas': total_saidas,
             'saldo_atual': saldo_atual,
         })
-
-
-def _saldo_real(conta):
-    agg = LivroCaixa.objects.filter(
-        conta=conta, estornado=False,
-    ).aggregate(
-        e=Sum('valor', filter=Q(tipo='ENTRADA')),
-        s=Sum('valor', filter=Q(tipo='SAIDA')),
-    )
-    return conta.saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
 
 
 @api_view(['GET'])

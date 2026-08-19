@@ -13,10 +13,27 @@ from datetime import date as _date
 from decimal import Decimal
 
 from django.db import connection, transaction
+from django.db.models import Q, Sum
 from rest_framework.exceptions import ValidationError
 
 from .models import EstornoReceita, LivroCaixa
 from .signals import _reconstruir_cadeia
+
+
+def saldo_real(conta):
+    """
+    Saldo atual de uma Conta pela soma bruta ENTRADA - SAIDA do LivroCaixa
+    (ignora estornado=True). Movida de views.py (18/08/2026) pra ser
+    reaproveitada tanto por ContaViewSet.transferir quanto por
+    ContaSerializer.saldo_atual, sem duplicar a query em dois lugares.
+    """
+    agg = LivroCaixa.objects.filter(
+        conta=conta, estornado=False,
+    ).aggregate(
+        e=Sum('valor', filter=Q(tipo='ENTRADA')),
+        s=Sum('valor', filter=Q(tipo='SAIDA')),
+    )
+    return conta.saldo_inicial + (agg['e'] or Decimal('0')) - (agg['s'] or Decimal('0'))
 
 
 def estornar_receita(receita, valor, motivo, data_estorno=None, item_venda=None, usuario=None):
