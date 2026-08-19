@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import useAuthStore from '../stores/authStore.js'
 import AppLayout from '../components/layout/AppLayout.jsx'
 import Login from '../pages/Login.jsx'
+import DefinirSenha from '../pages/DefinirSenha.jsx'
 import Dashboard from '../pages/Dashboard.jsx'
 import Clientes from '../pages/Clientes.jsx'
 import Fornecedores from '../pages/Fornecedores.jsx'
@@ -30,6 +31,7 @@ export default function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/definir-senha" element={<DefinirSenha />} />
 
       <Route
         element={

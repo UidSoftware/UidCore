@@ -136,3 +136,18 @@ SIMPLE_JWT = {
 }
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=True, cast=bool)
+
+# Envio de email do sistema (controle de senha: primeiro acesso / reset) —
+# mesmo padrao do SystemD (email_client/services.py), reaproveitando o
+# mesmo Mailcow self-hosted.
+SMTP_HOST = config('SMTP_HOST', default='mail.uidsoftware.com.br')
+SMTP_PORT = config('SMTP_PORT', default='587')
+SYSTEM_EMAIL_CONTA = config('SYSTEM_EMAIL_CONTA', default='administrativo@uidsoftware.com.br')
+SYSTEM_EMAIL_SENHA = config('SYSTEM_EMAIL_SENHA', default='')
+FRONTEND_URL = config('FRONTEND_URL', default='https://uidcore.uidsoftware.com.br')
+
+# Token de "definir senha" (default_token_generator) expira em 24h — bate
+# com o texto do email enviado. Sem isso o default do Django e 3 dias
+# (259200s), inconsistente com a mensagem (achado ao replicar do SystemD,
+# que tem a mesma inconsistencia nao corrigida).
+PASSWORD_RESET_TIMEOUT = 86400

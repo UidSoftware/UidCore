@@ -1,4 +1,12 @@
-from rest_framework import generics, permissions
+from django.contrib.auth.tokens import default_token_generator
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from common.permissions import IsAdmin
+
 from .models import User
 from .serializers import RegisterSerializer, UserSerializer
 
@@ -15,3 +23,75 @@ class UserProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class AlterarSenhaView(APIView):
+    """Usuario logado troca a propria senha."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        senha_atual = request.data.get('senha_atual', '')
+        senha_nova = request.data.get('senha_nova', '')
+
+        if not senha_atual or not senha_nova:
+            return Response({'erro': 'Preencha todos os campos.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(senha_nova) < 6:
+            return Response({'erro': 'A nova senha deve ter pelo menos 6 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+        if not request.user.check_password(senha_atual):
+            return Response({'erro': 'Senha atual incorreta.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        request.user.set_password(senha_nova)
+        request.user.save()
+        return Response({'mensagem': 'Senha alterada com sucesso.'})
+
+
+class SolicitarAcessoView(APIView):
+    """ADMIN envia email de primeiro acesso para um usuario."""
+    permission_classes = [IsAdmin]
+
+    def post(self, request):
+        from .services import enviar_primeiro_acesso
+
+        usuario_id = request.data.get('usuario_id')
+        try:
+            usuario = User.objects.get(pk=usuario_id, is_active=True)
+        except User.DoesNotExist:
+            return Response({'erro': 'Usuario nao encontrado.'}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            enviar_primeiro_acesso(usuario)
+        except Exception as e:
+            return Response({'erro': f'Erro ao enviar email: {str(e)}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'mensagem': f'Email de acesso enviado para {usuario.email}.'})
+
+
+class DefinirSenhaView(APIView):
+    """Valida token e define senha — sem autenticacao."""
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        uid_b64 = request.data.get('uid', '')
+        token = request.data.get('token', '')
+        senha = request.data.get('senha', '')
+
+        if not uid_b64 or not token or not senha:
+            return Response({'erro': 'Dados incompletos.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(senha) < 6:
+            return Response({'erro': 'A senha deve ter pelo menos 6 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            uid = force_str(urlsafe_base64_decode(uid_b64))
+            usuario = User.objects.get(pk=uid)
+        except (ValueError, User.DoesNotExist):
+            return Response({'erro': 'Link invalido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not default_token_generator.check_token(usuario, token):
+            return Response(
+                {'erro': 'Link expirado ou invalido. Solicite um novo email de acesso.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        usuario.set_password(senha)
+        usuario.save()
+        return Response({'mensagem': 'Senha definida com sucesso. Voce ja pode fazer login.'})
