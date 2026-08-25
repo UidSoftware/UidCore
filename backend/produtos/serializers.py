@@ -1,7 +1,7 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import ConversaoUnidade, EntradaEstoque, Produto, UnidadeBase
+from .models import Combo, ConversaoUnidade, EntradaEstoque, ItemCombo, Produto, UnidadeBase
 from .services import validar_cadeia
 
 
@@ -96,3 +96,54 @@ class ProdutoSerializer(serializers.ModelSerializer):
         else:
             conversoes = obj.conversoes.filter(is_active=True)
         return ConversaoUnidadeSerializer(conversoes, many=True).data
+
+
+class ItemComboSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
+    produto_nome = serializers.CharField(source='produto.nome', read_only=True)
+    subtotal = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+
+    class Meta:
+        model = ItemCombo
+        fields = ['id', 'produto', 'produto_nome', 'quantidade', 'valor_unitario', 'subtotal']
+
+
+class ComboSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(source='pk', read_only=True)
+    itens = ItemComboSerializer(many=True)
+    valor_total = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+    criado_por_nome = serializers.CharField(source='criado_por.nome_completo', read_only=True, default='')
+
+    class Meta:
+        model = Combo
+        fields = [
+            'id', 'nome', 'descricao', 'itens', 'valor_total', 'is_active',
+            'criado_por', 'criado_por_nome', 'created_at', 'updated_at',
+        ]
+        read_only_fields = ['is_active', 'criado_por', 'created_at', 'updated_at']
+
+    def validate_itens(self, value):
+        if not value:
+            raise serializers.ValidationError('O combo precisa ter pelo menos 1 item.')  # RN-01
+        for item in value:
+            if item.get('quantidade', 0) <= 0:
+                raise serializers.ValidationError('Quantidade de cada item deve ser maior que zero.')  # RN-02
+        return value
+
+    def create(self, validated_data):
+        itens_data = validated_data.pop('itens')
+        combo = Combo.objects.create(**validated_data)
+        for item in itens_data:
+            ItemCombo.objects.create(combo=combo, **item)
+        return combo
+
+    def update(self, instance, validated_data):
+        itens_data = validated_data.pop('itens', None)
+        instance.nome = validated_data.get('nome', instance.nome)
+        instance.descricao = validated_data.get('descricao', instance.descricao)
+        instance.save()
+        if itens_data is not None:
+            instance.itens.all().delete()
+            for item in itens_data:
+                ItemCombo.objects.create(combo=instance, **item)
+        return instance

@@ -10,7 +10,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from .models import ConversaoUnidade, EntradaEstoque, Produto
+from .models import Combo, ConversaoUnidade, EntradaEstoque, ItemCombo, Produto
 
 
 def _make_user(email='admin@teste.com'):
@@ -466,3 +466,129 @@ class ProdutoAPITest(APITestCase):
         nomes = [r['nome'] for r in resp.data['results']]
         self.assertIn('Caneta Azul', nomes)
         self.assertNotIn('Borracha', nomes)
+
+
+class ComboModelTest(TestCase):
+    def setUp(self):
+        self.produto1 = _make_produto(nome='Produto 1')
+        self.produto2 = _make_produto(nome='Produto 2')
+
+    def test_valor_total_soma_subtotais_dos_itens(self):
+        combo = Combo.objects.create(nome='Combo Teste')
+        ItemCombo.objects.create(
+            combo=combo, produto=self.produto1,
+            quantidade=Decimal('2'), valor_unitario=Decimal('10.00'),
+        )
+        ItemCombo.objects.create(
+            combo=combo, produto=self.produto2,
+            quantidade=Decimal('3'), valor_unitario=Decimal('5.00'),
+        )
+        # 2*10 + 3*5 = 35
+        self.assertEqual(combo.valor_total, Decimal('35.00'))
+
+    def test_soft_delete_combo(self):
+        combo = Combo.objects.create(nome='Combo Teste')
+        combo.is_active = False
+        combo.save()
+        self.assertFalse(Combo.objects.get(pk=combo.pk).is_active)
+
+    def test_produto_nao_pode_ser_excluido_fisicamente_se_usado_em_combo(self):
+        combo = Combo.objects.create(nome='Combo Teste')
+        ItemCombo.objects.create(
+            combo=combo, produto=self.produto1,
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        from django.db.models import ProtectedError
+        with self.assertRaises(ProtectedError):
+            self.produto1.delete()
+
+
+class ComboAPITest(APITestCase):
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.produto1 = _make_produto(nome='Produto 1')
+        self.produto2 = _make_produto(nome='Produto 2')
+
+    def test_criar_combo_com_dois_itens(self):
+        resp = self.client.post('/api/v1/produtos/combos/', {
+            'nome': 'Combo Lanche',
+            'descricao': 'Combo de teste',
+            'itens': [
+                {'produto': self.produto1.id, 'quantidade': '1', 'valor_unitario': '10.00'},
+                {'produto': self.produto2.id, 'quantidade': '2', 'valor_unitario': '5.00'},
+            ],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(len(resp.data['itens']), 2)
+        self.assertEqual(Decimal(str(resp.data['valor_total'])), Decimal('20.00'))
+        combo = Combo.objects.get(pk=resp.data['id'])
+        self.assertEqual(combo.criado_por, self.user)
+
+    def test_listar_combos_ativos(self):
+        combo = Combo.objects.create(nome='Combo Ativo')
+        ItemCombo.objects.create(
+            combo=combo, produto=self.produto1,
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        inativo = Combo.objects.create(nome='Combo Inativo', is_active=False)
+        ItemCombo.objects.create(
+            combo=inativo, produto=self.produto1,
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        resp = self.client.get('/api/v1/produtos/combos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        nomes = [c['nome'] for c in resp.data['results']]
+        self.assertIn('Combo Ativo', nomes)
+        self.assertNotIn('Combo Inativo', nomes)
+
+    def test_editar_nome_e_itens_do_combo(self):
+        combo = Combo.objects.create(nome='Combo Original')
+        ItemCombo.objects.create(
+            combo=combo, produto=self.produto1,
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        resp = self.client.patch(f'/api/v1/produtos/combos/{combo.id}/', {
+            'nome': 'Combo Renomeado',
+            'itens': [
+                {'produto': self.produto2.id, 'quantidade': '4', 'valor_unitario': '2.50'},
+            ],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        combo.refresh_from_db()
+        self.assertEqual(combo.nome, 'Combo Renomeado')
+        self.assertEqual(combo.itens.count(), 1)
+        self.assertEqual(combo.itens.first().produto, self.produto2)
+        self.assertEqual(combo.valor_total, Decimal('10.00'))
+
+    def test_excluir_combo_soft_delete(self):
+        combo = Combo.objects.create(nome='Combo Para Excluir')
+        ItemCombo.objects.create(
+            combo=combo, produto=self.produto1,
+            quantidade=Decimal('1'), valor_unitario=Decimal('10.00'),
+        )
+        resp = self.client.delete(f'/api/v1/produtos/combos/{combo.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        combo.refresh_from_db()
+        self.assertFalse(combo.is_active)
+
+    def test_criar_combo_sem_itens_retorna_400(self):
+        resp = self.client.post('/api/v1/produtos/combos/', {
+            'nome': 'Combo Vazio',
+            'itens': [],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_criar_combo_com_item_quantidade_zero_retorna_400(self):
+        resp = self.client.post('/api/v1/produtos/combos/', {
+            'nome': 'Combo Quantidade Zero',
+            'itens': [
+                {'produto': self.produto1.id, 'quantidade': '0', 'valor_unitario': '10.00'},
+            ],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_sem_autenticacao_401(self):
+        self.client.force_authenticate(user=None)
+        resp = self.client.get('/api/v1/produtos/combos/')
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)

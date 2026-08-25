@@ -126,3 +126,52 @@ class EntradaEstoque(BaseModel):
 
     def __str__(self):
         return f'Entrada {self.quantidade} {self.unidade} — {self.produto.nome}'
+
+
+class Combo(BaseModel):
+    nome = models.CharField('nome', max_length=200)
+    descricao = models.TextField('descrição', blank=True, default='')
+    criado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='combos_criados',
+    )
+
+    class Meta:
+        db_table = 'prd_combo'
+        ordering = ['-created_at']
+        verbose_name = 'Combo'
+        verbose_name_plural = 'Combos'
+
+    @property
+    def valor_total(self):
+        return sum((item.subtotal for item in self.itens.all()), Decimal('0.00'))
+
+    def __str__(self):
+        return self.nome
+
+
+class ItemCombo(models.Model):
+    # Sem BaseModel proposital: item filho de Combo, ciclo de vida
+    # atrelado 1:1 ao pai (delete-and-recreate no update — RN-04);
+    # não precisa de is_active/soft delete próprio, mesma decisão da
+    # origem (SystemD ItemCombo também não herda soft delete próprio).
+    combo = models.ForeignKey(Combo, on_delete=models.CASCADE, related_name='itens')
+    produto = models.ForeignKey(Produto, on_delete=models.PROTECT, related_name='combo_itens')
+    quantidade = models.DecimalField('quantidade', max_digits=12, decimal_places=3, default=1)
+    valor_unitario = models.DecimalField(
+        'valor unitário', max_digits=12, decimal_places=2, default=Decimal('0.00'),
+        help_text='Snapshot no momento de salvar — não referencia Produto '
+                   'dinamicamente (RN-03).',
+    )
+
+    class Meta:
+        db_table = 'prd_item_combo'
+        verbose_name = 'Item do Combo'
+        verbose_name_plural = 'Itens do Combo'
+
+    @property
+    def subtotal(self):
+        return self.quantidade * self.valor_unitario
+
+    def __str__(self):
+        return f'{self.combo.nome} — {self.produto.nome} x{self.quantidade}'

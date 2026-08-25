@@ -5,8 +5,13 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from .models import ConversaoUnidade, EntradaEstoque, Produto
-from .serializers import ConversaoUnidadeSerializer, EntradaEstoqueSerializer, ProdutoSerializer
+from .models import Combo, ConversaoUnidade, EntradaEstoque, ItemCombo, Produto
+from .serializers import (
+    ComboSerializer,
+    ConversaoUnidadeSerializer,
+    EntradaEstoqueSerializer,
+    ProdutoSerializer,
+)
 
 
 class ProdutoViewSet(ModelViewSet):
@@ -114,3 +119,25 @@ class ProdutoViewSet(ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ComboViewSet(ModelViewSet):
+    serializer_class = ComboSerializer
+    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
+    search_fields = ['nome']
+    ordering_fields = ['nome', 'created_at']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        return Combo.objects.filter(is_active=True).prefetch_related(
+            Prefetch('itens', queryset=ItemCombo.objects.select_related('produto')),
+        )
+
+    def perform_create(self, serializer):
+        serializer.save(criado_por=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        instance.is_active = False
+        instance.save(update_fields=['is_active', 'updated_at'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
