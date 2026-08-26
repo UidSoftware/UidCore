@@ -6,8 +6,8 @@ from .models import User
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'date_joined']
-        read_only_fields = ['id', 'is_active', 'is_staff', 'date_joined']
+        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'perfil', 'date_joined']
+        read_only_fields = ['id', 'is_active', 'is_staff', 'perfil', 'date_joined']
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -20,7 +20,7 @@ class UserAdminSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'nome_completo', 'telefone', 'password',
-            'is_active', 'is_staff', 'date_joined', 'colaborador_nome',
+            'is_active', 'is_staff', 'perfil', 'date_joined', 'colaborador_nome',
         ]
         read_only_fields = ['id', 'date_joined', 'colaborador_nome']
 

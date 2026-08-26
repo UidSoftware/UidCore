@@ -3,12 +3,22 @@ from django.db import models
 from .managers import CustomUserManager
 
 
+class PerfilUsuario(models.TextChoices):
+    ADMIN = 'ADMIN', 'Admin'
+    OPERACIONAL = 'OPERACIONAL', 'Operacional'
+    MARKETING = 'MARKETING', 'Marketing'
+
+
 class User(AbstractBaseUser, PermissionsMixin):
     email = models.EmailField('e-mail', unique=True)
     nome_completo = models.CharField('nome completo', max_length=255)
     telefone = models.CharField('telefone', max_length=20, blank=True)
     is_active = models.BooleanField('ativo', default=True)
     is_staff = models.BooleanField('membro da equipe', default=False)
+    perfil = models.CharField(
+        'perfil', max_length=12,
+        choices=PerfilUsuario.choices, default=PerfilUsuario.OPERACIONAL,
+    )
     date_joined = models.DateTimeField('data de cadastro', auto_now_add=True)
 
     objects = CustomUserManager()
