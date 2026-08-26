@@ -1,465 +1,475 @@
-# Especificação — Manutenção #53
-**Elaborado por:** Analista (MODO HOTFIX)
-**Data:** 2026-08-25
-**Sistema:** UidCore (OS #7)
+# Especificação de Hotfix — UidCore (OS #7)
 
-**Solicitação original (resumida):**
-Implementar no UidCore o sistema de **Combos de produtos**, portado do
-SystemD (`/root/SystemD/backend/produtos/` — models `Combo`/`ItemCombo`,
-`ComboViewSet`, `ComboSerializer`, seção Combos em `ProdutosPage.jsx`).
-Não é bug — é feature nova que já existe validada em produção em outro
-projeto Uid, precisa ser adaptada às convenções do UidCore (BaseModel,
-serializer com `id=IntegerField(source='pk')`, dark mode navy/violet,
-ausência de campo `tipo`/`criado_por` em `Produto`).
+**Manutenção #54 — Módulo novo: Marketing (Campanhas + Leads + ROI/CAC) + perfil Marketing**
+
+Data: 2026-08-25
+Levantado por: Analista (modo manutenção — briefing técnico já qualificado, sem lacunas)
 
 ---
 
-## Classificação
+## 1. Contexto
+
+O UidCore hoje não tem nenhuma estrutura de marketing/aquisição — só
+`clientes.Cliente` já convertido, sem histórico de como o lead chegou
+além do campo livre `origem` (texto). Não existe conceito de campanha,
+funil de lead, nem cálculo de custo de aquisição (CAC) ou retorno sobre
+investimento (ROI) por canal.
+
+Pedido do cliente: um módulo de Marketing dentro do próprio UidCore para
+cadastrar campanhas, registrar leads captados por canal, converter lead
+em cliente sem perder o rastro da campanha de origem, e visualizar
+ROI/CAC por campanha cruzando o investimento com as vendas fechadas
+(`vendas.Pedido`) dos clientes que vieram daquela campanha.
+
+Requisito adicional: como isso é operação comercial e não deve ficar
+exposto a quem cuida de Financeiro/RH/PDV, foi pedido um perfil de
+usuário `Marketing` com acesso restrito a este módulo novo — o que exige
+antes uma decisão de arquitetura, porque o UidCore não tem hoje nenhum
+mecanismo de perfil granular (só `is_staff` boolean).
+
+## 2. AS-IS (como é hoje)
 
 ```
-tipo: feature_pequena
-sistema: UidCore
-caminho_afetado: backend/produtos/ (models.py, serializers.py, views.py, urls.py, migrations/0003)
-                 frontend/src/pages/Produtos.jsx (nova seção Combos abaixo da tabela)
-complexidade: media
-requer_aprovacao_comercial: false
+- accounts.User: email, nome_completo, telefone, is_active, is_staff,
+  date_joined — sem campo de perfil/role
+- common/permissions.py: só IsAdmin (is_staff) e IsOwner — binário,
+  sem granularidade por módulo
+- clientes.Cliente (herda PessoaBase/BaseModel): tem campo `origem`
+  (CharField 100, texto livre) — não há vínculo formal com nenhuma
+  entidade de campanha, porque campanha não existe
+- vendas.Pedido: representa venda fechada, tem `cliente` (FK),
+  `valor_total` (Decimal), `created_at` (herdado de BaseModel) — é a
+  fonte de receita fechada usada para o cálculo de ROI/CAC
+- Sidebar.jsx: itens fixos por rota, com `staffOnly` controlando
+  visibilidade via `user?.is_staff` — não existe granularidade além de
+  staff/não-staff
+- Nenhum app `marketing` existe no projeto (confirmado:
+  backend/marketing/ não existe, `core/settings.py` LOCAL_APPS e
+  `core/urls.py` não referenciam)
 ```
 
----
-
-## Diagnóstico confirmado (leitura direta do código)
-
-Lido lado a lado:
-- Origem (SystemD): `produtos/models.py`, `produtos/serializers.py`, `produtos/views.py`
-- Destino (UidCore): `backend/produtos/models.py`, `serializers.py`, `views.py`, `urls.py`, `services.py`, `common/models.py` (`BaseModel`), `accounts/models.py` (`User`), `common/permissions.py`, `core/settings.py` (`REST_FRAMEWORK`)
-- Frontend destino: `frontend/src/pages/Produtos.jsx` (805 linhas — já tem seções Produto + Conversões + Entradas de Estoque, dark mode navy/violet aplicado desde a Manutenção #31)
-
-### Diferenças estruturais confirmadas entre origem e destino
-
-| Aspecto | SystemD (origem) | UidCore (destino) | Decisão de adaptação |
-|---|---|---|---|
-| Base de auditoria | `ativo`, `criado_em`, `atualizado_em` soltos em cada model | `BaseModel` abstrato (`is_active`, `created_at`, `updated_at`) em `common/models.py` | `Combo` herda `BaseModel` — **não** redeclarar `ativo`/`criado_em`/`atualizado_em` |
-| `Produto.tipo` | Existe (`PRODUTO`/`SERVICO`), Combo não depende dele | **Não existe** no UidCore (`Produto` só tem nome, codigo_barras, quantidade_estoque, estoque_minimo, unidade_base, valor_unitario, preco_venda, observacoes) | Nenhum ajuste necessário — Combo/ItemCombo do SystemD já não usa `Produto.tipo` em nenhum lugar (verificado: nem `views.py` nem `serializers.py` do Combo referenciam `tipo`) |
-| Serializer `id` | `ComboSerializer` de origem já tinha `id=IntegerField(source='pk')`, mas `ProdutoSerializer` de lá usa `fields='__all__'` | Regra global Uid: todo serializer novo do UidCore declara `id = serializers.IntegerField(source='pk', read_only=True)` como primeiro campo (já é o padrão em `ConversaoUnidadeSerializer`, `EntradaEstoqueSerializer`, `ProdutoSerializer` do destino) | `ComboSerializer` e `ItemComboSerializer` seguem o padrão já usado no arquivo — SystemD já fazia isso no Combo por acaso, mantém |
-| Autor do registro | `Combo.criado_por` FK `usuarios.Usuario` (SET_NULL) | `Produto` do UidCore **não tem** `criado_por`; mas `EntradaEstoque` do UidCore **tem** `criado_por` FK `settings.AUTH_USER_MODEL` (SET_NULL, `related_name='+'`) — precedente já existe no próprio app | `Combo.criado_por` FK `settings.AUTH_USER_MODEL`, null=True, blank=True, `on_delete=SET_NULL`, seguindo o padrão de `EntradaEstoque` (não o de `Produto`, que não rastreia autor) — decisão: manter rastreabilidade de quem criou o combo, é dado de auditoria útil e barato |
-| Nome de usuário exibido | `criado_por.nome` (`Usuario.nome`) | `User` do UidCore usa `nome_completo` (não `nome` — `accounts/models.py` linha 8) | `criado_por_nome = serializers.CharField(source='criado_por.nome_completo', read_only=True, default='')` |
-| Permissão | `IsAdminOrOperacional` (`usuarios.permissions`) — classe não existe no UidCore | UidCore usa `DEFAULT_PERMISSION_CLASSES = (IsAuthenticated,)` global (`core/settings.py`); `ProdutoViewSet` não sobrescreve `get_permissions` | `ComboViewSet` **não sobrescreve** `get_permissions` — segue o mesmo padrão de `ProdutoViewSet` (qualquer usuário autenticado do sistema acessa; não existe distinção Admin/Operacional no UidCore hoje) |
-| Filtro de listagem | `DjangoFilterBackend + SearchFilter + OrderingFilter`, `filterset_fields` | `ProdutoViewSet` usa só `SearchFilter + OrderingFilter` (sem `filterset_fields`); `DjangoFilterBackend` está no `DEFAULT_FILTER_BACKENDS` global mas os ViewSets do app produtos não declaram `filterset_fields` | `ComboViewSet` usa `filter_backends = [filters.SearchFilter, filters.OrderingFilter]`, `search_fields = ['nome']`, `ordering_fields = ['nome', 'created_at']` — mesmo padrão de `ProdutoViewSet` |
-| Soft delete | `instance.ativo = False; instance.save()` | Padrão UidCore já em uso: `instance.is_active = False; instance.save(update_fields=['is_active', 'updated_at'])` (ver `ProdutoViewSet.destroy`) | `ComboViewSet.destroy` replica exatamente o padrão de `ProdutoViewSet.destroy` |
-| App de destino | App `produtos` própria do SystemD | App `produtos` **já existe** em `backend/produtos/` no UidCore, com `ConversaoUnidade`/`EntradaEstoque`/`services.py` (cadeia de conversão de unidade, Manutenção #37/#40) | Adicionar `Combo`/`ItemCombo` no `models.py` existente — **não criar app nova** |
-| Migration | N/A (projeto próprio) | Última migration do app: `0002_conversaounidade_converte_para_and_more.py` | Nova migration `0003_combo_itemcombo.py` |
-| `Produto` referenciado em `ItemCombo` | `on_delete=PROTECT` | Mesmo padrão adotado — `Produto` do UidCore não deve poder ser excluído fisicamente enquanto usado em um combo (soft delete de Produto não afeta isso: `ItemCombo.produto` continua apontando pro registro, mesmo se `Produto.is_active=False`) | Mantém `on_delete=models.PROTECT` |
-
-### Confirmação: nenhuma colisão de nomes
-
-`backend/produtos/models.py` atual não tem `Combo` nem `ItemCombo`.
-`urls.py` atual só registra `ProdutoViewSet` na raiz do router
-(`router.register(r'', ProdutoViewSet, basename='produto')`) — precisa de
-um segundo `register` para `combos`.
-
----
-
-## Requisitos Funcionais
+## 3. TO-BE (como será)
 
 ```
-RF-01 - O sistema deve permitir cadastrar um Combo com nome, descrição
-        (opcional) e uma lista de itens (produto + quantidade + valor
-        unitário)
-RF-02 - O sistema deve calcular o valor_total do combo como a soma de
-        (quantidade × valor_unitario) de cada item — property calculada,
-        não persistida
-RF-03 - O sistema deve permitir editar um Combo existente, incluindo
-        substituir por completo a lista de itens (delete-and-recreate,
-        igual ao comportamento de origem — SystemD já valida esse
-        comportamento em produção)
-RF-04 - O sistema deve permitir excluir (soft delete) um Combo — mesmo
-        padrão de Produto: is_active=False, nunca DELETE físico
-RF-05 - O sistema deve listar Combos ativos com busca por nome e
-        paginação (mesmo padrão de Produtos — response.data.results)
-RF-06 - A tela de Produtos deve exibir uma seção "Combos" abaixo da
-        tabela/lista de produtos, com botão "🎁 Combo" no header para
-        abrir o modal de criação
-RF-07 - O modal de Combo deve permitir adicionar/remover linhas de item
-        (produto via Select + quantidade + valor unitário), com valor
-        total recalculado em tempo real no cliente
-RF-08 - Desktop: tabela de Combos. Mobile: cards — mesmo padrão
-        responsivo já usado na tabela de Produtos (breakpoint md)
-```
-
-## Requisitos Não Funcionais
-
-```
-RNF-01 - Segue os tokens de dark mode navy/violet já estabelecidos no
-         projeto (Manutenção #31) — nada de inline style ao estilo
-         SystemD original
-RNF-02 - id = serializers.IntegerField(source='pk', read_only=True) como
-         primeiro campo em ComboSerializer e ItemComboSerializer
-         (regra global Uid)
-RNF-03 - Soft delete via is_active — nunca .delete() físico em Combo
-RNF-04 - DecimalField para todo valor monetário/quantidade (nunca Float)
-RNF-05 - Erros de validação exibidos via extractErrorMessage (padrão já
-         usado em todo Produtos.jsx)
-```
-
-## Regras de Negócio
-
-```
-RN-01 - Um Combo precisa ter pelo menos 1 item (validate_itens rejeita
-        lista vazia) — igual à origem
-RN-02 - Quantidade de cada item deve ser maior que zero — igual à origem
-RN-03 - valor_unitario de ItemCombo é um SNAPSHOT no momento de salvar —
-        não referencia Produto.preco_venda/valor_unitario dinamicamente.
-        Se o preço do produto mudar depois, o combo já criado mantém o
-        valor congelado (mesma decisão documentada no comentário da
-        origem: "não referencia Produto.preco_padrao dinamicamente")
-RN-04 - Ao editar um Combo (PATCH/PUT com itens), o backend deleta todos
-        os ItemCombo antigos e recria os novos a partir do payload —
-        comportamento idempotente vindo da origem, mantido
-RN-05 - Produto referenciado por ItemCombo não pode ser excluído
-        fisicamente (on_delete=PROTECT) — soft delete de Produto
-        (is_active=False) não impede a exclusão, só o delete físico
+- Novo app `marketing` (backend/marketing/) com models Campanha e Lead
+- accounts.User ganha campo `perfil` (ADMIN/OPERACIONAL/MARKETING)
+- Nova permission IsMarketing em common/permissions.py
+- Endpoint de conversão de Lead em Cliente, preservando rastreabilidade
+  da campanha de origem via Cliente.origem
+- Endpoint de ROI/CAC por campanha, cruzando Lead → Cliente → Pedido
+- Novo item "Marketing" na Sidebar, visível para ADMIN ou MARKETING
+- Duas telas novas no frontend: Campanhas e Leads
 ```
 
 ---
 
-## Spec Backend
+## 4. Decisão de Arquitetura — mecanismo de perfil (RF05)
 
-### `backend/produtos/models.py` — adicionar ao final do arquivo
+**Contexto do problema:** o UidCore não tem precedente de perfil
+granular. O SystemD (produto irmão) resolve isso com um campo
+`perfil` com choices (`ADMIN`/`OPERACIONAL`/`FINANCEIRO`/`CLIENTE`) direto
+no model de usuário — não usa Django Groups/Permissions.
+
+**Opções avaliadas:**
+
+| Opção | Prós | Contras |
+|---|---|---|
+| Django Groups + Permissions (`auth.Group`) | Nativo do Django, granularidade por permissão individual | Overkill para 1 perfil novo; exige telas de administração de grupos/permissões que não existem no UidCore; mais uma tabela de junção (`user_groups`) só para resolver "vê ou não vê 1 módulo" |
+| Campo `perfil` (CharField + choices) em `accounts.User` | Consistente com o padrão já usado no SystemD (produto irmão da mesma stack); 1 migration simples, sem tabela nova; leitura direta em `request.user.perfil` sem joins; frontend já tem precedente de checar `user?.is_staff` do mesmo jeito (`user?.perfil`) | Menos flexível que Groups se no futuro houver dezenas de perfis com permissões cruzadas granulares |
+
+**Decisão:** campo `perfil` em `accounts.User`, choices
+`ADMIN` / `OPERACIONAL` / `MARKETING`, default `OPERACIONAL`. Justificativa:
+escopo atual é 1 perfil novo com acesso binário (vê o módulo Marketing
+ou não vê) — Groups resolveria o mesmo problema com mais peça móvel e
+sem nenhuma tela de administração de grupos para sustentar isso.
+Padrão consistente com o irmão SystemD reduz a distância entre os dois
+codebases da Uid. Se no futuro o UidCore precisar de permissão granular
+por ação (não só por módulo), Groups deve ser revisitado — não é o caso
+hoje.
+
+`is_staff` continua existindo e controlando Financeiro/RH/PDV/Usuários
+(`IsAdmin`) — `perfil` é aditivo, não substitui `is_staff`. Um usuário
+`is_staff=True` continua com acesso total (inclusive Marketing, ver
+RF05/RN08 abaixo), independente do valor de `perfil`.
+
+**Migration de dados:** nenhuma migration de dados necessária — usuários
+existentes recebem `perfil='OPERACIONAL'` (default) automaticamente;
+usuários com `is_staff=True` mantêm acesso total via `IsAdmin` sem
+depender do novo campo.
+
+---
+
+## 5. Requisitos Funcionais (RF)
+
+### RF01 — Model `Campanha` (app `marketing`)
 
 ```python
-class Combo(BaseModel):
-    nome = models.CharField('nome', max_length=200)
-    descricao = models.TextField('descrição', blank=True, default='')
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='combos_criados',
-    )
+class CanalCampanha(models.TextChoices):
+    ADS = 'ads', 'Ads'
+    REDES_SOCIAIS = 'redes_sociais', 'Redes Sociais'
+    EMAIL = 'email', 'E-mail'
+    ORGANICO = 'organico', 'Orgânico'
+    OUTRO = 'outro', 'Outro'
+
+class StatusCampanha(models.TextChoices):
+    PLANEJADA = 'planejada', 'Planejada'
+    ATIVA = 'ativa', 'Ativa'
+    ENCERRADA = 'encerrada', 'Encerrada'
+
+class Campanha(BaseModel):
+    nome = models.CharField('nome', max_length=255)
+    canal = models.CharField('canal', max_length=20, choices=CanalCampanha.choices)
+    data_inicio = models.DateField('data de início')
+    data_fim = models.DateField('data de fim', null=True, blank=True)
+    orcamento = models.DecimalField('orçamento', max_digits=12, decimal_places=2, default=0)
+    status = models.CharField('status', max_length=10, choices=StatusCampanha.choices, default=StatusCampanha.PLANEJADA)
 
     class Meta:
-        db_table = 'prd_combo'
+        db_table = 'marketing_campanha'
         ordering = ['-created_at']
-        verbose_name = 'Combo'
-        verbose_name_plural = 'Combos'
+```
 
-    @property
-    def valor_total(self):
-        return sum((item.subtotal for item in self.itens.all()), Decimal('0.00'))
+Endpoint CRUD completo: `/api/v1/marketing/campanhas/` (`DefaultRouter`,
+igual ao padrão de `clientes/urls.py`).
 
-    def __str__(self):
-        return self.nome
+### RF02 — Model `Lead` (app `marketing`)
 
+```python
+class StatusLead(models.TextChoices):
+    NOVO = 'novo', 'Novo'
+    QUALIFICADO = 'qualificado', 'Qualificado'
+    CONVERTIDO = 'convertido', 'Convertido'
+    DESCARTADO = 'descartado', 'Descartado'
 
-class ItemCombo(models.Model):
-    # Sem BaseModel proposital: item filho de Combo, ciclo de vida
-    # atrelado 1:1 ao pai (delete-and-recreate no update — RN-04);
-    # não precisa de is_active/soft delete próprio, mesma decisão da
-    # origem (SystemD ItemCombo também não herda soft delete próprio).
-    combo = models.ForeignKey(Combo, on_delete=models.CASCADE, related_name='itens')
-    produto = models.ForeignKey(Produto, on_delete=models.PROTECT, related_name='combo_itens')
-    quantidade = models.DecimalField('quantidade', max_digits=12, decimal_places=3, default=1)
-    valor_unitario = models.DecimalField(
-        'valor unitário', max_digits=12, decimal_places=2, default=Decimal('0.00'),
-        help_text='Snapshot no momento de salvar — não referencia Produto '
-                   'dinamicamente (RN-03).',
+class Lead(BaseModel):
+    nome = models.CharField('nome', max_length=200)
+    email = models.EmailField('e-mail', blank=True)
+    telefone = models.CharField('telefone', max_length=20, blank=True)
+    campanha = models.ForeignKey(
+        Campanha, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='leads',
+    )
+    observacoes = models.TextField('observações', blank=True)
+    status = models.CharField('status', max_length=12, choices=StatusLead.choices, default=StatusLead.NOVO)
+    cliente_convertido = models.ForeignKey(
+        'clientes.Cliente', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='leads_origem',
     )
 
     class Meta:
-        db_table = 'prd_item_combo'
-        verbose_name = 'Item do Combo'
-        verbose_name_plural = 'Itens do Combo'
-
-    @property
-    def subtotal(self):
-        return self.quantidade * self.valor_unitario
-
-    def __str__(self):
-        return f'{self.combo.nome} — {self.produto.nome} x{self.quantidade}'
+        db_table = 'marketing_lead'
+        ordering = ['-created_at']
 ```
 
-**Atenção Forge:** `models.py` atual do UidCore já importa `Decimal`
-(linha 1) e `from django.conf import settings` (linha 3) — não duplicar
-imports.
+Notas de implementação:
+- `data_criacao` do RF original é o `created_at` herdado de `BaseModel`
+  — não criar campo duplicado.
+- `campanha` usa `on_delete=models.SET_NULL` (não `PROTECT`) porque
+  RN07 exige que excluir (soft delete) uma campanha não pode quebrar o
+  histórico de leads — e soft delete não aciona `on_delete` mesmo, mas
+  a FK correta evita erro caso algum dia a exclusão física seja cogitada.
+- `cliente_convertido` é `SET_NULL` pelo mesmo motivo de resiliência —
+  cliente é o "produto final" da conversão, não deve travar a exclusão
+  do lead nem vice-versa.
 
-### `backend/produtos/serializers.py` — adicionar
+Endpoint CRUD completo: `/api/v1/marketing/leads/`.
+
+### RF03 — Ação "Converter em Cliente"
+
+`POST /api/v1/marketing/leads/{id}/converter/`
 
 ```python
-from .models import Combo, ItemCombo  # adicionar aos imports existentes
+@action(detail=True, methods=['post'], url_path='converter')
+def converter(self, request, pk=None):
+    lead = self.get_object()
+    if lead.status == StatusLead.CONVERTIDO:
+        return Response({'detail': 'Lead já convertido.'}, status=400)
 
+    with transaction.atomic():
+        cliente = None
+        if lead.email:
+            cliente = Cliente.objects.filter(email=lead.email, is_active=True).first()
+        if cliente is None:
+            cliente = Cliente.objects.create(
+                tipo_pessoa='PF',
+                nome_razao_social=lead.nome,
+                email=lead.email,
+                telefone=lead.telefone,
+                origem=lead.campanha.nome if lead.campanha else 'Sem campanha',
+            )
+        lead.status = StatusLead.CONVERTIDO
+        lead.cliente_convertido = cliente
+        lead.save(update_fields=['status', 'cliente_convertido', 'updated_at'])
 
-class ItemComboSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='pk', read_only=True)
-    produto_nome = serializers.CharField(source='produto.nome', read_only=True)
-    subtotal = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-
-    class Meta:
-        model = ItemCombo
-        fields = ['id', 'produto', 'produto_nome', 'quantidade', 'valor_unitario', 'subtotal']
-
-
-class ComboSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='pk', read_only=True)
-    itens = ItemComboSerializer(many=True)
-    valor_total = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    criado_por_nome = serializers.CharField(source='criado_por.nome_completo', read_only=True, default='')
-
-    class Meta:
-        model = Combo
-        fields = [
-            'id', 'nome', 'descricao', 'itens', 'valor_total', 'is_active',
-            'criado_por', 'criado_por_nome', 'created_at', 'updated_at',
-        ]
-        read_only_fields = ['is_active', 'criado_por', 'created_at', 'updated_at']
-
-    def validate_itens(self, value):
-        if not value:
-            raise serializers.ValidationError('O combo precisa ter pelo menos 1 item.')  # RN-01
-        for item in value:
-            if item.get('quantidade', 0) <= 0:
-                raise serializers.ValidationError('Quantidade de cada item deve ser maior que zero.')  # RN-02
-        return value
-
-    def create(self, validated_data):
-        itens_data = validated_data.pop('itens')
-        combo = Combo.objects.create(**validated_data)
-        for item in itens_data:
-            ItemCombo.objects.create(combo=combo, **item)
-        return combo
-
-    def update(self, instance, validated_data):
-        itens_data = validated_data.pop('itens', None)
-        instance.nome = validated_data.get('nome', instance.nome)
-        instance.descricao = validated_data.get('descricao', instance.descricao)
-        instance.save()
-        if itens_data is not None:
-            instance.itens.all().delete()
-            for item in itens_data:
-                ItemCombo.objects.create(combo=instance, **item)
-        return instance
+    return Response(LeadSerializer(lead).data, status=200)
 ```
 
-### `backend/produtos/views.py` — adicionar
+Regras:
+- Busca de duplicidade por `email` **apenas quando `lead.email` não é
+  vazio** — lead sem e-mail sempre cria `Cliente` novo (não há chave
+  segura para deduplicar).
+- Tudo em `transaction.atomic()` — se a criação do Cliente falhar, o
+  Lead não pode ficar marcado como convertido sem cliente vinculado.
+- RN06: uma vez `convertido`, a action retorna 400 numa segunda
+  tentativa — conversão não é reversível via API.
+
+### RF04 — Endpoint de ROI por Campanha
+
+`GET /api/v1/marketing/campanhas/{id}/roi/`
 
 ```python
-from .models import Combo, ItemCombo  # adicionar aos imports existentes (Prefetch já importado)
-from .serializers import ComboSerializer  # adicionar
+@action(detail=True, methods=['get'], url_path='roi')
+def roi(self, request, pk=None):
+    campanha = self.get_object()
+    leads_qs = Lead.objects.filter(campanha=campanha, is_active=True)
+    leads_total = leads_qs.count()
+    leads_convertidos = leads_qs.filter(status=StatusLead.CONVERTIDO).count()
 
+    clientes_ids = leads_qs.filter(
+        status=StatusLead.CONVERTIDO, cliente_convertido__isnull=False,
+    ).values_list('cliente_convertido_id', flat=True)
 
-class ComboViewSet(ModelViewSet):
-    serializer_class = ComboSerializer
-    filter_backends = [filters.SearchFilter, filters.OrderingFilter]
-    search_fields = ['nome']
-    ordering_fields = ['nome', 'created_at']
-    ordering = ['-created_at']
+    receita_fechada = Pedido.objects.filter(
+        cliente_id__in=clientes_ids,
+        is_active=True,
+        created_at__gte=campanha.data_inicio,
+    ).aggregate(total=Sum('valor_total'))['total'] or Decimal('0')
 
-    def get_queryset(self):
-        return Combo.objects.filter(is_active=True).prefetch_related(
-            Prefetch('itens', queryset=ItemCombo.objects.select_related('produto')),
-        )
+    orcamento = campanha.orcamento
+    cac = (orcamento / leads_convertidos) if leads_convertidos > 0 else None
+    roi = (
+        ((receita_fechada - orcamento) / orcamento) * 100
+        if orcamento > 0 else None
+    )
 
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
+    return Response({
+        'campanha_id': campanha.pk,
+        'leads_total': leads_total,
+        'leads_convertidos': leads_convertidos,
+        'orcamento': orcamento,
+        'receita_fechada': receita_fechada,
+        'cac': cac,
+        'roi': roi,
+    })
 ```
 
-Sem `get_permissions` — segue o padrão de `ProdutoViewSet` (nenhum
-override), herda `IsAuthenticated` global.
+Notas:
+- `created_at__gte=campanha.data_inicio` — `data_inicio` é `DateField` e
+  `created_at` é `DateTimeField`; comparação funciona (Django converte
+  a data para o início do dia), sem necessidade de cast manual.
+- `cac` e `roi` retornam `null` (não `0` nem erro) quando o divisor é
+  zero — regra explícita do pedido, evitar `ZeroDivisionError` e evitar
+  o valor enganoso `0`.
+- `leads_qs` filtra `is_active=True` — lead excluído (soft delete) não
+  deve contar no ROI, mesmo que já tenha sido convertido antes (decisão
+  do Analista: manter simetria com o resto do sistema, que sempre
+  exclui `is_active=False` das contagens operacionais).
 
-### `backend/produtos/urls.py` — alterar
+### RF05 — Perfil "Marketing"
+
+Ver decisão de arquitetura na seção 4. Resumo de implementação:
 
 ```python
-from rest_framework.routers import DefaultRouter
+# accounts/models.py
+class PerfilUsuario(models.TextChoices):
+    ADMIN = 'ADMIN', 'Admin'
+    OPERACIONAL = 'OPERACIONAL', 'Operacional'
+    MARKETING = 'MARKETING', 'Marketing'
 
-from .views import ComboViewSet, ProdutoViewSet
-
-router = DefaultRouter()
-router.register(r'combos', ComboViewSet, basename='combo')
-router.register(r'', ProdutoViewSet, basename='produto')
-
-urlpatterns = router.urls
+class User(AbstractBaseUser, PermissionsMixin):
+    ...
+    perfil = models.CharField(
+        'perfil', max_length=12,
+        choices=PerfilUsuario.choices, default=PerfilUsuario.OPERACIONAL,
+    )
 ```
 
-**Atenção Forge — ordem de registro importa:** `ProdutoViewSet` está
-registrado na raiz (`r''`). Se `combos` for registrado DEPOIS de `r''`
-no `DefaultRouter`, o router pode tentar resolver `/produtos/combos/`
-como se `combos` fosse um `pk` de produto, dependendo da ordem interna de
-matching de URLs do DRF. Registrar `combos` **antes** da rota raiz evita
-esse conflito — endpoint final esperado: `/api/v1/produtos/combos/`.
-Confirmar com teste real (`GET /api/v1/produtos/combos/` → 200, não 404
-nem tentativa de resolver como detail de produto) antes de considerar
-concluído.
+```python
+# common/permissions.py
+class IsMarketing(BasePermission):
+    def has_permission(self, request, view):
+        u = request.user
+        return bool(u and u.is_authenticated and (u.perfil == 'MARKETING' or u.is_staff))
+```
 
-### Migration — `backend/produtos/migrations/0003_combo_itemcombo.py`
+Uso nos ViewSets do módulo:
+```python
+class CampanhaViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdmin | IsMarketing]
+    ...
 
-Gerar via `python manage.py makemigrations produtos` (Forge executa no
-ambiente de dev, nunca na VPS — regra global). Estrutura esperada:
-CreateModel `Combo` (herda campos de `BaseModel` via abstract — `id`,
-`created_at`, `updated_at`, `is_active`, `nome`, `descricao`,
-`criado_por` FK) + CreateModel `ItemCombo` (`id`, `combo` FK, `produto`
-FK PROTECT, `quantidade`, `valor_unitario`). Dependência:
-`0002_conversaounidade_converte_para_and_more`.
+class LeadViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdmin | IsMarketing]
+    ...
+```
+
+RN08 (nova, formalizada pelo Analista): módulos Financeiro, RH e PDV
+**não mudam** — continuam exigindo `IsAdmin` (`is_staff`) puro, sem
+`IsMarketing` na composição. `perfil='MARKETING'` dá acesso **apenas**
+a Campanha/Lead/ROI — nunca a Financeiro/RH/PDV/Usuários.
+
+**Exposição do campo `perfil` ao frontend** — obrigatório para RF06
+funcionar (Sidebar decide visibilidade no cliente):
+- `accounts/serializers.py::UserSerializer` (usado em `GET /accounts/me/`
+  — é o que preenche `authStore.user`): adicionar `'perfil'` em `fields`
+  e em `read_only_fields` (usuário comum não pode alterar o próprio
+  perfil via `/me/`).
+- `accounts/serializers.py::UserAdminSerializer` (tela de Usuários,
+  `IsAdmin`): adicionar `'perfil'` em `fields` — é o Admin quem define o
+  perfil MARKETING de outro usuário, via `PATCH /accounts/usuarios/{id}/`.
+
+### RF06 — Menu Marketing na Sidebar (frontend)
+
+```jsx
+{ to: '/marketing/campanhas', label: 'Campanhas', icon: '📣', marketingOnly: true }
+{ to: '/marketing/leads', label: 'Leads', icon: '📣', marketingOnly: true }
+```
+
+Visibilidade: `isStaff || user?.perfil === 'MARKETING'` — mesmo padrão
+booleano já usado para o item `staffOnly` (`Usuários`), estendido com a
+condição de perfil. Ícone único 📣 para o grupo Marketing (submenu
+Campanhas/Leads), consistente com os demais itens emoji da Sidebar —
+nunca Lucide/ícone de lib nesse componente (regra já documentada nas
+manutenções anteriores, ex. #10 DIV-UI03).
 
 ---
 
-## Spec Frontend — `frontend/src/pages/Produtos.jsx`
+## 6. Requisitos Não Funcionais (RN)
 
-Arquivo atual tem 805 linhas, já com seções Produto + Conversões +
-Entradas de Estoque dentro do modal de Produto. A seção Combos é
-**separada**, fora desse modal — nova seção na página principal, abaixo
-da tabela/cards de Produtos (RF-06).
-
-### Novo estado (topo do componente, junto dos existentes)
-
-```jsx
-const [combos, setCombos] = useState([])
-const [loadingCombos, setLoadingCombos] = useState(false)
-const [comboModalOpen, setComboModalOpen] = useState(false)
-const [comboForm, setComboForm] = useState({ nome: '', descricao: '' })
-const [comboItens, setComboItens] = useState([])
-const [editingComboId, setEditingComboId] = useState(null)
-const [savingCombo, setSavingCombo] = useState(false)
+```
+RN01 - DecimalField para todo campo monetário (orcamento, receita_fechada,
+       cac, roi em base percentual) — NUNCA float. [já contemplado nos
+       models/cálculos acima]
+RN02 - Soft delete via BaseModel (is_active=False) em Campanha e Lead —
+       NUNCA objeto.delete()
+RN03 - Autenticação por e-mail (já existente, USERNAME_FIELD='email') —
+       não alterar
+RN04 - Frontend consome via response.data.results (paginação DRF padrão)
+       em Campanhas e Leads — mesmo padrão dos demais módulos
+RN05 - id = serializers.IntegerField(source='pk', read_only=True) como
+       primeiro campo em CampanhaSerializer e LeadSerializer
+RN06 - Lead.status='convertido' é irreversível via API (RF03) — a action
+       /converter/ bloqueia segunda chamada com 400; não expor PATCH
+       direto de status='convertido' → 'novo'/outro no serializer padrão
+       (campo status editável via PATCH normal para os demais valores,
+       mas não deve permitir voltar de 'convertido')
+RN07 - Campanha excluída (is_active=False) mantém histórico de Leads —
+       FK campanha em Lead usa SET_NULL, não CASCADE nem PROTECT;
+       queryset padrão de Lead não filtra por campanha.is_active (lead
+       antigo continua visível mesmo se a campanha for arquivada depois)
+RN08 - Financeiro/RH/PDV/Usuários continuam exigindo IsAdmin (is_staff)
+       puro — perfil MARKETING nunca dá acesso a esses módulos
 ```
 
-### Fetch de combos
+---
 
-```jsx
-const fetchCombos = useCallback(async () => {
-  setLoadingCombos(true)
-  try {
-    const response = await api.get('/produtos/combos/')
-    setCombos(response.data.results)
-  } catch {
-    showToast('Erro ao carregar combos.', 'error')
-  } finally {
-    setLoadingCombos(false)
-  }
-}, [])
+## 7. Especificação Backend (para o Forge)
 
-useEffect(() => { fetchCombos() }, [fetchCombos])
+```
+Novo app: backend/marketing/
+├── migrations/0001_initial.py   → Campanha, Lead
+├── models.py                    → RF01, RF02
+├── serializers.py                → CampanhaSerializer, LeadSerializer
+│                                    (RN05 — id explícito),
+│                                    campos *_display para choices
+├── views.py                     → CampanhaViewSet (+ action roi),
+│                                    LeadViewSet (+ action converter)
+├── urls.py                      → DefaultRouter, registrar 'campanhas'
+│                                    e 'leads' (padrão de accounts/urls.py,
+│                                    não raiz única como clientes/urls.py,
+│                                    porque marketing tem 2 recursos)
+├── admin.py                     → registro básico (padrão dos demais apps)
+└── tests.py                     → cobertura mínima: CRUD Campanha/Lead,
+                                     conversão (com e sem duplicidade de
+                                     e-mail), ROI (com 0 leads convertidos
+                                     → cac/roi null; com orcamento=0 →
+                                     roi null), soft delete, RN06, RN07,
+                                     permissão IsMarketing vs usuário comum
+
+Alterações em apps existentes:
+- backend/core/settings.py → adicionar 'marketing' em LOCAL_APPS
+- backend/core/urls.py → path('api/v1/marketing/', include('marketing.urls'))
+- backend/accounts/models.py → campo perfil (RF05) + migration nova em
+  accounts/migrations/ (0002_user_perfil.py)
+- backend/accounts/serializers.py → UserSerializer e UserAdminSerializer
+  expõem 'perfil' (ver RF05, obrigatório para o frontend funcionar)
+- backend/common/permissions.py → IsMarketing (RF05)
+
+urls.py do marketing (padrão a seguir — ver accounts/urls.py como
+referência de múltiplos recursos no mesmo app):
+    router = DefaultRouter()
+    router.register('campanhas', CampanhaViewSet, basename='campanha')
+    router.register('leads', LeadViewSet, basename='lead')
+    urlpatterns = router.urls
 ```
 
-### Header — botão "🎁 Combo" ao lado de "+ Novo Produto" (RF-06)
+**Atenção Forge:** `Pedido` está em `vendas.models` — import cruzado
+`from vendas.models import Pedido` dentro de `marketing/views.py`. Não
+há import circular (vendas não importa marketing).
 
-```jsx
-<div className="flex items-center gap-2">
-  <Button onClick={openNew}>+ Novo Produto</Button>
-  <Button variant="secondary" onClick={openNewCombo}>🎁 Combo</Button>
-</div>
+---
+
+## 8. Especificação Frontend (para o Loom)
+
 ```
+Novas páginas:
+- frontend/src/pages/marketing/Campanhas.jsx
+- frontend/src/pages/marketing/Leads.jsx
 
-### Modal de Combo (RF-01, RF-03, RF-07)
+Padrão a seguir (mesmo de Clientes.jsx/Produtos.jsx):
+- Card + Button + Input + Select + Modal + Pagination (components/ui/)
+- api/client.js para chamadas HTTP, extractErrorMessage nos catches
+- response.data.results (RN04)
+- dark mode com tokens navy-*/violet-* já estabelecidos (Manutenção #31)
+- Plus Jakarta Sans + DM Sans (fontes já globais, nenhuma ação nova)
 
-- `openNewCombo()`: reseta `comboForm`/`comboItens`/`editingComboId=null`, abre `comboModalOpen`
-- `openEditCombo(combo)`: popula `comboForm` (nome, descricao), `comboItens`
-  a partir de `combo.itens` (mapear `{produto, quantidade, valor_unitario}`
-  — usar os já existentes na resposta, sem novo GET), `editingComboId=combo.id`
-- Lista de itens dentro do modal: cada linha com `Select` de produto
-  (reaproveitar a lista de produtos carregada — buscar via
-  `api.get('/produtos/', { params: { page_size: 200 } })` uma vez ao
-  abrir o modal, MVP; se o catálogo crescer além disso, Loom decide se
-  troca por busca incremental como já existe em outros pontos do
-  projeto), `Input` de quantidade (step 0.001), `Input` de valor unitário
-  (step 0.01, pré-preenchido com `produto.preco_venda` ao selecionar —
-  RF-07, ajustável pelo usuário depois pois é snapshot RN-03)
-- Botão "+ Adicionar Item" (mesmo ícone/estilo de `addConversao`)
-- Botão remover linha (Trash2, mesmo estilo de `removeConversao` — mas
-  sem chamada de API própria: itens de combo só são persistidos no
-  submit do combo inteiro, não têm endpoint próprio de item)
-- Valor total exibido em tempo real:
-  `comboItens.reduce((acc, i) => acc + (Number(i.quantidade||0) * Number(i.valor_unitario||0)), 0)`,
-  formatado com `BRL()` (já existe no arquivo)
+Campanhas.jsx:
+- Listagem com filtro por status/canal, CRUD via Modal
+- Card por campanha exibindo orçamento, status e um botão "Ver ROI"
+  que chama GET /marketing/campanhas/{id}/roi/ e abre modal/seção com
+  leads_total, leads_convertidos, orcamento, receita_fechada, cac, roi
+  — exibir "—" quando cac/roi vier null (nunca "R$ NaN" ou "0")
 
-### Submit do Combo (RF-01, RF-03)
+Leads.jsx:
+- Listagem com filtro por status/campanha, CRUD via Modal
+- Select de campanha populado via GET /marketing/campanhas/ (apenas
+  is_active=True, status != encerrada é sugestão de UX, não bloqueio)
+- Botão "Converter em Cliente" visível apenas quando status != convertido
+  → POST /marketing/leads/{id}/converter/ → toast de sucesso + refresh
+  da linha (RN06: botão desaparece/desabilita após convertido)
 
-```jsx
-const handleSubmitCombo = async (e) => {
-  e.preventDefault()
-  const itensValidos = comboItens.filter((i) => i.produto && i.quantidade)
-  if (itensValidos.length === 0) {
-    showToast('O combo precisa ter pelo menos 1 item.', 'error')  // espelha RN-01
-    return
-  }
-  if (itensValidos.some((i) => Number(i.quantidade) <= 0)) {
-    showToast('Quantidade de cada item deve ser maior que zero.', 'error')  // espelha RN-02
-    return
-  }
-  setSavingCombo(true)
-  try {
-    const payload = {
-      ...comboForm,
-      itens: itensValidos.map((i) => ({
-        produto: i.produto, quantidade: i.quantidade, valor_unitario: i.valor_unitario || 0,
-      })),
+Sidebar.jsx (RF06):
+- Novo item de menu (ou 2 itens agrupados) — icon: '📣', visibilidade
+  condicionada a isStaff || user?.perfil === 'MARKETING'
+
+routes/index.jsx:
+- Novo helper de rota (padrão StaffRoute) para perfil Marketing:
+    function MarketingRoute({ children }) {
+      const isStaff = useAuthStore((s) => s.user?.is_staff)
+      const perfil = useAuthStore((s) => s.user?.perfil)
+      if (!isStaff && perfil !== 'MARKETING') return <Navigate to="/dashboard" replace />
+      return children
     }
-    if (editingComboId) {
-      await api.patch(`/produtos/combos/${editingComboId}/`, payload)
-      showToast('Combo atualizado com sucesso.')
-    } else {
-      await api.post('/produtos/combos/', payload)
-      showToast('Combo cadastrado com sucesso.')
-    }
-    setComboModalOpen(false)
-    fetchCombos()
-  } catch (error) {
-    showToast(extractErrorMessage(error, 'Erro ao salvar combo.'), 'error')
-  } finally {
-    setSavingCombo(false)
-  }
-}
+- <Route path="/marketing/campanhas" element={<MarketingRoute><Campanhas /></MarketingRoute>} />
+- <Route path="/marketing/leads" element={<MarketingRoute><Leads /></MarketingRoute>} />
+
+Usuarios.jsx (tela existente, IsAdmin):
+- Select de perfil (ADMIN/OPERACIONAL/MARKETING) no formulário de
+  criar/editar usuário — sem isso, Admin não tem como promover ninguém
+  a Marketing pela UI (ficaria só via admin do Django, o que quebra o
+  fluxo operacional do pedido)
 ```
-
-Validação client-side espelha RN-01/RN-02 antes de submeter — o servidor
-continua sendo a fonte da verdade (mesma dupla camada já usada nas
-Conversões de Unidade da própria página).
-
-### Exclusão de Combo (RF-04)
-
-```jsx
-const handleDeleteCombo = async (combo) => {
-  if (!window.confirm(`Excluir o combo "${combo.nome}"?`)) return
-  try {
-    await api.delete(`/produtos/combos/${combo.id}/`)
-    showToast('Combo removido.')
-    fetchCombos()
-  } catch (error) {
-    showToast(extractErrorMessage(error, 'Erro ao remover combo.'), 'error')
-  }
-}
-```
-
-### Seção Combos na página (RF-06, RF-08) — abaixo da `<Pagination>` de Produtos
-
-- Título "Combos" + contador
-- Desktop: tabela (colunas: Nome, Qtd. Itens, Valor Total, Ações) com
-  `overflow-x-auto -mx-6 -my-4` e classes dark mode idênticas à tabela de
-  Produtos (`bg-gray-50 dark:bg-navy-900`, `divide-gray-100
-  dark:divide-navy-700`, hover `dark:hover:bg-navy-700/60`)
-- Mobile (`md:hidden`): cards no mesmo padrão dos cards de Produto
-  (`Card` component, badge de qtd. de itens, botões Editar/Excluir)
-- Estado vazio: mesmo padrão visual do estado vazio de Produtos (emoji +
-  texto cinza — sugestão de emoji: 🎁)
-
-### Padrões de dark mode a reaproveitar (RNF-01)
-
-Todas as classes `dark:*` já usadas em `Produtos.jsx` — não introduzir
-nova paleta. Nenhum `style={{...}}` inline (regra global Uid — nunca
-inline styles, sempre Tailwind).
 
 ---
 
 ## Atores e Perfis
 
 ```
-Qualquer usuário autenticado do UidCore (IsAuthenticated global) pode
-criar, editar, excluir (soft) e listar Combos — mesmo nível de acesso já
-aplicado a Produtos, Conversões e Entradas de Estoque. Não há
-diferenciação Admin/Operacional no UidCore hoje (diferente do SystemD,
-que tinha IsAdminOrOperacional) — fora do escopo desta manutenção propor
-granularidade de permissão nova.
+ADMIN (is_staff=True)      → acesso total, inclusive Marketing
+MARKETING (perfil=MARKETING) → acesso apenas a Campanhas, Leads e ROI
+OPERACIONAL (default)      → sem acesso a Marketing (mesma regra atual,
+                              sem mudança de comportamento para o restante
+                              do sistema)
 ```
 
 ---
@@ -467,32 +477,50 @@ granularidade de permissão nova.
 ## Fora do Escopo (Won't — MoSCoW)
 
 ```
-- Endpoint dedicado de item de combo (POST/PATCH/DELETE individual em
-  ItemCombo) — segue o padrão delete-and-recreate da origem, sem CRUD
-  granular por item
-- Cálculo de estoque/baixa automática ao vender um combo (módulo Vendas/
-  PDV não foi mencionado no pedido — combo aqui é só cadastro/catálogo)
-- Desconto percentual automático no valor_total do combo (SystemD
-  também não tem — valor_total é soma simples dos subtotais)
-- Permissão diferenciada por perfil (Admin vs Operacional) — UidCore não
-  tem essa distinção hoje, fora de escopo criar
+- Integração real com plataformas de Ads/redes sociais (importação
+  automática de leads via API do Facebook/Google Ads) — pedido é
+  cadastro manual/CRUD
+- Django Groups/Permissions granulares — decisão de arquitetura (seção 4)
+  optou pelo campo perfil simples para este escopo
+- Funil de Lead com múltiplos estágios além dos 4 status definidos
+  (novo/qualificado/convertido/descartado)
+- Edição de status='convertido' de volta para outro status via API
+  (RN06) — se for necessário desfazer, é ação manual via admin do
+  Django, não faz parte do fluxo operacional normal
+- Dashboards/gráficos de ROI agregando todas as campanhas numa view só
+  — RF04 é por campanha individual; visão agregada fica para uma
+  manutenção futura se houver demanda
+- Reatribuição de perfil em massa — troca de perfil é 1 a 1, via tela
+  de Usuários já existente
 ```
 
 ## Riscos e Dependências
 
 ```
-- RISCO: ordem de registro de rotas no DefaultRouter (`combos` vs raiz
-  `r''` de ProdutoViewSet) — documentado acima, Forge deve testar
-  GET /api/v1/produtos/combos/ manualmente antes de considerar pronto
-- RISCO: catálogo de produtos grande (>200) pode não caber no page_size
-  usado para popular o Select de produto dentro do modal de Combo —
-  Loom decide se implementa busca incremental (debounce, como já existe
-  em outros pontos do projeto) ou aumenta o page_size; fora do escopo
-  bloquear a entrega por isso, mas documentar a limitação se o page_size
-  fixo for a escolha do MVP
-- DEPENDÊNCIA: nenhuma migration pendente hoje no app produtos além da
-  0002 já aplicada em produção (confirmado por histórico das
-  Manutenções #37/#40) — 0003 desta manutenção não conflita
+- RISCO: cálculo de receita_fechada usa created_at__gte=campanha.
+  data_inicio sem limite superior (data_fim) — decisão deliberada: uma
+  venda fechada depois do fim da campanha ainda é atribuível a ela
+  (ciclo de vendas B2B costuma ser mais longo que a campanha). Se o
+  cliente achar contra-intuitivo, ajustar em manutenção futura — não
+  bloqueante para esta entrega, mas documentar no teste do Sentinel
+  para não ser confundido com bug.
+- RISCO: Lead sem e-mail sempre cria Cliente novo na conversão (RF03) —
+  pode gerar Cliente duplicado se dois leads sem e-mail forem, na
+  prática, a mesma pessoa. Aceito conscientemente: não há chave segura
+  de deduplicação sem e-mail/documento, e o pedido não trouxe CPF/CNPJ
+  no cadastro de Lead.
+- DEPENDÊNCIA: migration nova em accounts (0002_user_perfil) — Forge
+  deve rodar makemigrations/migrate em dev antes do Sentinel validar;
+  nenhuma migration pendente hoje no app accounts (só 0001_initial),
+  então não há conflito de numeração esperado.
+- DEPENDÊNCIA: RF04 depende de vendas.Pedido.valor_total e
+  vendas.Pedido.cliente — ambos já existentes e estáveis, confirmado
+  em vendas/models.py, sem mudança necessária nesse app.
+- RISCO BAIXO: se o Admin nunca usar a tela de Usuários para promover
+  alguém a MARKETING (RF05 exige isso no frontend), o perfil fica
+  inacessível na prática — Loom não pode esquecer o Select de perfil em
+  Usuarios.jsx (ver seção 8), senão a feature existe no backend mas é
+  inutilizável pela UI.
 ```
 
 ---
@@ -500,26 +528,47 @@ granularidade de permissão nova.
 ## Critérios de Aceite (para o Sentinel)
 
 ```
-CA-01 - POST /api/v1/produtos/combos/ com nome + itens válidos → 201,
-        valor_total calculado corretamente
-CA-02 - POST sem itens (lista vazia) → 400 com mensagem RN-01
-CA-03 - POST com item de quantidade <= 0 → 400 com mensagem RN-02
-CA-04 - PATCH em combo existente trocando os itens → itens antigos
-        deletados, novos criados, valor_total recalculado (RN-04)
-CA-05 - DELETE em combo → 204, is_active=False no banco, some da
-        listagem padrão (GET sem filtro)
-CA-06 - GET /api/v1/produtos/combos/ retorna response.data.results
-        (paginação padrão), itens aninhados com produto_nome e subtotal
-CA-07 - criado_por preenchido automaticamente com o usuário autenticado
-        no POST; criado_por_nome retorna nome_completo do usuário
-CA-08 - Produto usado em algum ItemCombo não pode ser excluído
-        fisicamente (comportamento de PROTECT — não é exposto via API
-        hoje, mas não deve gerar erro 500 caso alguma rotina tente)
-CA-09 - Frontend: seção Combos visível abaixo da tabela de Produtos,
-        botão "🎁 Combo" abre modal, criar/editar/excluir funcionando
-        ponta a ponta contra a API real, dark mode consistente
-CA-10 - npm run build limpo (0 erros) após as mudanças em Produtos.jsx
-CA-11 - Testes Django cobrindo RN-01 a RN-05 e CA-01 a CA-08 (mínimo)
+CA-01 - POST /api/v1/marketing/campanhas/ com dados válidos → 201
+CA-02 - GET /api/v1/marketing/campanhas/ retorna response.data.results
+        paginado, apenas is_active=True
+CA-03 - DELETE em campanha → 204, is_active=False no banco (soft delete,
+        RN02), nunca remove a linha do banco
+CA-04 - POST /api/v1/marketing/leads/ com campanha válida → 201, lead
+        vinculado corretamente
+CA-05 - POST /api/v1/marketing/leads/ sem campanha (null) → 201 (RF02
+        permite lead sem origem paga)
+CA-06 - POST .../leads/{id}/converter/ em lead com e-mail que já existe
+        em Cliente ativo → vincula ao Cliente existente, não duplica
+        (RF03)
+CA-07 - POST .../leads/{id}/converter/ em lead com e-mail novo → cria
+        Cliente novo com origem=nome da campanha (ou 'Sem campanha')
+CA-08 - POST .../leads/{id}/converter/ chamado 2x no mesmo lead → 2ª
+        chamada retorna 400 (RN06, irreversibilidade)
+CA-09 - GET .../campanhas/{id}/roi/ com 0 leads convertidos → cac=null,
+        roi calculado normalmente se orcamento>0
+CA-10 - GET .../campanhas/{id}/roi/ com orcamento=0 → roi=null,
+        cac calculado normalmente se leads_convertidos>0
+CA-11 - GET .../campanhas/{id}/roi/ com leads convertidos e Pedido(s)
+        fechado(s) para o(s) Cliente(s) correspondente(s) → receita_fechada
+        soma corretamente (testar com 2+ pedidos do mesmo cliente)
+CA-12 - Usuário com perfil=OPERACIONAL (is_staff=False) → 403 em
+        qualquer endpoint /marketing/*
+CA-13 - Usuário com perfil=MARKETING (is_staff=False) → 200 em
+        /marketing/campanhas/ e /marketing/leads/, 403 em
+        /financeiro/*, /rh/*, /pdv/* (RN08)
+CA-14 - Usuário is_staff=True (ADMIN) → 200 em /marketing/* mesmo com
+        perfil=OPERACIONAL (is_staff sempre passa, RF05)
+CA-15 - GET /api/v1/accounts/me/ retorna campo perfil no payload
+CA-16 - PATCH /api/v1/accounts/usuarios/{id}/ (por Admin) altera perfil
+        de um usuário para MARKETING com sucesso
+CA-17 - Frontend: item Marketing na Sidebar visível para is_staff e
+        para perfil=MARKETING, ausente para OPERACIONAL comum
+CA-18 - Frontend: telas Campanhas e Leads funcionando ponta a ponta
+        contra a API real (criar, editar, excluir, converter, ver ROI)
+CA-19 - Frontend: Select de perfil disponível em Usuarios.jsx para o Admin
+CA-20 - npm run build limpo (0 erros)
+CA-21 - Testes Django cobrindo RF01-RF05 e RN01-RN08 (mínimo — ver
+        backend/marketing/tests.py na seção 7)
 ```
 
 ---
@@ -528,12 +577,24 @@ CA-11 - Testes Django cobrindo RN-01 a RN-05 e CA-01 a CA-08 (mínimo)
 
 ```
 ✅ Solicitação classificada — UidCore (OS #7)
-   tipo: feature_pequena
-   descricao_tecnica: portar sistema de Combos de produtos do SystemD,
-     adaptado a BaseModel/serializer padrão/permissão global do UidCore
-   caminho_afetado: backend/produtos/ (models, serializers, views, urls,
-     migration 0003) + frontend/src/pages/Produtos.jsx
-   requer_aprovacao_comercial: false
-➡️  Planner: rotear para Forge (backend) + Loom (frontend) em paralelo,
-    Sentinel valida com os 11 critérios de aceite acima antes do Pilot.
+   tipo: feature_grande
+   descricao_tecnica: novo app marketing (Campanha + Lead + ação
+     converter + endpoint ROI/CAC) + perfil Marketing via campo
+     accounts.User.perfil (decisão de arquitetura documentada na
+     seção 4) + IsMarketing permission + telas Campanhas/Leads +
+     item de Sidebar condicionado a perfil
+   caminho_afetado:
+     backend: novo app marketing/ (models, serializers, views, urls,
+       migration, tests) + accounts/models.py (perfil) +
+       accounts/serializers.py (expor perfil) + common/permissions.py
+       (IsMarketing) + core/settings.py + core/urls.py
+     frontend: pages/marketing/Campanhas.jsx (novo),
+       pages/marketing/Leads.jsx (novo), Sidebar.jsx, routes/index.jsx,
+       Usuarios.jsx (Select de perfil)
+   requer_aprovacao_comercial: false (módulo já definido e detalhado
+     pelo pedido — sem lacuna a confirmar com o cliente)
+➡️  Planner: rotear para Forge (backend) + Loom (frontend) em paralelo.
+    Módulo novo com model novo + permissão nova → Sentinel deve validar
+    os 21 critérios de aceite acima, com atenção especial a CA-12/13/14
+    (isolamento de permissão entre perfis) antes de liberar para o Pilot.
 ```

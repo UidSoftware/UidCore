@@ -2,9 +2,13 @@
 pdv/views.py — ViewSets do módulo PDV.
 
 Permissões (RF-16 / Seção 11 da spec / ADR-007):
-  - IsAuthenticated : abrir/vender/sangria/suprimento/fechar caixa, devolver item
-  - IsAdmin         : ReceitaViewSet.estornar já em financeiro (não aqui)
-                      SessaoCaixaViewSet.list condicional (operador vê só as próprias)
+  - IsAdmin : abrir/vender/sangria/suprimento/fechar caixa, devolver item
+              (RN08, fix Manutencao #54 — antes era IsAuthenticated puro,
+              o que deixava qualquer autenticado, inclusive perfil=MARKETING,
+              operar o PDV; RN08 exige IsAdmin/is_staff puro em Financeiro/
+              RH/PDV, sem excecao)
+              ReceitaViewSet.estornar já em financeiro (não aqui)
+              SessaoCaixaViewSet.list condicional (operador vê só as próprias)
 """
 from decimal import Decimal
 
@@ -14,9 +18,10 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.filters import OrderingFilter, SearchFilter
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
+
+from common.permissions import IsAdmin
 
 from produtos.models import Produto, UnidadeBase
 from produtos.services import fator_para_base
@@ -56,7 +61,7 @@ class SessaoCaixaViewSet(ModelViewSet):
     GET list: operador comum vê só as próprias; is_staff vê todas (RF-16).
     """
     serializer_class = SessaoCaixaSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['conta', 'operador', 'status']
     ordering_fields = ['data_abertura']
@@ -158,7 +163,7 @@ class VendaViewSet(ModelViewSet):
     GET  /api/v1/pdv/vendas/{id}/ — detalhe com itens + pagamentos nested.
     """
     serializer_class = VendaSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'operador', 'cliente', 'sessao_caixa']
     search_fields = ['numero']

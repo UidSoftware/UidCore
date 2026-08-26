@@ -20,7 +20,13 @@ from .models import Cargo, Colaborador, FolhaPagamento, RegistroFerias
 
 
 def _make_user(email='admin@teste.com'):
-    return User.objects.create_user(email=email, password='senha123', nome_completo='Admin Teste')
+    # is_staff=True (fix Manutencao #54, RN08): todos os ViewSets do app rh
+    # agora exigem IsAdmin puro -- o helper ja se chamava "Admin Teste" mas
+    # nao setava is_staff, coincidindo com o gap que o Sentinel encontrou
+    # (endpoints so com IsAuthenticated default).
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Admin Teste', is_staff=True,
+    )
 
 
 def _make_cargo(nome='Analista', salario_base=Decimal('3000.00')):

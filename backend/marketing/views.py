@@ -56,14 +56,17 @@ class CampanhaViewSet(viewsets.ModelViewSet):
             if orcamento > 0 else None
         )
 
+        # RN01: campo monetario/decimal nunca vira float no JSON -- o encoder
+        # padrao do DRF converte Decimal solto em float, perdendo precisao.
+        # Fix Manutencao #54 (pos-Sentinel): serializar como string.
         return Response({
             'campanha_id': campanha.pk,
             'leads_total': leads_total,
             'leads_convertidos': leads_convertidos,
-            'orcamento': orcamento,
-            'receita_fechada': receita_fechada,
-            'cac': cac,
-            'roi': roi,
+            'orcamento': str(orcamento),
+            'receita_fechada': str(receita_fechada),
+            'cac': str(cac) if cac is not None else None,
+            'roi': str(roi) if roi is not None else None,
         })
 
 

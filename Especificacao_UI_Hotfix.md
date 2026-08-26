@@ -1,477 +1,279 @@
-# Especificação UI Hotfix — UidCore (Manutenção #53)
-**Elaborado por:** Brush (MODO HOTFIX)
-**Data:** 2026-08-25
-**Referência:** Especificacao_Hotfix.md (Analista) — Manutenção #53
+# Especificação UI Hotfix — UidCore (OS #7)
+
+**Manutenção #54 — Módulo Marketing (Campanhas + Leads + ROI/CAC)**
+
+Data: 2026-08-25
+Baseado em: `Especificacao_Hotfix.md` (Analista, Manutenção #54)
 
 ---
 
-## Design System do Projeto (referência — não redefinido aqui)
+## Design System do Projeto (referência)
 
-Tokens navy/violet estabelecidos na Manutenção #31, já em uso em 100% de
-`Produtos.jsx` (805 linhas atuais). Esta manutenção **não introduz paleta
-nova** — só aplica os mesmos tokens à seção Combos.
-
-| Token | Light | Dark | Uso |
-|---|---|---|---|
-| Superfície de página | `white` | `navy-800` | `Card` |
-| Superfície de bloco interno (seção dentro de modal) | `gray-50` | `navy-900/50` | box de "Itens do Combo" |
-| Superfície de linha de tabela hover | `gray-50` | `navy-700/60` | `hover:` na tabela |
-| Header de tabela | `gray-50` / `border-gray-200` | `navy-900` / `border-navy-600` | `<thead>` |
-| Bordas | `gray-300` / `gray-100` | `navy-500` / `navy-600` / `navy-700` | inputs, divisores |
-| Interação (link/ação) | `primary-600` → `primary-800` hover | `violet-400` → `violet-300` hover | "+ Adicionar Item", links de ação |
-| Interação (botão) | `primary-600` → `primary-700` hover | `violet-600` → `violet-700` hover | `Button variant="primary"` |
-| Texto principal | `gray-900` | `slate-100` | nome do combo |
-| Texto secundário | `gray-500` / `gray-600` | `slate-400` / `slate-500` | data, labels |
-| Sucesso/dinheiro | `green-600`/`green-700` | `green-400`/`emerald-300` | Valor Total do combo |
-| Perigo | `red-400`/`red-600` | `red-400/70`/`red-400` | remover item, botão Desativar |
-| Fonte | Plus Jakarta Sans (headings) + DM Sans (corpo) | idem | já global, nenhuma mudança |
-| BorderRadius | `rounded-lg` (inputs/botões), `rounded-full` (badges/pills), `rounded-xl` (Card) | idem | já global |
-
-**Componentes a reutilizar (nenhum componente novo):**
-`Card`, `Button`, `Input`, `Select`, `Modal`, de
-`/var/www/uidcore/frontend/src/components/ui/`. `Pagination` **não é
-necessário** nesta seção — lista de combos tende a ser pequena; se
-crescer no futuro, replicar o mesmo padrão já usado na tabela de
-Produtos (fora de escopo agora).
-
-**Correção sobre a Especificacao_Hotfix.md do Analista:** o RF-06 sugere
-emoji (`🎁 Combo`) e o estado vazio sugerido usa emoji (`🎁`). Regra
-global Uid: **ícones sempre Lucide React, nunca emoji** (Produtos.jsx já
-importa `lucide-react` para `Plus`/`Trash2`/`ArrowRight`). A seção Combos
-usa exclusivamente ícones Lucide — ver seção "Ícones" abaixo. O emoji
-`📦` do estado vazio de Produtos já existente **não é tocado** por esta
-manutenção (fora de escopo, é código legado), mas o novo estado vazio de
-Combos não deve repetir o padrão emoji.
-
----
-
-## Ícones (Lucide React) — únicos a adicionar ao import de `Produtos.jsx`
-
-```jsx
-import { Plus, Trash2, ArrowRight, Gift, Pencil } from 'lucide-react'
-```
-
-(`Plus`, `Trash2`, `ArrowRight` já estão importados — só adicionar `Gift`
-e `Pencil`.)
-
-| Ícone | Tamanho | Onde |
-|---|---|---|
-| `<Gift size={18} />` | 18px | ao lado do título "Combos" da seção (identifica visualmente que é um grupo diferente da tabela de Produtos) |
-| `<Gift size={40} />` | 40px | estado vazio da seção Combos (substitui emoji) |
-| `<Plus size={16} />` | 16px | botão "Novo Combo" no header da seção |
-| `<Plus size={14} />` | 14px | botão "Adicionar Item" dentro do modal (mesmo padrão de `addConversao`) |
-| `<Trash2 size={16} />` | 16px | remover linha de item dentro do modal (mesmo padrão de `removeConversao`) |
-| `<Trash2 size={14} />` | 14px | botão "Desativar" na tabela/cards de Combos |
-| `<Pencil size={14} />` | 14px | botão "Editar" na tabela/cards de Combos |
+- **Modo:** Padrão Uid — dark mode como default (Manutenção #31), sem marca própria de cliente
+- **Cores primárias:** `violet-500`/`violet-600` (ação, botões primários, foco de input), `navy-950/900/800/700/600` (superfícies, do fundo ao elemento mais elevado)
+- **Cores de fundo:** `bg-white` / `dark:bg-navy-800` (cards), `dark:bg-navy-900` (fundo de página/footer de card)
+- **Bordas:** `border-gray-200` / `dark:border-navy-600` (cards), `dark:border-navy-700` (divisores internos)
+- **Fonte:** Plus Jakarta Sans (títulos) + DM Sans (corpo) — já globais, nenhuma ação nova
+- **BorderRadius padrão:** `rounded-xl` (cards), `rounded-full` (badges de status)
+- **Padrão de card:** `Card.jsx` existente — título opcional no header (`border-b`), conteúdo em `px-6 py-4`, footer opcional com fundo levemente distinto
+- **Padrão de badge de status:** `span` inline com `text-xs rounded-full px-2 py-0.5 font-semibold` + par de classes `bg-*-100 text-*-700` (light) / `dark:bg-*-900/30 dark:text-*-300` (dark), mapeado por um objeto `STATUS_BADGES` local ao componente — **não existe** componente `Badge.jsx` dedicado no projeto, o padrão é esse span inline (ver `Vendas.jsx` linhas 645-651, 680-682). Seguir o mesmo padrão em Marketing, não criar `Badge.jsx` novo.
+- **Ícones:** Lucide React em toda a aplicação, **exceto Sidebar**, que usa emojis — padrão de fábrica documentado (DIV-UI03) e reforçado no RF06 desta manutenção (ícone `📣`)
+- **Mobile-first:** grid responsivo (`grid-cols-1 md:grid-cols-2 lg:grid-cols-3` etc.), padrão já usado em Vendas.jsx/Produtos.jsx
 
 ---
 
 ## Especificação Visual por Tela
 
-### Produtos.jsx — Nova Seção "Combos" (abaixo da `<Pagination>` de Produtos)
-
-**Posição exata:** entre o fechamento do bloco `<Pagination page={page}
-totalPages={totalPages} onPageChange={setPage} />` (linha 487 atual) e o
-fechamento do `)` do bloco condicional de conteúdo (linha 489), OU como
-um novo bloco irmão logo após esse `)}` de conteúdo de Produtos, antes do
-Modal de Produto — a seção Combos **não depende** de `produtos.length >
-0`, deve renderizar mesmo com lista de produtos vazia (são seções
-independentes). Recomendação: bloco próprio fora do `{loading ? ... :
-produtos.length === 0 ? ... : (...)}`, direto no JSX principal,
-envolvido em `<div className="mt-8 space-y-4">`.
+### 1. Campanhas (`/marketing/campanhas`)
 
 **Layout geral:**
-- Wrapper: `<div className="mt-8 space-y-4">` (separa visualmente da
-  tabela de Produtos acima com respiro vertical, sem usar `<hr>` — mesmo
-  espaçamento vertical (`space-y-4`) já usado no container raiz da
-  página)
-- Padding: nenhum padding lateral extra — a página já usa `<div
-  className="space-y-4">` como container raiz (linha 363), a seção
-  Combos herda o mesmo alinhamento
+- Full-page list, mesmo padrão estrutural de `Vendas.jsx` (Orçamentos/Pedidos): header com título + botão de ação à direita, barra de filtros, grid de cards (não tabela — cards carregam mais informação por item: canal, status, datas, orçamento, botão ROI)
+- Padding da página: `space-y-4` no container raiz, mesmo padrão das demais páginas — **nunca** `overflow-hidden` na raiz (regra global do projeto)
+- Mobile (375px): grid colapsa para `grid-cols-1`; filtros em `flex flex-col` (stack vertical)
 
-**Mobile (< 640px, testar em 375px):**
-- Cards empilhados em coluna única (`flex flex-col gap-3`), mesmo padrão
-  exato dos cards de Produto (linhas 404–436 do arquivo atual)
-- Modal de Combo: mesma resposividade do modal de Produto —
-  `maxW="max-w-2xl"`, `max-h-[90vh] overflow-y-auto` já vem do `Modal.jsx`
-  genérico, nenhuma customização extra
-- Linhas de item dentro do modal: `flex-col` empilhado no mobile,
-  `sm:flex-row` a partir de 640px — mesmo padrão de `conversoes` (ver
-  linha 607 do arquivo atual: `flex flex-col gap-2 sm:flex-row
-  sm:items-end`)
+**Cabeçalho da página:**
+```jsx
+<div className="flex items-center justify-between gap-3">
+  <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Campanhas</h1>
+  <Button onClick={openNewCampanhaModal}>
+    <Plus size={16} className="mr-1" /> Nova Campanha
+  </Button>
+</div>
+```
+- Título: `text-xl font-bold` (Plus Jakarta Sans herdado do global), `text-gray-900 dark:text-slate-100`
+- Sem subtítulo — não há dado dinâmico de contexto pra mostrar aqui (diferente do Dashboard)
+- Botão de ação: `<Plus />` 16px, variante primary (`Button.jsx` default), label "Nova Campanha"
+
+**Barra de filtros:**
+- Layout: `flex flex-row flex-wrap gap-3 items-end`
+- Filtro Status: `Select` com options `['Todos', 'Planejada', 'Ativa', 'Encerrada']`, width `w-40`
+- Filtro Canal: `Select` com options `['Todos', 'Ads', 'Redes Sociais', 'E-mail', 'Orgânico', 'Outro']`, width `w-44`
+- Ambos sem label acima (usar `placeholder`/primeira option como label implícito), consistente com o padrão enxuto já usado nos filtros de Vendas.jsx
+- Botão "Limpar filtros": aparece só quando status ou canal ≠ "Todos" — `variant="ghost"`, `text-xs`, `text-gray-500 dark:text-slate-400`
+
+**Card de Campanha (grid item):**
+```
+┌─────────────────────────────────────┐
+│ Nome da Campanha         [ATIVA]     │  ← header: nome (font-semibold) + STATUS_BADGES
+│ 📣 Ads                                │  ← canal, text-xs text-gray-400 dark:text-slate-500
+│ 01/08/2026 — 31/08/2026               │  ← datas, text-xs
+│ Orçamento: R$ 2.500,00                │  ← text-lg font-bold, mesmo peso usado em valor_total (Vendas.jsx)
+│                                        │
+│ [Editar] [Excluir]      [Ver ROI →]  │  ← footer do Card, ações à esquerda, ROI destacado à direita
+└─────────────────────────────────────┘
+```
+- Usar `Card.jsx` como wrapper — sem `title` prop (nome vai no corpo, junto do badge, para poder alinhar `justify-between` com o status)
+- `STATUS_BADGES` (Campanha):
+  ```js
+  const STATUS_BADGES_CAMPANHA = {
+    planejada: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
+    ativa:     'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    encerrada: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  }
+  ```
+  (planejada=gray, ativa=green, encerrada=red — exatamente como pedido; segue a mesma paridade de classes light/dark já usada em `STATUS_BADGES` de Vendas.jsx)
+- Botão "Ver ROI": `variant="ghost"`, cor de destaque `text-violet-600 dark:text-violet-400`, ícone `<TrendingUp size={14} />` à esquerda do label, abre o Modal de ROI (seção 5) — chama `GET /marketing/campanhas/{id}/roi/` no clique (lazy, não pré-carregado na listagem)
+- Botões Editar/Excluir: ícones `<Pencil size={14} />` e `<Trash2 size={14} />`, mesmo padrão de ação inline já usado nos demais módulos (ghost, sem texto em mobile — só ícone; label visível em desktop `md:inline`)
+- Estado vazio (nenhuma campanha após filtro): ícone `<Megaphone size={32} className="text-gray-300 dark:text-navy-600" />` centralizado + texto "Nenhuma campanha encontrada" `text-sm text-gray-400 dark:text-slate-500`
+
+**Modal Campanha (criar/editar) — ver seção 3**
+
+**Paginação:** `Pagination.jsx` no rodapé, mesmo padrão de Fornecedores/Clientes
+
+**Mobile-first:**
+- Breakpoint 375px: cards `w-full`, grid `grid-cols-1`
+- Filtros em coluna, `Select`s `w-full`
+- Botões do footer do Card: Editar/Excluir colapsam para ícone-only, "Ver ROI" mantém o texto (ação principal do card, precisa ficar legível)
 
 ---
 
-#### Header da seção Combos (RF-06)
+### 2. Leads (`/marketing/leads`)
 
+**Layout geral:**
+- Full-page list — aqui sim **tabela**, não cards (lead é um registro mais tabular: nome, email, telefone, campanha, status, ação — cabe bem em linha, e o volume de leads tende a ser maior que campanhas)
+- Estrutura de tabela: reaproveitar o padrão de tabela já usado no projeto — `<table>` semântica com `thead` fixo (`bg-gray-50 dark:bg-navy-900 border-b border-gray-200 dark:border-navy-600`) e `tbody` com `divide-y divide-gray-100 dark:divide-navy-700`, mesma estrutura implícita nas listagens tabulares do projeto
+- Mobile (375px): tabela em scroll horizontal (`overflow-x-auto` no wrapper — nunca no root da página)
+
+**Cabeçalho da página:**
 ```jsx
 <div className="flex items-center justify-between gap-3">
-  <div className="flex items-center gap-2">
-    <Gift size={18} className="text-primary-600 dark:text-violet-400" />
-    <div>
-      <h2 className="text-lg font-bold text-gray-900 dark:text-slate-100">Combos</h2>
-      <p className="text-xs text-gray-500 dark:text-slate-400">
-        {combos.length} combo{combos.length !== 1 ? 's' : ''} cadastrado{combos.length !== 1 ? 's' : ''}
-      </p>
-    </div>
-  </div>
-  <Button size="sm" onClick={openNewCombo}>
-    <Plus size={16} />
-    Novo Combo
+  <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Leads</h1>
+  <Button onClick={openNewLeadModal}>
+    <Plus size={16} className="mr-1" /> Novo Lead
   </Button>
 </div>
 ```
 
-Nota: `Button` já renderiza `children` após o spinner de loading — passar
-o ícone como primeiro filho funciona sem alteração no componente (mesmo
-padrão do próprio `Button` interno, que usa `inline-flex items-center
-gap-2`).
+**Barra de filtros:**
+- Filtro Status: `Select` options `['Todos', 'Novo', 'Qualificado', 'Convertido', 'Descartado']`, `w-40`
+- Filtro Campanha: `Select` populado via `GET /marketing/campanhas/` (apenas `is_active=True`), option adicional "Sem campanha" para leads com `campanha=null`, `w-52`
+- Mesmo padrão de "Limpar filtros" da tela de Campanhas
+
+**Tabela — colunas:**
+| Coluna | Largura sugerida | Conteúdo |
+|---|---|---|
+| Nome | flex-1 (min 160px) | `font-medium text-gray-900 dark:text-slate-100` |
+| E-mail | 200px | `text-gray-500 dark:text-slate-400`, "—" se vazio |
+| Telefone | 140px | `text-gray-500 dark:text-slate-400`, "—" se vazio |
+| Campanha | 160px | nome da campanha ou "Sem campanha" em `text-gray-400 dark:text-slate-500 italic` quando null |
+| Status | 120px | badge (ver `STATUS_BADGES_LEAD` abaixo) |
+| Ações | 160px | ícones Editar/Excluir + botão "Converter em Cliente" |
+
+- `STATUS_BADGES_LEAD`:
+  ```js
+  const STATUS_BADGES_LEAD = {
+    novo:        'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    qualificado: 'bg-yellow-100 text-yellow-700 dark:bg-amber-900/30 dark:text-amber-300',
+    convertido:  'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    descartado:  'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-500',
+  }
+  ```
+  (novo=blue, qualificado=yellow, convertido=green, descartado=gray — exatamente como pedido)
+
+**Botão "Converter em Cliente":**
+- Visível **apenas** quando `lead.status !== 'convertido'` (RN06 — irreversível, então some/desabilita depois, nunca mostra desabilitado com tooltip — simplesmente não renderiza, é mais claro que um botão morto)
+- Ícone `<UserCheck size={14} />`, `variant="secondary"` (contorno `violet-500`, não preenchido — ação importante mas não é a ação primária da tela, que é "Novo Lead")
+- Ao clicar: `POST /marketing/leads/{id}/converter/` → toast de sucesso ("Lead convertido em cliente com sucesso") → refresh da linha (status vira `convertido`, badge atualiza, botão some) — **sem confirmação modal prévia** (ação não é destrutiva, é aditiva; se falhar, `extractErrorMessage` no catch mostra o motivo, ex. "Lead já convertido")
+
+**Estado vazio:** ícone `<Users size={32} className="text-gray-300 dark:text-navy-600" />` + "Nenhum lead encontrado"
+
+**Paginação:** `Pagination.jsx`, mesmo padrão
 
 ---
 
-#### Estado vazio da seção Combos
+### 3. Modal Campanha (criar/editar)
 
-```jsx
-{loadingCombos ? (
-  <div className="flex justify-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
-) : combos.length === 0 ? (
-  <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
-    <Gift size={40} className="text-gray-300 dark:text-navy-600" />
-    <p className="text-sm">Nenhum combo cadastrado.</p>
-  </div>
-) : (
-  /* tabela desktop + cards mobile abaixo */
-)}
+**Layout:** `Modal.jsx` existente, título dinâmico "Nova Campanha" / "Editar Campanha"
+
+**Campos (ordem):**
+1. Nome — `Input` full width, `required`
+2. Canal — `Select`, options `[Ads, Redes Sociais, E-mail, Orgânico, Outro]`, `required`
+3. Linha dupla (`grid grid-cols-1 md:grid-cols-2 gap-3`):
+   - Data Início — `Input type="date"`, `required`
+   - Data Fim — `Input type="date"`, opcional, placeholder "Opcional"
+4. Orçamento — `Input type="number"` com prefixo visual "R$" (mesmo padrão de campo monetário já usado em Vendas.jsx/Financeiro.jsx), `step="0.01"`, `min="0"`
+5. Status — `Select`, options `[Planejada, Ativa, Encerrada]`, default "Planejada" na criação
+
+**Rodapé do modal:** `Button variant="ghost"` "Cancelar" + `Button` primary "Salvar" (padrão de todos os modais do projeto)
+
+**Validação client-side mínima:** nome e canal obrigatórios, data_fim (se preenchida) não pode ser anterior a data_inicio — mensagem inline abaixo do campo, mesmo padrão de erro dos demais formulários
+
+---
+
+### 4. Modal Lead (criar/editar)
+
+**Layout:** `Modal.jsx`, título "Novo Lead" / "Editar Lead"
+
+**Campos (ordem):**
+1. Nome — `Input` full width, `required`
+2. Linha dupla (`grid grid-cols-1 md:grid-cols-2 gap-3`):
+   - E-mail — `Input type="email"`, opcional
+   - Telefone — `Input`, opcional, máscara de telefone já existente no projeto (mesma usada em Clientes.jsx)
+3. Campanha — `Select` (autocomplete simples via busca client-side na lista já carregada, sem necessidade de endpoint de busca dedicado — volume de campanhas é baixo), populado via `GET /marketing/campanhas/?is_active=true`, opção "Sem campanha" no topo
+4. Status — `Select`, options `[Novo, Qualificado, Convertido, Descartado]`
+   - **Regra de UI (RN06):** se `lead.status === 'convertido'` (edição), o `Select` de status fica **desabilitado** com texto auxiliar `text-xs text-gray-400` abaixo: "Conversão é irreversível — use a ação Converter em Cliente na listagem para leads não convertidos." Isso é reforço visual da regra de negócio já bloqueada no backend (RN06), evita o usuário tentar mudar e levar 400 sem entender por quê.
+5. Observações — `Input` multilinha (`textarea`, mesmo estilo visual do `Input.jsx` adaptado, ou reaproveitar o campo `observacoes` já existente em Vendas.jsx como referência de estilo), opcional
+
+**Rodapé:** mesmo padrão de Cancelar/Salvar
+
+---
+
+### 5. Modal ROI
+
+**Decisão de layout:** **Modal** (não Drawer lateral) — consistente com o resto do projeto, que não tem nenhum padrão de Drawer implementado ainda (`Modal.jsx` é o único padrão de overlay existente no projeto). Introduzir um Drawer novo só para esta tela seria inconsistência sem ganho real — o conteúdo do ROI (6 métricas + gráfico simples) cabe bem em um Modal de tamanho médio.
+
+**Título:** "ROI — {nome da campanha}"
+
+**Conteúdo — grid de métricas (RF04):**
 ```
+┌──────────────────┬──────────────────┬──────────────────┐
+│ Leads Totais      │ Leads Convertidos│ Orçamento         │
+│ 42                │ 8                │ R$ 2.500,00       │
+├──────────────────┼──────────────────┼──────────────────┤
+│ Receita Fechada   │ CAC              │ ROI               │
+│ R$ 12.000,00      │ R$ 312,50        │ +380%             │
+└──────────────────┴──────────────────┴──────────────────┘
+```
+- Grid `grid-cols-2 md:grid-cols-3 gap-3`, cada métrica em um mini-card: `bg-gray-50 dark:bg-navy-900/50 rounded-lg p-3`
+  - Label: `text-xs text-gray-400 dark:text-slate-500 uppercase tracking-wide`
+  - Valor: `text-lg font-bold text-gray-900 dark:text-slate-100`
+- **CAC e ROI nulos (RF04 — divisor zero):** exibir `"—"` em vez de "R$ NaN", "0" ou "R$ 0,00" — regra explícita já definida na Especificacao_Hotfix (seção 8), reforçada aqui como requisito visual obrigatório
+- **ROI negativo:** valor em `text-red-600 dark:text-red-400` em vez da cor padrão (campanha deu prejuízo — mesma lógica de feedback por cor+texto já usada no projeto, nunca cor isolada); ROI positivo em `text-green-600 dark:text-emerald-400` com prefixo "+"; ROI neutro/null mantém `text-gray-900 dark:text-slate-100`
 
----
-
-#### Tabela desktop (RF-08) — colunas Data, Nome, Valor Total, Ações
-
-Estrutura idêntica à tabela de Produtos (`Card` + `overflow-x-auto -mx-6
--my-4` + `<table className="w-full text-sm">`), envolvida em `<div
-className="hidden md:block">`:
-
-```jsx
-<div className="hidden md:block">
-  <Card>
-    <div className="overflow-x-auto -mx-6 -my-4">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
-            <th className="text-left px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Data</th>
-            <th className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Nome</th>
-            <th className="text-right px-4 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Valor Total</th>
-            <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Ações</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
-          {combos.map((c) => (
-            <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
-              <td className="px-6 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">
-                {c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '—'}
-              </td>
-              <td className="px-4 py-3 whitespace-nowrap max-w-[240px]">
-                <p className="font-medium text-gray-900 truncate dark:text-slate-100">{c.nome}</p>
-                <span className="text-xs text-gray-400 dark:text-slate-500">
-                  {c.itens?.length || 0} item{(c.itens?.length || 0) !== 1 ? 's' : ''}
-                </span>
-              </td>
-              <td className="px-4 py-3 text-right font-bold text-green-600 whitespace-nowrap dark:text-green-400">
-                {BRL(c.valor_total)}
-              </td>
-              <td className="px-6 py-3 text-right whitespace-nowrap">
-                <div className="flex items-center justify-end gap-2">
-                  <Button size="sm" variant="secondary" onClick={() => openEditCombo(c)}>
-                    <Pencil size={14} />
-                    Editar
-                  </Button>
-                  <Button size="sm" variant="danger" onClick={() => handleDeleteCombo(c)}>
-                    <Trash2 size={14} />
-                    Desativar
-                  </Button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+**Gráfico simples (sem lib extra — pedido explícito):**
+- Barra de progresso horizontal simples com CSS puro (`div` com `width: {pct}%`, sem SVG/canvas/lib) representando `leads_convertidos / leads_total` — funil de conversão visual abaixo do grid de métricas:
+  ```jsx
+  <div className="mt-4">
+    <div className="flex justify-between text-xs text-gray-400 dark:text-slate-500 mb-1">
+      <span>Taxa de conversão</span>
+      <span>{leads_total > 0 ? Math.round((leads_convertidos / leads_total) * 100) : 0}%</span>
     </div>
-  </Card>
-</div>
-```
-
-**Decisão de design — Valor Total em verde:** diferente da coluna "Preco
-Venda" da tabela de Produtos (que usa `text-gray-900 dark:text-slate-100`,
-neutro), o Valor Total do Combo usa `text-green-600 dark:text-green-400`
-(cor de dinheiro/sucesso do design system). Justificativa: é o dado mais
-importante da linha (o "resultado" do combo, soma de itens), e a origem
-no SystemD já usava verde (`#34d399`) para esse mesmo campo — mantém
-consistência de leitura entre os dois produtos Uid sem violar o token set
-do UidCore (`green-400`/`emerald-300` já documentado como "Sucesso/dinheiro").
-
-**Label do botão de exclusão:** "Desativar" (não "Excluir") — reforça que
-é soft delete (RF-04/RNF-03), mesmo texto usado no combo de origem
-(SystemD) e coerente com o botão "Desativar" já usado em outras telas do
-UidCore para soft delete. Diferente do botão "Excluir" já existente na
-tabela de Produtos (nomenclatura legada, fora de escopo mudar aqui) —
-aceitar a pequena inconsistência entre as duas seções da mesma página
-por ora; não é objeto desta manutenção uniformizar o texto do botão de
-Produtos.
-
----
-
-#### Cards mobile (RF-08) — `md:hidden`
-
-```jsx
-<div className="flex flex-col gap-3 md:hidden">
-  {combos.map((c) => (
-    <Card key={c.id}>
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="font-semibold text-gray-900 truncate dark:text-slate-100">{c.nome}</p>
-          <p className="text-xs text-gray-400 mt-0.5 dark:text-slate-500">
-            {c.created_at ? new Date(c.created_at).toLocaleDateString('pt-BR') : '—'}
-            {' · '}
-            {c.itens?.length || 0} item{(c.itens?.length || 0) !== 1 ? 's' : ''}
-          </p>
-        </div>
-        <span className="shrink-0 font-bold text-green-600 dark:text-green-400">
-          {BRL(c.valor_total)}
-        </span>
-      </div>
-      <div className="mt-3 flex gap-2">
-        <Button size="sm" variant="secondary" onClick={() => openEditCombo(c)} className="flex-1">
-          <Pencil size={14} />
-          Editar
-        </Button>
-        <Button size="sm" variant="danger" onClick={() => handleDeleteCombo(c)} className="flex-1">
-          <Trash2 size={14} />
-          Desativar
-        </Button>
-      </div>
-    </Card>
-  ))}
-</div>
-```
-
-Padrão idêntico aos cards de Produto (linhas 404–436): `Card` envolvendo
-header flex + linha de ações no fim, mas com botões `flex-1` (ocupam a
-largura toda, lado a lado) em vez de largura automática — como Combo tem
-só 2 ações (Editar/Desativar) contra as mesmas 2 de Produto, mantém
-paridade exata de estilo; a única diferença é o `className="flex-1"`
-adicional nos botões, puramente estético para preencher a largura do
-card em telas pequenas (Produtos já faz `gap-2` sem `flex-1` — ambos são
-aceitáveis, mas `flex-1` fica mais equilibrado com 2 botões com ícone).
-
----
-
-#### Modal de Criar/Editar Combo (RF-01, RF-03, RF-07)
-
-`maxW="max-w-2xl"` (mesma largura do modal de Produto — precisa de
-espaço para as linhas de item com 3 campos + botão remover lado a lado
-no desktop).
-
-```jsx
-{comboModalOpen && (
-  <Modal
-    title={editingComboId ? 'Editar Combo' : 'Novo Combo'}
-    onClose={() => setComboModalOpen(false)}
-    maxW="max-w-2xl"
-  >
-    <form onSubmit={handleSubmitCombo} className="space-y-4">
-      <Input
-        label="Nome"
-        name="nome"
-        value={comboForm.nome}
-        onChange={(e) => setComboForm((p) => ({ ...p, nome: e.target.value }))}
-        placeholder="Ex.: Combo Café da Manhã"
-        required
+    <div className="w-full h-2 rounded-full bg-gray-100 dark:bg-navy-700 overflow-hidden">
+      <div
+        className="h-full rounded-full bg-violet-500 transition-all"
+        style={{ width: `${leads_total > 0 ? (leads_convertidos / leads_total) * 100 : 0}%` }}
       />
+    </div>
+  </div>
+  ```
+- Isso satisfaz "gráfico simples se possível" sem introduzir dependência nova (Chart.js/Recharts etc. — fora do escopo; evita inflar o bundle por causa de uma métrica única)
 
-      <div className="flex flex-col gap-1">
-        <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Descrição</label>
-        <textarea
-          value={comboForm.descricao}
-          onChange={(e) => setComboForm((p) => ({ ...p, descricao: e.target.value }))}
-          rows={2}
-          placeholder="Opcional"
-          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500 transition-colors duration-150"
-        />
-      </div>
+**Rodapé:** apenas botão "Fechar" (`variant="ghost"`) — ROI é somente leitura, sem ação de edição neste modal
 
-      {/* Secao Itens do Combo — mesmo box visual da secao Conversoes de Unidade */}
-      <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Itens do Combo</h3>
-          <button
-            type="button"
-            onClick={addComboItem}
-            className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors dark:text-violet-400 dark:hover:text-violet-300"
-          >
-            <Plus size={14} />
-            Adicionar Item
-          </button>
-        </div>
+**Loading state:** enquanto `GET .../roi/` não retorna, `Loading.jsx` (spinner já existente) no lugar do grid
 
-        {comboItens.length === 0 && (
-          <p className="text-xs text-gray-400 dark:text-slate-500">
-            Nenhum item adicionado. Clique em "Adicionar Item" para começar.
-          </p>
-        )}
-
-        <div className="space-y-2">
-          {comboItens.map((item, idx) => {
-            const subtotal = Number(item.quantidade || 0) * Number(item.valor_unitario || 0)
-            return (
-              <div key={idx} className="flex flex-col gap-2 sm:flex-row sm:items-end">
-                <div className="flex-1 sm:flex-[2]">
-                  <Select
-                    label="Produto"
-                    options={produtoSelectOptions}
-                    value={item.produto || ''}
-                    onChange={(e) => updateComboItem(idx, 'produto', e.target.value, produtoSelectOptions)}
-                  />
-                </div>
-                <div className="w-full sm:w-24">
-                  <Input
-                    label="Qtd."
-                    type="number"
-                    step="0.001"
-                    min="0.001"
-                    value={item.quantidade}
-                    onChange={(e) => updateComboItem(idx, 'quantidade', e.target.value)}
-                    placeholder="1"
-                  />
-                </div>
-                <div className="w-full sm:w-32">
-                  <Input
-                    label="Valor Unit. (R$)"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={item.valor_unitario}
-                    onChange={(e) => updateComboItem(idx, 'valor_unitario', e.target.value)}
-                    placeholder="0,00"
-                  />
-                </div>
-                <div className="flex items-center gap-2 sm:mb-1">
-                  <span className="text-xs font-medium text-gray-600 whitespace-nowrap dark:text-slate-300 flex-1 sm:flex-none text-right sm:text-left">
-                    {BRL(subtotal)}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeComboItem(idx)}
-                    className="text-red-400 hover:text-red-600 transition-colors p-1 dark:text-red-400/70 dark:hover:text-red-400"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              </div>
-            )
-          })}
-        </div>
-
-        {comboItens.length > 0 && (
-          <div className="flex justify-between items-center pt-3 mt-3 border-t border-gray-200 dark:border-navy-700">
-            <span className="text-sm font-semibold text-gray-700 dark:text-slate-200">Valor Total</span>
-            <span className="text-base font-bold text-green-600 dark:text-green-400">
-              {BRL(comboItens.reduce((acc, i) => acc + Number(i.quantidade || 0) * Number(i.valor_unitario || 0), 0))}
-            </span>
-          </div>
-        )}
-      </div>
-
-      <div className="flex justify-end gap-3 pt-2">
-        <Button type="button" variant="secondary" onClick={() => setComboModalOpen(false)}>
-          Cancelar
-        </Button>
-        <Button type="submit" loading={savingCombo}>
-          {editingComboId ? 'Salvar Alteracoes' : 'Cadastrar Combo'}
-        </Button>
-      </div>
-    </form>
-  </Modal>
-)}
-```
-
-**Sobre o Select de produto (`produtoSelectOptions`):** montar a partir
-do catálogo carregado uma vez ao abrir o modal (`api.get('/produtos/', {
-params: { page_size: 200 } })`, conforme já especificado pelo Analista),
-no formato `{ value: produto.id, label: produto.nome }`, com um item
-`{ value: '', label: 'Selecione um produto...' }` no topo — mesmo padrão
-de `UNIDADE_SELECT` já existente no arquivo (linha 23). Ao selecionar um
-produto (`onChange`), `updateComboItem` deve também pré-preencher
-`valor_unitario` com `produto.preco_venda` do catálogo carregado (RF-07)
-— só na primeira seleção da linha, o campo continua editável depois
-(snapshot ajustável, RN-03).
-
-**Enquanto o catálogo de produtos carrega** (entre abrir o modal e a
-resposta do `GET /produtos/`): `Select` de produto deve mostrar apenas
-`{ value: '', label: 'Carregando produtos...' }` e ficar `disabled`
-(prop nativa do `<select>`, `Select.jsx` já repassa via `...props`).
-
-**Erros de validação (RN-01/RN-02):** exibidos via `showToast` (padrão
-`extractErrorMessage`/toast já usado em toda a página) — não introduzir
-caixa de erro inline nova dentro do modal. Mesma decisão já tomada nas
-Conversões de Unidade da própria página.
+**Mobile-first:** grid de métricas colapsa para `grid-cols-2` (mantém 2 colunas mesmo em 375px — 6 métricas em 1 coluna só fica muito longo; 2 colunas é o mínimo legível testado nas demais telas do projeto)
 
 ---
 
-## Estrutura de estado sugerida (alinhamento com o Analista)
+## Ícones Lucide (mapa completo desta manutenção)
 
-A Especificacao_Hotfix.md já define o estado (`combos`, `comboForm`,
-`comboItens`, `editingComboId`, `comboModalOpen`, `savingCombo`,
-`loadingCombos`). Do lado de UI, `comboItens` deve ter o formato:
+| Ação/Elemento | Ícone | Tamanho |
+|---|---|---|
+| Nova Campanha / Novo Lead | `<Plus />` | 16px |
+| Ver ROI | `<TrendingUp />` | 14px |
+| Editar | `<Pencil />` | 14px |
+| Excluir | `<Trash2 />` | 14px |
+| Converter em Cliente | `<UserCheck />` | 14px |
+| Estado vazio — Campanhas | `<Megaphone />` | 32px |
+| Estado vazio — Leads | `<Users />` | 32px |
+| Canal Ads (opcional, decorativo em card) | `<Target />` | 14px |
 
-```js
-{ produto: '', quantidade: '1', valor_unitario: '' }
-```
-
-(igual ao formato de `EMPTY_CONVERSAO` já usado para as linhas de
-conversão — objeto simples, sem `id` até ser persistido; ao editar um
-combo existente, os itens vindos de `combo.itens` são mapeados para
-`{ produto: item.produto, quantidade: item.quantidade, valor_unitario:
-item.valor_unitario }`, descartando `id`/`subtotal`/`produto_nome` que
-só existem para leitura, já que RF-03/RN-04 fazem delete-and-recreate no
-backend — não há PATCH de item individual).
+**Sidebar (RF06) — exceção confirmada:** item "Marketing" usa emoji `📣`, **não** Lucide — consistente com a regra de fábrica (DIV-UI03) de que a Sidebar nunca usa ícone de lib, só emoji.
 
 ---
 
-## Checklist de consistência visual (para o Sentinel validar)
+## Componentes existentes reutilizados
 
 ```
-✅ Nenhum emoji na seção Combos (Gift/Plus/Trash2/Pencil via lucide-react)
-✅ Nenhum style={{...}} inline — só classes Tailwind
-✅ Todas as classes dark:* espelham exatamente os tokens já usados na
-   tabela/modal de Produtos (mesmo arquivo)
-✅ Valor Total em verde (green-600/green-400) — única cor nova aplicada
-   nesta seção, já parte do design system documentado (Sucesso/dinheiro)
-✅ Botão de soft delete rotulado "Desativar", não "Excluir"
-✅ Botões Editar/Desativar com ícone (Pencil/Trash2) + texto — não
-   icon-only (mantém legibilidade, mesmo padrão textual já usado em
-   Produtos, só adicionando o ícone)
-✅ Modal com mesma largura (max-w-2xl) e comportamento de overflow do
-   modal de Produto
-✅ Testado visualmente em 375px: linhas de item do modal empilham em
-   coluna única, botões de ação dos cards mobile ocupam a largura toda
+Button.jsx     → todos os CTAs (primary/ghost/secondary já suportados)
+Card.jsx       → grid de Campanhas
+Input.jsx      → todos os campos de texto/número/data dos modais
+Select.jsx     → filtros + campos de choice dos modais
+Modal.jsx      → Modal Campanha, Modal Lead, Modal ROI (nenhum Drawer novo)
+Loading.jsx    → loading state do Modal ROI
+Pagination.jsx → rodapé de Campanhas e Leads
 ```
+
+**Nenhum componente novo de UI genérico precisa ser criado** — só as duas páginas (`Campanhas.jsx`, `Leads.jsx`) e os 3 modais, todos montados com o kit existente.
 
 ---
 
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #53)
-   Telas analisadas: 1 (Produtos.jsx — nova seção Combos)
-   Componentes reutilizados: 5 (Card, Button, Input, Select, Modal)
-   Ícones novos: 2 (Gift, Pencil — ambos lucide-react, já na mesma
-     biblioteca importada no arquivo)
-   Novos padrões: 1 (cor verde para valor monetário de destaque —
-     justificada, dentro do token set já documentado)
+✅ Especificação UI concluída — UidCore (Manutenção #54)
+   Telas analisadas: 5 (Campanhas, Leads, Modal Campanha, Modal Lead, Modal ROI)
+   Componentes reutilizados: 7 existentes (Button, Card, Input, Select,
+     Modal, Loading, Pagination)
+   Novos padrões: 0 componentes de UI novos — apenas 2 mapas de
+     STATUS_BADGES locais (Campanha e Lead) seguindo o padrão inline já
+     estabelecido em Vendas.jsx, e uma barra de progresso CSS pura para
+     o funil de conversão no Modal ROI (sem lib de gráfico nova)
 
-📁 Arquivo: Especificacao_UI_Hotfix.md (no worktree)
+📁 Arquivo: Especificacao_UI_Hotfix.md (em /var/www/uidcore/)
 
 ➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md
-   antes de implementar RF-06/RF-07/RF-08 em Produtos.jsx
+   antes de implementar Campanhas.jsx, Leads.jsx, os 3 modais,
+   Sidebar.jsx (RF06) e o Select de perfil em Usuarios.jsx
 ```

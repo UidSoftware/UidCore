@@ -36,6 +36,7 @@ class ReadCreateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Ge
 class CategoriaViewSet(ModelViewSet):
     queryset = Categoria.objects.filter(is_active=True).order_by('nome')
     serializer_class = CategoriaSerializer
+    permission_classes = [IsAdmin]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['tipo']
 
@@ -49,19 +50,15 @@ class CategoriaViewSet(ModelViewSet):
 class ContaViewSet(ModelViewSet):
     queryset = Conta.objects.filter(is_active=True).order_by('nome')
     serializer_class = ContaSerializer
+    # RN08 (Manutencao #54, fix pos-Sentinel): Financeiro/RH/PDV exigem
+    # IsAdmin (is_staff) puro, sem excecao de leitura. A carve-out anterior
+    # (RN 18/08/2026) que deixava list/retrieve em IsAuthenticated pra PDV
+    # ler contas tipo=CAIXA foi revogada -- vazava acesso de leitura pra
+    # qualquer autenticado, inclusive perfil=MARKETING (CA-13/RN08).
+    permission_classes = [IsAdmin]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['tipo']
     search_fields = ['nome']
-
-    def get_permissions(self):
-        # RN (18/08/2026): criar/editar/apagar Conta (bancaria ou Caixa)
-        # e acao administrativa -- so IsAdmin. Leitura (list/retrieve)
-        # continua IsAuthenticated: PDV precisa ler contas tipo=CAIXA pra
-        # abrir sessao, e o resto do app ja segue esse padrao mais aberto
-        # pra leitura.
-        if self.action in ('create', 'update', 'partial_update', 'destroy', 'transferir'):
-            return [IsAdmin()]
-        return super().get_permissions()
 
     def perform_create(self, serializer):
         serializer.save(criado_por=self.request.user)
@@ -167,6 +164,7 @@ class ReceitaViewSet(ModelViewSet):
         .order_by('vencimento')
     )
     serializer_class = ReceitaSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['tipo', 'status', 'cliente', 'conta']
     search_fields = ['descricao']
@@ -227,6 +225,7 @@ class DespesaViewSet(ModelViewSet):
         .order_by('vencimento')
     )
     serializer_class = DespesaSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['tipo', 'status', 'conta', 'estornado']
     search_fields = ['descricao', 'fornecedor']
@@ -329,6 +328,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
         .order_by('-data', '-criado_em')
     )
     serializer_class = LivroCaixaSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['conta', 'tipo', 'origem', 'estornado']
     ordering_fields = ['data', 'valor']
@@ -723,7 +723,6 @@ import os
 
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.viewsets import ReadOnlyModelViewSet, ModelViewSet
-from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 
 from .models import (
@@ -740,7 +739,7 @@ from .conciliacao_service import criar_conciliacao
 class ConciliacaoViewSet(ReadOnlyModelViewSet):
     queryset = ConciliacaoExtrato.objects.filter(is_active=True)
     serializer_class = ConciliacaoExtratoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
 
     @action(detail=False, methods=['post'], url_path='upload', parser_classes=[MultiPartParser])
     def upload(self, request):
@@ -844,7 +843,7 @@ class ConciliacaoViewSet(ReadOnlyModelViewSet):
 class PadraoSeguroConciliacaoViewSet(ModelViewSet):
     queryset = PadraoSeguroConciliacao.objects.filter(is_active=True)
     serializer_class = PadraoSeguroConciliacaoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
 
     def perform_destroy(self, instance):
         instance.is_active = False

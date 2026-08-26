@@ -237,6 +237,27 @@ class RoiCampanhaTest(APITestCase):
         # roi = ((350 - 100) / 100) * 100 = 250
         self.assertEqual(Decimal(str(resp.data['roi'])), Decimal('250.00'))
 
+    def test_roi_campos_monetarios_sao_string_nunca_float_rn01(self):
+        """
+        Fix pos-Sentinel (Manutencao #54): a action roi() montava o
+        Response com Decimal solto no dict, que o encoder do DRF converte
+        pra float (perde precisao) — RN01 exige nunca float pra campo
+        monetario/decimal.
+        """
+        campanha = _make_campanha(orcamento=Decimal('1234.56'), data_inicio=date(2026, 1, 1))
+        lead = _make_lead(nome='Lead Decimal', email='decimal@teste.com', campanha=campanha)
+        resp_conv = self.client.post(f'/api/v1/marketing/leads/{lead.pk}/converter/')
+        cliente_id = resp_conv.data['cliente_convertido']
+        Pedido.objects.create(cliente_id=cliente_id, valor_total=Decimal('2000.00'))
+
+        resp = self.client.get(f'/api/v1/marketing/campanhas/{campanha.pk}/roi/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIsInstance(resp.data['orcamento'], str)
+        self.assertEqual(resp.data['orcamento'], '1234.56')
+        self.assertIsInstance(resp.data['receita_fechada'], str)
+        self.assertIsInstance(resp.data['cac'], str)
+        self.assertIsInstance(resp.data['roi'], str)
+
 
 # --- RF05/RN08 — permissoes por perfil (CA-12 a CA-14) ---------------------
 
@@ -257,6 +278,41 @@ class PermissaoMarketingTest(APITestCase):
         self.client.force_authenticate(_make_marketing())
         # aportes/ exige IsAdmin puro (RN08) — usuario MARKETING (is_staff=False) nunca pode ser 200
         resp = self.client.get('/api/v1/financeiro/aportes/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_marketing_sem_acesso_financeiro_contas_ca13(self):
+        """
+        Fix pos-Sentinel (Manutencao #54): ContaViewSet nao declarava
+        permission_classes proprio para list/retrieve (so as acoes de
+        escrita exigiam IsAdmin), caindo no default global IsAuthenticated
+        e liberando leitura pra qualquer autenticado, inclusive
+        perfil=MARKETING. RN08/CA-13 exige IsAdmin puro em todo o modulo
+        Financeiro, sem excecao de leitura.
+        """
+        self.client.force_authenticate(_make_marketing())
+        resp = self.client.get('/api/v1/financeiro/contas/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_marketing_sem_acesso_rh_colaboradores_ca13(self):
+        """
+        Fix pos-Sentinel (Manutencao #54): ColaboradorViewSet (e demais
+        ViewSets do app rh) nao declaravam permission_classes proprio,
+        caindo no default global IsAuthenticated. RN08/CA-13 exige IsAdmin
+        puro em RH.
+        """
+        self.client.force_authenticate(_make_marketing())
+        resp = self.client.get('/api/v1/rh/colaboradores/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_marketing_sem_acesso_pdv_sessoes_ca13(self):
+        """
+        Fix pos-Sentinel (Manutencao #54): SessaoCaixaViewSet/VendaViewSet
+        declaravam permission_classes=[IsAuthenticated] explicitamente
+        (ADR-007 antigo), liberando qualquer autenticado a operar o PDV.
+        RN08/CA-13 exige IsAdmin puro em PDV, sem excecao.
+        """
+        self.client.force_authenticate(_make_marketing())
+        resp = self.client.get('/api/v1/pdv/sessoes/')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_admin_acessa_marketing_mesmo_com_perfil_operacional_ca14(self):

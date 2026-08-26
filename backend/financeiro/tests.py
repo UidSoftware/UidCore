@@ -23,7 +23,13 @@ from .models import (
 
 
 def _make_user(email='admin@teste.com'):
-    return User.objects.create_user(email=email, password='senha123', nome_completo='Admin Teste')
+    # is_staff=True (fix Manutencao #54, RN08): Conciliacao/PadraoSeguroConciliacao
+    # (e o restante do modulo Financeiro) agora exigem IsAdmin puro -- o helper
+    # ja se chamava "Admin Teste" mas nao setava is_staff, coincidindo com o
+    # gap que o Sentinel encontrou (endpoints so com IsAuthenticated).
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Admin Teste', is_staff=True,
+    )
 
 
 def _make_conta(nome='Conta C6 PJ', saldo_inicial=Decimal('0')):

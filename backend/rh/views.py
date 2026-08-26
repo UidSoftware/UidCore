@@ -6,6 +6,8 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
+from common.permissions import IsAdmin
+
 from .models import Cargo, Colaborador, FolhaPagamento, RegistroFerias
 from .serializers import (
     CargoSerializer, ColaboradorSerializer,
@@ -16,6 +18,7 @@ from .serializers import (
 class CargoViewSet(ModelViewSet):
     queryset = Cargo.objects.filter(is_active=True).order_by('nome')
     serializer_class = CargoSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [SearchFilter]
     search_fields = ['nome']
 
@@ -29,6 +32,7 @@ class CargoViewSet(ModelViewSet):
 class ColaboradorViewSet(ModelViewSet):
     queryset = Colaborador.objects.filter(is_active=True).select_related('cargo', 'usuario').order_by('nome')
     serializer_class = ColaboradorSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['cargo', 'regime']
     search_fields = ['nome', 'cpf', 'email']
@@ -181,6 +185,7 @@ class FolhaPagamentoViewSet(ModelViewSet):
         .order_by('-mes_referencia')
     )
     serializer_class = FolhaPagamentoSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['colaborador', 'status']
     ordering_fields = ['mes_referencia', 'salario_liquido']
@@ -199,6 +204,7 @@ class RegistroFeriasViewSet(ModelViewSet):
         .order_by('-data_inicio')
     )
     serializer_class = RegistroFeriasSerializer
+    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['colaborador', 'status']
 
