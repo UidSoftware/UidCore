@@ -7,6 +7,7 @@ const navItems = [
   { to: '/fornecedores', label: 'Fornecedores', icon: '🏭' },
   { to: '/vendas', label: 'Vendas', icon: '🛒' },
   { to: '/produtos', label: 'Produtos', icon: '📦' },
+  { to: '/marketing', label: 'Marketing', icon: '📣', marketingOnly: true },
   { to: '/pagamentos', label: 'Pagamentos', icon: '💳' },
   { to: '/financeiro', label: 'Financeiro', icon: '💰' },
   { to: '/conciliacao', label: 'Conciliação', icon: '🔄' },
@@ -19,7 +20,12 @@ const navItems = [
 
 export default function Sidebar({ collapsed, onToggle }) {
   const isStaff = useAuthStore((s) => s.user?.is_staff)
-  const visibleItems = navItems.filter((item) => !item.staffOnly || isStaff)
+  const perfil = useAuthStore((s) => s.user?.perfil)
+  const visibleItems = navItems.filter(
+    (item) =>
+      (!item.staffOnly || isStaff) &&
+      (!item.marketingOnly || isStaff || perfil === 'MARKETING'),
+  )
 
   return (
     <aside

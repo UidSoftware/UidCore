@@ -22,6 +22,7 @@ export default function Usuarios() {
           { key: 'nome_completo', label: 'Nome' },
           { key: 'email', label: 'E-mail' },
           { key: 'colaborador_nome', label: 'Colaborador' },
+          { key: 'perfil', label: 'Perfil', badge: true },
           { key: 'is_staff', label: 'Admin', boolean: true },
           { key: 'is_active', label: 'Ativo', boolean: true },
           { key: 'date_joined', label: 'Desde', date: true },
@@ -40,8 +41,18 @@ export default function Usuarios() {
                 : 'Deixe em branco para enviar link de definição de senha por e-mail.',
           },
           { name: 'is_staff', label: 'Administrador', type: 'checkbox' },
+          {
+            name: 'perfil',
+            label: 'Perfil',
+            type: 'select',
+            options: [
+              { value: 'ADMIN', label: 'Admin' },
+              { value: 'OPERACIONAL', label: 'Operacional' },
+              { value: 'MARKETING', label: 'Marketing' },
+            ],
+          },
         ]}
-        emptyForm={{ email: '', nome_completo: '', telefone: '', password: '', is_staff: false }}
+        emptyForm={{ email: '', nome_completo: '', telefone: '', password: '', is_staff: false, perfil: 'OPERACIONAL' }}
         deleteLabel="Desativar"
         deleteConfirm={(item) =>
           `Desativar o acesso de "${item.nome_completo}"? O usuário não poderá mais fazer login, mas o registro não será apagado.`

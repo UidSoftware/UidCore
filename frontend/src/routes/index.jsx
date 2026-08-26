@@ -16,6 +16,7 @@ import Usuarios from '../pages/Usuarios.jsx'
 import Agendamento from '../pages/Agendamento.jsx'
 import Portal from '../pages/Portal.jsx'
 import Produtos from '../pages/Produtos.jsx'
+import Marketing from '../pages/Marketing.jsx'
 import AberturaCaixa from '../pages/pdv/AberturaCaixa.jsx'
 import FrenteDeCaixa from '../pages/pdv/FrenteDeCaixa.jsx'
 import FechamentoCaixa from '../pages/pdv/FechamentoCaixa.jsx'
@@ -31,6 +32,13 @@ function ProtectedRoute({ children }) {
 function StaffRoute({ children }) {
   const isStaff = useAuthStore((s) => s.user?.is_staff)
   if (!isStaff) return <Navigate to="/dashboard" replace />
+  return children
+}
+
+function MarketingRoute({ children }) {
+  const isStaff = useAuthStore((s) => s.user?.is_staff)
+  const perfil = useAuthStore((s) => s.user?.perfil)
+  if (!isStaff && perfil !== 'MARKETING') return <Navigate to="/dashboard" replace />
   return children
 }
 
@@ -64,6 +72,14 @@ export default function AppRoutes() {
             <StaffRoute>
               <Usuarios />
             </StaffRoute>
+          }
+        />
+        <Route
+          path="/marketing"
+          element={
+            <MarketingRoute>
+              <Marketing />
+            </MarketingRoute>
           }
         />
         <Route path="/agendamento" element={<Agendamento />} />
