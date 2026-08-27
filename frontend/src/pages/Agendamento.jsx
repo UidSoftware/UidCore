@@ -1,12 +1,17 @@
 import { useState } from 'react'
 import ResourceCrud from '../components/ui/ResourceCrud.jsx'
+import CalendarioTab from './agendamento/CalendarioTab.jsx'
 
 const TABS = [
   { key: 'compromissos', label: 'Compromissos' },
   { key: 'agendas', label: 'Agendas' },
+  { key: 'calendario', label: 'Calendário' },
 ]
 
-const STATUS_COMPROMISSO = [
+// Exportado para o CalendarioTab reaproveitar exatamente as mesmas opções
+// de status usadas no formulário de edição de Compromisso (mesmo modal,
+// sem duplicar a lista) — Manutenção 55.
+export const STATUS_COMPROMISSO = [
   { value: 'AGENDADO', label: 'Agendado' },
   { value: 'CONFIRMADO', label: 'Confirmado' },
   { value: 'CANCELADO', label: 'Cancelado' },
@@ -91,6 +96,8 @@ export default function Agendamento() {
           emptyForm={{ nome: '', cor: '#3B82F6', descricao: '', ativo: true }}
         />
       )}
+
+      {tab === 'calendario' && <CalendarioTab />}
     </div>
   )
 }

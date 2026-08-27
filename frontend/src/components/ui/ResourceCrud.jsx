@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import api from '../../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../../utils/errors.js'
 import Card from './Card.jsx'
@@ -37,6 +37,17 @@ export default function ResourceCrud({
   rowActions = [],
   deleteLabel = 'Excluir',
   onBeforeSubmit,
+  // Extensão retrocompatível (Manutenção 55 — CalendarioTab do Agendamento):
+  // permite abrir o modal de edição já existente a partir de fora do
+  // componente, sem duplicar o formulário. Ambas as props são opcionais
+  // e, quando não usadas, o comportamento de todas as ~15 telas que já
+  // consomem ResourceCrud continua idêntico ao de hoje.
+  externalEditItem = null,
+  onExternalEditClose,
+  // Quando true, renderiza só toast + modal (sem tabela/paginação/botão
+  // "+ Novo") — usado pelo CalendarioTab para reaproveitar o modal de
+  // edição sem duplicar uma listagem visível.
+  hideList = false,
 }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
@@ -48,6 +59,7 @@ export default function ResourceCrud({
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
   const [remoteOptions, setRemoteOptions] = useState({})
+  const openedExternallyRef = useRef(false)
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -55,6 +67,7 @@ export default function ResourceCrud({
   }
 
   const fetchItems = useCallback(async () => {
+    if (hideList) return
     setLoading(true)
     try {
       const response = await api.get(`/${resource}/`, { params: { page, page_size: PAGE_SIZE } })
@@ -65,7 +78,7 @@ export default function ResourceCrud({
     } finally {
       setLoading(false)
     }
-  }, [resource, page])
+  }, [resource, page, hideList])
 
   useEffect(() => {
     fetchItems()
@@ -85,12 +98,14 @@ export default function ResourceCrud({
   }, [resource])
 
   const openNew = () => {
+    openedExternallyRef.current = false
     setForm(emptyForm)
     setEditingId(null)
     setModalOpen(true)
   }
 
-  const openEdit = (item) => {
+  const openEdit = (item, external = false) => {
+    openedExternallyRef.current = external
     const next = {}
     fields.forEach((f) => {
       next[f.name] = fieldValue(item, f)
@@ -104,7 +119,21 @@ export default function ResourceCrud({
     setModalOpen(false)
     setEditingId(null)
     setForm(emptyForm)
+    if (openedExternallyRef.current) {
+      openedExternallyRef.current = false
+      onExternalEditClose?.()
+    }
   }
+
+  // Abre o modal de edição quando o Calendário (ou qualquer outro
+  // consumidor externo) passa um item via `externalEditItem` — mesmo
+  // fluxo do clique em "Editar" na tabela, só que disparado de fora.
+  useEffect(() => {
+    if (externalEditItem) {
+      openEdit(externalEditItem, true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalEditItem])
 
   const hasFileField = fields.some((f) => f.type === 'file')
 
@@ -303,7 +332,7 @@ export default function ResourceCrud({
   })
 
   return (
-    <div className="space-y-4">
+    <div className={hideList ? undefined : 'space-y-4'}>
       {toast && (
         <div
           className={`fixed top-4 right-4 z-50 max-w-sm px-4 py-3 rounded-lg shadow-lg text-sm font-medium text-white whitespace-pre-line break-words ${
@@ -314,74 +343,78 @@ export default function ResourceCrud({
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{title}</h2>
-        <Button onClick={openNew}>{createLabel}</Button>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
-      ) : items.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
-          <span className="text-4xl">{emptyIcon}</span>
-          <p className="text-sm">{emptyText}</p>
-        </div>
-      ) : (
+      {!hideList && (
         <>
-          <Card>
-            <div className="overflow-x-auto -mx-6 -my-4">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
-                    {columns.map((col) => (
-                      <th key={col.key} className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap first:px-6 dark:text-slate-400">
-                        {col.label}
-                      </th>
-                    ))}
-                    <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
-                  {items.map((item) => (
-                    <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
-                      {columns.map((col) => (
-                        <td key={col.key} className="px-4 py-3 text-gray-600 whitespace-nowrap first:px-6 first:font-medium first:text-gray-900 dark:text-slate-400 dark:first:text-slate-100">
-                          {renderCell(item, col)}
-                        </td>
-                      ))}
-                      <td className="px-6 py-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-2">
-                          <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>
-                            Editar
-                          </Button>
-                          {rowActions
-                            .filter((action) => !action.showIf || action.showIf(item))
-                            .map((action, idx) => {
-                              const Icon = action.icon
-                              return (
-                                <Button
-                                  key={`${action.label}-${idx}`}
-                                  size="sm"
-                                  variant={action.variant || 'secondary'}
-                                  onClick={() => handleRowAction(action, item)}
-                                >
-                                  {Icon && <Icon size={14} />}
-                                  {action.label}
-                                </Button>
-                              )
-                            })}
-                          <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>
-                            {deleteLabel}
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{title}</h2>
+            <Button onClick={openNew}>{createLabel}</Button>
+          </div>
+
+          {loading ? (
+            <div className="flex justify-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
+          ) : items.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
+              <span className="text-4xl">{emptyIcon}</span>
+              <p className="text-sm">{emptyText}</p>
             </div>
-          </Card>
-          <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+          ) : (
+            <>
+              <Card>
+                <div className="overflow-x-auto -mx-6 -my-4">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200 dark:bg-navy-900 dark:border-navy-600">
+                        {columns.map((col) => (
+                          <th key={col.key} className="text-left px-4 py-3 font-semibold text-gray-600 whitespace-nowrap first:px-6 dark:text-slate-400">
+                            {col.label}
+                          </th>
+                        ))}
+                        <th className="text-right px-6 py-3 font-semibold text-gray-600 whitespace-nowrap dark:text-slate-400">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
+                      {items.map((item) => (
+                        <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
+                          {columns.map((col) => (
+                            <td key={col.key} className="px-4 py-3 text-gray-600 whitespace-nowrap first:px-6 first:font-medium first:text-gray-900 dark:text-slate-400 dark:first:text-slate-100">
+                              {renderCell(item, col)}
+                            </td>
+                          ))}
+                          <td className="px-6 py-3 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-2">
+                              <Button size="sm" variant="secondary" onClick={() => openEdit(item)}>
+                                Editar
+                              </Button>
+                              {rowActions
+                                .filter((action) => !action.showIf || action.showIf(item))
+                                .map((action, idx) => {
+                                  const Icon = action.icon
+                                  return (
+                                    <Button
+                                      key={`${action.label}-${idx}`}
+                                      size="sm"
+                                      variant={action.variant || 'secondary'}
+                                      onClick={() => handleRowAction(action, item)}
+                                    >
+                                      {Icon && <Icon size={14} />}
+                                      {action.label}
+                                    </Button>
+                                  )
+                                })}
+                              <Button size="sm" variant="danger" onClick={() => handleDelete(item)}>
+                                {deleteLabel}
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+              <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+            </>
+          )}
         </>
       )}
 
