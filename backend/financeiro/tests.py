@@ -8,6 +8,7 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
+from django.db.models import Sum
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -630,6 +631,120 @@ class DashboardFinanceiroPorMesTest(APITestCase):
         for mes in resp.data['despesas_pagas_por_mes']:
             todas_descricoes.extend([i['descricao'] for i in mes['itens']])
         self.assertNotIn('Pendente NAO Aparece', todas_descricoes)
+
+    def test_sem_autenticacao_401(self):
+        self.client.force_authenticate(user=None)
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.status_code, 401)
+
+
+# --- Manutencao #57 — despesas_por_categoria no dashboard (grafico pizza) ---
+
+class DashboardDespesasPorCategoriaTest(APITestCase):
+    """CA-01 a CA-08 da Especificacao_Hotfix.md (Manutencao #57)."""
+
+    def setUp(self):
+        self.user = _make_user(email='dashcat@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta Categoria Teste')
+        self.cat_aluguel = Categoria.objects.create(nome='Aluguel', tipo='SAIDA')
+        self.cat_ferramentas = Categoria.objects.create(nome='Ferramentas', tipo='SAIDA')
+        self.hoje = date.today()
+
+    def test_ca01_chave_presente_como_lista(self):
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('despesas_por_categoria', resp.data)
+        self.assertIsInstance(resp.data['despesas_por_categoria'], list)
+
+    def test_ca02_chaves_exatas_por_item(self):
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Aluguel Loja',
+            categoria=self.cat_aluguel,
+            valor_bruto=Decimal('1000.00'), pagamento=self.hoje, status='PAGO',
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        itens = resp.data['despesas_por_categoria']
+        self.assertGreaterEqual(len(itens), 1)
+        for item in itens:
+            self.assertEqual(
+                set(item.keys()), {'categoria_id', 'nome', 'total', 'percentual'},
+            )
+
+    def test_ca03_soma_total_bate_com_despesas_pagas_do_mes(self):
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Aluguel Loja',
+            categoria=self.cat_aluguel,
+            valor_bruto=Decimal('1000.00'), pagamento=self.hoje, status='PAGO',
+        )
+        Despesa.objects.create(
+            conta=self.conta, tipo='VARIAVEL', descricao='Ferramenta Nova',
+            categoria=self.cat_ferramentas,
+            valor_bruto=Decimal('300.00'), pagamento=self.hoje, status='PAGO',
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        soma_categorias = sum(
+            Decimal(str(item['total'])) for item in resp.data['despesas_por_categoria']
+        )
+        soma_esperada = Despesa.objects.filter(
+            is_active=True, status='PAGO', estornado=False,
+            pagamento__year=self.hoje.year, pagamento__month=self.hoje.month,
+        ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
+        self.assertEqual(soma_categorias, soma_esperada)
+        self.assertEqual(soma_categorias, Decimal('1300.00'))
+
+    def test_ca04_percentuais_fecham_em_100(self):
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Aluguel Loja',
+            categoria=self.cat_aluguel,
+            valor_bruto=Decimal('700.00'), pagamento=self.hoje, status='PAGO',
+        )
+        Despesa.objects.create(
+            conta=self.conta, tipo='VARIAVEL', descricao='Ferramenta Nova',
+            categoria=self.cat_ferramentas,
+            valor_bruto=Decimal('300.00'), pagamento=self.hoje, status='PAGO',
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        soma_percentual = sum(item['percentual'] for item in resp.data['despesas_por_categoria'])
+        self.assertAlmostEqual(soma_percentual, 100.0, delta=0.1)
+
+    def test_ca05_despesa_sem_categoria_vira_sem_categoria(self):
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Sem Categoria Despesa',
+            categoria=None,
+            valor_bruto=Decimal('150.00'), pagamento=self.hoje, status='PAGO',
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        itens = resp.data['despesas_por_categoria']
+        sem_cat = [i for i in itens if i['categoria_id'] is None]
+        self.assertEqual(len(sem_cat), 1)
+        self.assertEqual(sem_cat[0]['nome'], 'Sem categoria')
+
+    def test_ca06_despesa_estornada_nao_entra(self):
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Estornada',
+            categoria=self.cat_aluguel,
+            valor_bruto=Decimal('999.00'), pagamento=self.hoje, status='PAGO',
+            estornado=True,
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        todos_nomes = [i['nome'] for i in resp.data['despesas_por_categoria']]
+        total_geral = sum(Decimal(str(i['total'])) for i in resp.data['despesas_por_categoria'])
+        self.assertEqual(total_geral, Decimal('0'))
+        self.assertEqual(todos_nomes, [])
+
+    def test_ca07_despesa_pendente_nao_entra(self):
+        Despesa.objects.create(
+            conta=self.conta, tipo='FIXA', descricao='Pendente',
+            categoria=self.cat_aluguel,
+            valor_bruto=Decimal('500.00'), status='PENDENTE',
+        )
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.data['despesas_por_categoria'], [])
+
+    def test_ca08_sem_despesas_retorna_lista_vazia(self):
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.data['despesas_por_categoria'], [])
 
     def test_sem_autenticacao_401(self):
         self.client.force_authenticate(user=None)

@@ -653,6 +653,31 @@ def dashboard_financeiro(request):
             ],
         })
 
+    # Despesas pagas do mes corrente agrupadas por categoria — alimenta o
+    # card "Gastos por Categoria" (pizza SVG) no Resumo. Mesma base de
+    # despesas_pagas_por_mes (pagamento dentro do mes corrente), NAO a
+    # mesma base de despesa_mes (LivroCaixa) — ver RN-01/RN-02.
+    despesas_categoria_qs = (
+        Despesa.objects.filter(
+            is_active=True, status='PAGO', estornado=False,
+            pagamento__gte=primeiro_dia, pagamento__lte=ultimo_dia,
+        )
+        .values('categoria_id', 'categoria__nome')
+        .annotate(total=Sum('valor_liquido'))
+        .order_by('-total')
+    )
+    soma_categorias = sum((row['total'] or Decimal('0')) for row in despesas_categoria_qs)
+    despesas_por_categoria = []
+    for row in despesas_categoria_qs:
+        total = row['total'] or Decimal('0')
+        percentual = float((total / soma_categorias) * 100) if soma_categorias else 0.0
+        despesas_por_categoria.append({
+            'categoria_id': row['categoria_id'],
+            'nome': row['categoria__nome'] or 'Sem categoria',
+            'total': total,
+            'percentual': round(percentual, 1),
+        })
+
     # Receitas recebidas nos ultimos 12 meses, agrupadas por mes
     rec_por_mes_qs = (
         Receita.objects.filter(
@@ -713,6 +738,7 @@ def dashboard_financeiro(request):
         },
         'despesas_pagas_por_mes': despesas_pagas_por_mes,
         'receitas_recebidas_por_mes': receitas_recebidas_por_mes,
+        'despesas_por_categoria': despesas_por_categoria,
     })
 
 
