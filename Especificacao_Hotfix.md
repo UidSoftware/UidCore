@@ -1,422 +1,367 @@
-# Especificação de Hotfix — UidCore (OS #7)
+# Especificação Hotfix — Manutenção #57
 
-**Manutenção #55 — Módulo Agendamento: visualização em Calendário mensal**
-
-Data: 2026-08-26
-Levantado por: Analista (modo manutenção — briefing técnico já qualificado pelo solicitante, contexto de código pré-investigado, sem lacunas)
+**Sistema:** UidCore (OS #7)
+**Tipo:** feature_pequena
+**Data:** 2026-09-04
+**Solicitação original (cliente):** "No SystemD tem um sistema de gráfico em pizza com porcentagem de gastos, analisar e replicar no UidCore"
 
 ---
 
 ## 1. Contexto
 
-O módulo Agendamento (`frontend/src/pages/Agendamento.jsx`) hoje só oferece
-visualização em lista/tabela, via duas abas genéricas `ResourceCrud`:
-`Compromissos` e `Agendas`. Para enxergar a agenda de um dia específico ou
-ter noção visual de distribuição de compromissos ao longo do mês, o usuário
-precisa navegar página a página na tabela paginada (10 itens por página) e
-ler a coluna de data — não há nenhuma visão de calendário.
+### 1.1 O que existe no SystemD (referência a replicar)
 
-Pedido: adicionar uma terceira aba "Calendário" com grid mensal, navegação
-entre meses, indicador colorido por Agenda em cada dia com compromisso, e
-possibilidade de ver e editar os compromissos do dia selecionado sem sair
-do calendário.
+Investigado em `/root/SystemD`. O gráfico de pizza "Gastos por Categoria" vive na
+tela **Visão Geral** do módulo Financeiro:
 
-## 2. AS-IS (como é hoje)
+- **Frontend:** `frontend/src/pages/sistema/financeiro/VisaoGeralPage.jsx`
+  - Componente `GraficoPizzaCategorias({ dados })`, renderizado dentro de um
+    `Card` ao lado do gráfico de barras "Receita x Despesa (6 meses)", em
+    grid de 2 colunas.
+  - **Não usa nenhuma biblioteca de gráfico** (`recharts`, `chart.js`, `d3` —
+    nenhuma está instalada no `package.json` do SystemD). É um SVG desenhado
+    manualmente: funções `polarToCartesian()` e `fatiaPath()` calculam os
+    arcos de cada fatia a partir do `percentual` de cada categoria, com
+    `viewBox="0 0 100 100"`, círculo único quando só existe 1 categoria.
+  - Paleta fixa de 8 cores em hex (`CORES_PIZZA`), aplicada ciclicamente
+    (`CORES_PIZZA[i % CORES_PIZZA.length]`).
+  - Ao lado do SVG, uma legenda vertical: bolinha colorida + nome da
+    categoria + percentual + valor em R$ (formatado via `formatMoeda`).
+  - Estado vazio: "Nenhuma despesa registrada." quando `dados` vier vazio/nulo.
+  - Tooltip nativo via `<title>` dentro de cada `<path>`/`<circle>` (nome +
+    valor ao passar o mouse).
 
-```
-- Agendamento.jsx: componente com estado `tab` (useState), array TABS =
-  [{key:'compromissos'}, {key:'agendas'}], cada aba renderiza um
-  <ResourceCrud> parametrizado (schema-driven: columns, fields, emptyForm)
-- ResourceCrud (frontend/src/components/ui/ResourceCrud.jsx): componente
-  100% autocontido — busca dados (api.get), pagina (page_size=10 fixo),
-  mantém o próprio estado de modal (modalOpen/editingId/form) e não expõe
-  nenhuma prop, ref ou callback para abrir o modal de edição a partir de
-  fora do componente. Hoje é acionado apenas internamente (clique em
-  "Editar" na própria tabela)
-- Backend agendamento (backend/agendamento/views.py):
-  - CompromissoViewSet: filterset_fields = ['agenda','status','cliente']
-    (DjangoFilterBackend simples, sem FilterSet customizado) — NÃO existe
-    filtro por intervalo de data (inicio__gte/inicio__lte). search_fields
-    = ['titulo','descricao']. Paginação padrão do projeto (PageNumberPagination,
-    resposta em response.data.results + count)
-  - AgendaViewSet: só SearchFilter por nome, sem paginação restritiva
-    relevante (poucas agendas por cliente, tipicamente)
-  - Compromisso: agenda (FK, null=True), titulo, inicio/fim (DateTimeField,
-    ambos null=True), local, cliente (FK opcional), status (choices
-    AGENDADO/CONFIRMADO/CANCELADO/CONCLUIDO), descricao, observacoes —
-    tudo já exposto no CompromissoSerializer com agenda_nome, cliente_nome
-    e status_label calculados (read-only)
-  - Agenda: nome, descricao, cor (CharField(7), default '#3B82F6') — cor
-    já existe e já é editável via aba Agendas
-- Cliente da Uid consome api client `client.js` (baseURL '/api/v1'),
-  export default `client`/`api` (mesmo módulo, dois nomes de import usados
-  no projeto) com interceptor de refresh de JWT automático
-```
+- **Backend:** `backend/financeiro/views.py`, dentro da view `dashboard()`
+  (linhas ~1139-1161). Query:
+  ```python
+  despesas_categoria_qs = (
+      Despesa.objects.filter(
+          is_active=True, estornado=False, status='PAGO',
+          referencia_mes__gte=primeiro_dia, referencia_mes__lte=ultimo_dia,
+      )
+      .values('categoria__nome')
+      .annotate(total=Sum('valor_liquido'))
+      .order_by('-total')
+  )
+  ```
+  Para cada linha: `nome` (ou `'Sem categoria'` se `categoria` for nulo),
+  `total` (Decimal) e `percentual` (`total / despesa_mes * 100`, arredondado
+  a 1 casa decimal). Resultado exposto na chave `despesas_por_categoria` do
+  payload de `dashboard()`.
 
-## 3. TO-BE (como será)
+- **Dados exibidos:** apenas **Despesas** (não Receitas), pagas
+  (`status='PAGO'`), não estornadas (`estornado=False`), agrupadas por
+  `categoria.nome`, do **mês corrente** (competência via `referencia_mes`,
+  mesma base usada para o KPI "Despesa (mês)" — por isso a soma das fatias
+  bate exatamente com esse KPI no SystemD).
+- **Período:** fixo, mês corrente. Sem seletor de mês/ano — decisão do
+  próprio SystemD, mantida aqui por paridade (ver RN-04).
 
-```
-- Nova aba "Calendário" em Agendamento.jsx (terceira entrada em TABS),
-  mesmo padrão de estado (useState tab) já existente — zero mudança na
-  estrutura de abas atual
-- Novo componente frontend/src/pages/agendamento/CalendarioTab.jsx (ou
-  frontend/src/components/agendamento/CalendarioTab.jsx — Loom decide o
-  caminho seguindo a convenção de pastas já usada no projeto para
-  componentes de página vs. componentes de UI compartilhados)
-- CalendarioTab busca TODOS os Compromissos do mês corrente + Agendas
-  (para resolver cor), sem endpoint novo — usando os mesmos dois
-  endpoints já consumidos pela aba Compromissos/Agendas
-- ResourceCrud ganha uma pequena extensão de API pública (props novas,
-  opcionais, retrocompatíveis — nenhuma aba existente quebra) para permitir
-  abrir o modal de edição de um item específico a partir de fora do
-  componente — é o mecanismo que permite ao Calendário reaproveitar o
-  modal sem duplicar formulário (detalhe em §7)
-- Nenhuma mudança de model, serializer, migration ou endpoint no backend
-```
+### 1.2 O que existe no UidCore (ponto de partida)
 
-## 4. Requisitos Funcionais
+Investigado em `/var/www/uidcore`.
 
-```
-RF01 - O sistema deve exibir uma nova aba "Calendário" em Agendamento,
-       posicionada ao lado das abas "Compromissos" e "Agendas", seguindo
-       o mesmo componente/estilo visual de aba já usado (TABS array +
-       botões com destaque da aba ativa em bg-violet-600/dark)
-
-RF02 - A aba Calendário deve exibir um grid mensal com todos os dias do
-       mês corrente, e permitir navegar para o mês anterior e o mês
-       seguinte (setas/botões "‹ Mês anterior" e "Mês seguinte ›" + label
-       do mês/ano exibido, ex: "Agosto 2026")
-
-RF03 - Os dados do grid devem vir exclusivamente dos endpoints já
-       existentes (agendamento/compromissos e agendamento/agendas) — sem
-       criar endpoint novo. Cada dia do grid que tiver 1+ Compromisso
-       (com is_active=True, já filtrado por padrão pelo ViewSet) deve
-       exibir um indicador visual colorido, usando a cor (Agenda.cor,
-       hex) da(s) Agenda(s) vinculada(s) aos compromissos daquele dia. Se
-       houver mais de uma Agenda no mesmo dia, exibir um indicador por
-       Agenda distinta presente naquele dia (ex.: pontos empilhados/lado
-       a lado), até um limite razoável de indicadores visíveis por dia
-       (Loom define o limite; acima dele, indicar "+N")
-
-RF04 - Ao clicar em um dia do grid, esse dia fica destacado visualmente
-       (ex.: borda/preenchimento diferenciado, mesmo padrão de "dia em
-       foco" descrito no rascunho de UX) e abaixo do grid aparece a lista
-       dos Compromissos daquele dia — título, horário (HH:mm de
-       início–fim) e status (mesmo badge de status já usado na tabela de
-       Compromissos). Clicar novamente no mesmo dia recolhe a lista
-       (toggle)
-
-RF05 - Clicar em um Compromisso — tanto a partir do indicador no grid
-       quanto a partir da lista expandida do dia — deve abrir o MESMO
-       modal de edição de Compromisso já usado na aba "Compromissos" (o
-       modal do ResourceCrud), pré-preenchido com os dados daquele
-       compromisso, reaproveitando o mesmo formulário (mesmos campos:
-       titulo, agenda, cliente, inicio, fim, local, status, descricao,
-       observacoes). Não deve existir um segundo formulário de edição de
-       Compromisso no código
-
-RF06 - O dia de hoje deve ter um indicador visual próprio no grid mensal
-       (ex.: contorno ou fundo diferenciado), distinto do indicador de
-       "dia selecionado/em foco" do RF04, mesmo quando os dois coincidem
-       (hoje selecionado deve deixar claro visualmente que é "hoje E
-       selecionado")
-
-RF07 - Ao salvar uma edição de Compromisso a partir do modal aberto pelo
-       Calendário (RF05), a lista de compromissos do dia selecionado e os
-       indicadores do grid devem refletir a mudança sem necessidade de
-       recarregar a página (refetch do mês corrente após fechar o modal
-       com sucesso)
-```
-
-## 5. Requisitos Não Funcionais / Regras de Negócio
-
-```
-RNF01 - Zero mudança de backend (ver §6 — justificativa completa).
-        Nenhuma migration, nenhum model, serializer, view ou url nova.
-
-RNF02 - Reaproveitar api client (client.js) e o mesmo padrão de tratamento
-        de erro (extractErrorMessage) já usado no restante do projeto —
-        nenhuma chamada de API direta com fetch() ou axios cru.
-
-RNF03 - Seguir exclusivamente os tokens de cor Tailwind já usados no
-        projeto (navy-*, violet-*, gray-*, dark:*) — jamais introduzir
-        paleta nova, shadcn/ui ou lucide-react. A cor de cada Agenda (
-        Agenda.cor, hex livre cadastrado pelo usuário) é a ÚNICA exceção
-        legítima a usar cor arbitrária via style inline (ex.:
-        `style={{ backgroundColor: agenda.cor }}`), pois já é um dado do
-        usuário e não um token de design do sistema.
-
-RNF04 - NUNCA copiar código de SlotCalendar.jsx (Studio Fluir) — é
-        referência de padrão de interação (dia clicável → destaca → lista
-        abaixo), não de implementação. UidCore não tem conceito de
-        "slot"/"vaga"/"modalidade" — o grid aqui é mensal (não semanal
-        como o do Studio Fluir) e os dados vêm de Compromisso, não de
-        Slot.
-
-RNF05 - Fontes Plus Jakarta Sans + DM Sans (já configuradas no projeto) —
-        nenhuma fonte nova.
-
-RNF06 - Responsivo: grid mensal deve permanecer legível em mobile (a
-        Sidebar/AppLayout do projeto já é usado em mobile pelos demais
-        módulos — Calendário não pode quebrar esse padrão). Em telas
-        estreitas, aceitável reduzir para mostrar só o número do dia +
-        pontos de indicador (sem texto de compromisso dentro da célula).
-
-RN01 - O grid mensal deve considerar Compromissos com `inicio` dentro do
-       intervalo do mês exibido, mesmo que `fim` caia no mês seguinte (uso
-       do campo `inicio` como referência de "em que dia o compromisso
-       aparece no calendário" — fim é usado só para exibir o horário de
-       término na lista/badge, não para decidir em qual dia o compromisso
-       aparece).
-
-RN02 - Compromissos com `inicio` nulo (campo é `null=True, blank=True` no
-       model) não podem aparecer no grid mensal (não há como posicioná-los
-       em um dia) — devem continuar visíveis normalmente na aba
-       "Compromissos" (lista), sem alteração ali.
-
-RN03 - Compromissos com `agenda` nula (FK opcional) devem aparecer no
-       grid com um indicador de cor neutra/padrão (ex.: cinza — token já
-       usado no projeto, tipo gray-400/slate-500), já que não há
-       Agenda.cor para herdar.
-```
-
-## 6. Especificação de Backend — zero mudança (justificativa)
-
-```
-Confirmado por leitura de backend/agendamento/models.py, serializers.py e
-views.py:
-
-- Compromisso já expõe todos os campos necessários via CompromissoSerializer:
-  id, agenda, agenda_nome, titulo, descricao, inicio, fim, local, cliente,
-  cliente_nome, status, status_label, observacoes, is_active, created_at
-- Agenda já expõe cor (hex) via AgendaSerializer
-- CompromissoViewSet já filtra is_active=True por padrão no queryset — o
-  frontend não precisa (nem deve) pedir compromissos inativos
-- Não existe filtro de intervalo de data (inicio__gte/inicio__lte) no
-  CompromissoViewSet — isso é o único "gap" técnico encontrado, mas NÃO
-  justifica mudança de backend: o volume de Compromissos por cliente
-  UidCore é baixo (é um sistema-template para MEI/pequena empresa, não
-  uma agenda de grande volume), então o Calendário pode buscar uma janela
-  ampla de compromissos com paginação alta (ex.: page_size=500,
-  ordering=inicio) e filtrar client-side pelo mês exibido — mesma
-  estratégia seguida em outras telas do projeto quando a tela precisa de
-  "todos os itens" em vez de uma página (ver select-remote no próprio
-  ResourceCrud, que já busca page_size=200 sem filtro de servidor)
-- Se no futuro o volume de compromissos crescer a ponto de 500 registros
-  não cobrirem uma janela razoável de meses, aí sim caberá um filtro
-  inicio__gte/inicio__lte no backend — fora do escopo desta manutenção,
-  registrado como risco em §9
-
-CONCLUSÃO: RNF01 (zero mudança de backend) é tecnicamente viável e deve
-ser respeitado à risca nesta manutenção.
-```
-
-## 7. Especificação de Frontend detalhada
-
-### 7.1 Agendamento.jsx
-
-```
-- TABS ganha uma terceira entrada: { key: 'calendario', label: 'Calendário' }
-- Novo bloco condicional `{tab === 'calendario' && <CalendarioTab />}`,
-  no mesmo padrão dos blocos já existentes para 'compromissos'/'agendas'
-- Nenhuma outra mudança neste arquivo
-```
-
-### 7.2 Extensão do ResourceCrud (mínima, retrocompatível)
-
-```
-Problema técnico real encontrado: ResourceCrud hoje não expõe nenhuma
-forma de abrir o modal de edição a partir de fora (modalOpen/editingId/
-openEdit são estado interno, sem prop nem ref). Para cumprir RF05 sem
-duplicar formulário, a forma mais simples e menos arriscada é expor duas
-props NOVAS e OPCIONAIS (com default que preserva 100% o comportamento
-atual quando não usadas — nenhuma das ~15 telas que já usam ResourceCrud
-no projeto pode ter alteração de comportamento):
-
-  - `externalEditItem` (objeto | null): quando um objeto é passado (ex.:
-    vindo do CalendarioTab), o ResourceCrud deve abrir o modal de edição
-    já preenchido para aquele item, como se "Editar" tivesse sido clicado
-    na tabela — reaproveita a função openEdit(item) que já existe
-    internamente
-  - `onExternalEditClose` (função, opcional): chamada quando o modal
-    aberto via `externalEditItem` é fechado (com ou sem sucesso) — permite
-    ao CalendarioTab limpar seu próprio estado de "compromisso selecionado"
-    e disparar o refetch do mês (RF07)
-
-Efeito colateral aceitável e desejado: a aba "Compromissos" pode
-continuar usando <ResourceCrud resource="agendamento/compromissos" .../>
-exatamente como hoje. O CalendarioTab vai renderizar esse MESMO componente
-(pode ser oculto/sem tabela visível, ou reaproveitado da própria aba
-Compromissos — decisão de implementação do Loom) só para ter acesso ao
-modal já existente, passando `externalEditItem`.
-
-Alternativa equivalente que Loom pode preferir por ser menos invasiva:
-usar `forwardRef` + `useImperativeHandle` no ResourceCrud expondo um
-método `openEdit(item)` chamável via ref a partir do CalendarioTab, em vez
-de prop controlada. Qualquer uma das duas abordagens satisfaz RF05 — a
-exigência inegociável é: UM SÓ formulário/modal de edição de Compromisso
-em todo o código, reaproveitado, nunca duplicado.
-```
-
-### 7.3 CalendarioTab — estrutura e estado
-
-```
-Estado local (useState):
-  - mesAtual: Date (ou {ano, mes}) — mês exibido no grid, inicializado no
-    mês corrente
-  - diaSelecionado: string ISO ('YYYY-MM-DD') | null — dia em foco (RF04)
-  - compromissos: array — resultado do fetch do mês corrente
-  - agendas: array — resultado do fetch de agendamento/agendas (para
-    resolver cor por id)
-  - loading: boolean
-  - compromissoEditando: objeto | null — item passado como
-    `externalEditItem` para o ResourceCrud/modal reaproveitado (RF05)
-
-Fetch (useEffect disparado por mudança de mesAtual):
-  - GET /agendamento/compromissos/ com params { page_size: 500,
-    ordering: 'inicio' } — filtro do mês feito client-side comparando
-    o campo `inicio` (parseado) contra o intervalo [primeiro dia do mês,
-    último dia do mês] (RN01)
-  - GET /agendamento/agendas/ com params { page_size: 200 } (mesmo padrão
-    já usado pelo select-remote do ResourceCrud) — usado só para montar um
-    mapa id → cor, já que compromisso já traz agenda_nome mas não a cor
-    (CompromissoSerializer não expõe agenda.cor) — resolvido no frontend
-    cruzando compromisso.agenda (id) com o mapa de agendas
-
-Agrupamento:
-  - Compromissos agrupados por dia (chave 'YYYY-MM-DD' extraída de
-    `inicio`) num objeto/Map, calculado via useMemo a partir de
-    `compromissos` — compromissos com `inicio` nulo são excluídos do
-    agrupamento (RN02), mas nunca removidos do estado bruto
-
-Rendering do grid:
-  - Cabeçalho com nome do mês/ano + botões ‹ › (RF02)
-  - Grid CSS (grid-cols-7, dom-sáb, ou grid-cols-5 útil se o projeto
-    preferir seg-sex — seguir o que fizer mais sentido para um sistema de
-    agendamento genérico multi-nicho: recomendação é 7 dias, domingo a
-    sábado, já que Compromisso não é restrito a dia útil como o exemplo
-    de referência do Studio Fluir)
-  - Células vazias de preenchimento para alinhar o dia 1 do mês no dia da
-    semana correto (mesmo padrão comum de calendário mensal)
-  - Cada célula de dia: número do dia + até N pontos/indicadores coloridos
-    (RF03) + destaque se for hoje (RF06) + destaque se for o dia
-    selecionado (RF04) — célula clicável (onClick alterna diaSelecionado)
-
-Lista expandida do dia (abaixo do grid, RF04):
-  - Renderiza só quando diaSelecionado !== null
-  - Lista os compromissos daquele dia (do agrupamento) — título, horário
-    "HH:mm–HH:mm", badge de status (mesmo componente/estilo de badge já
-    usado em ResourceCrud.renderCell para status_label)
-  - Cada item da lista é clicável → seta compromissoEditando (RF05)
-
-Edição (RF05/RF07):
-  - Quando compromissoEditando !== null, renderiza o ResourceCrud (ou o
-    modal reaproveitado via ref, conforme §7.2) passando
-    externalEditItem={compromissoEditando}
-  - onExternalEditClose limpa compromissoEditando e refaz o fetch de
-    compromissos do mesAtual (RF07)
-```
-
-## 8. Atores e Perfis
-
-```
-Nenhuma mudança de perfil/permissão — a aba Calendário é visível para
-qualquer usuário que já acessa o módulo Agendamento hoje (mesma regra de
-acesso da aba Compromissos/Agendas, sem restrição adicional).
-```
-
-## 9. Fora do Escopo
-
-```
-- Criar/editar Compromisso diretamente clicando num dia vazio do grid
-  (ex.: "+ Novo" ao clicar num dia sem compromisso) — não foi pedido;
-  criação continua exclusivamente pela aba Compromissos ("+ Novo
-  Compromisso"). Pode ser proposto como melhoria futura.
-- Drag-and-drop de compromisso entre dias.
-- Visualização semanal ou diária (só mensal nesta manutenção).
-- Filtro por Agenda específica dentro do Calendário (ex.: esconder
-  agendas desmarcadas) — pode ser melhoria futura, não pedido aqui.
-- Filtro de data no backend (inicio__gte/inicio__lte) — ver risco em
-  Riscos e Dependências; só necessário se o volume de compromissos
-  crescer muito.
-```
-
-## 10. Riscos e Dependências
-
-```
-- RISCO BAIXO: se um cliente UidCore acumular centenas de compromissos
-  ativos, o fetch com page_size=500 (RNF01/§6) pode não cobrir todo o
-  histórico relevante numa única chamada — mitigação futura: filtro de
-  data no backend (fora do escopo agora, ver §9).
-- DEPENDÊNCIA: RF05 depende da extensão do ResourceCrud (§7.2) ser
-  implementada de forma retrocompatível — Sentinel deve validar
-  explicitamente que as abas Compromissos e Agendas (e qualquer outra
-  tela do projeto que já usa ResourceCrud) continuam funcionando
-  IDÊNTICO ao comportamento atual após a mudança (nenhuma regressão).
-- Sem dependência de bibliotecas novas — grid de calendário é construído
-  com Tailwind (grid-cols-7) + JS nativo de data, sem lib de calendário
-  externa (evita inflar bundle e foge do escopo "sem shadcn/lucide").
-```
-
-## 11. Critérios de Aceite
-
-```
-CA-01 - Aba "Calendário" aparece em Agendamento, ao lado de Compromissos
-        e Agendas, com o mesmo estilo visual das demais abas.
-
-CA-02 - Grid mensal exibe todos os dias do mês corrente ao abrir a aba,
-        com o nome do mês/ano correto.
-
-CA-03 - Botões de mês anterior/seguinte navegam corretamente (inclusive
-        virada de ano, ex.: dezembro → janeiro do ano seguinte e
-        vice-versa) e refazem o fetch/recalculam o grid para o novo mês.
-
-CA-04 - Um Compromisso com `inicio` em um dia do mês exibido aparece com
-        indicador colorido nesse dia, usando a cor da Agenda vinculada
-        (testável criando um Compromisso com Agenda de cor conhecida via
-        aba Compromissos e conferindo no Calendário).
-
-CA-05 - Compromisso sem Agenda vinculada aparece com indicador de cor
-        neutra (não quebra, não fica sem indicador).
-
-CA-06 - Compromisso com `inicio` nulo não aparece no grid (não causa erro
-        de renderização) mas continua visível na aba Compromissos.
-
-CA-07 - Clicar em um dia com compromisso(s) expande a lista abaixo do
-        grid com título, horário e status de cada compromisso daquele
-        dia; clicar novamente recolhe.
-
-CA-08 - O dia de hoje tem indicador visual distinto, mesmo quando não é
-        o dia selecionado.
-
-CA-09 - Clicar em um compromisso (no grid ou na lista expandida) abre o
-        modal de edição já existente (mesmos campos da aba Compromissos),
-        pré-preenchido com os dados corretos.
-
-CA-10 - Editar e salvar um compromisso a partir do modal aberto pelo
-        Calendário persiste via API (mesmo endpoint PATCH já usado pela
-        aba Compromissos) e reflete a mudança no grid/lista sem precisar
-        recarregar a página.
-
-CA-11 - Nenhuma regressão nas abas Compromissos e Agendas, nem em
-        nenhuma outra tela do projeto que usa ResourceCrud (verificação
-        obrigatória do Sentinel, dado que ResourceCrud é compartilhado).
-
-CA-12 - Zero migration nova, zero mudança em models/serializers/views do
-        backend agendamento (nem de qualquer outro app) — `git diff`
-        do backend desta manutenção deve conter no máximo testes novos,
-        nunca código de produção do backend.
-
-CA-13 - npm run build limpo (0 erros), sem nenhuma dependência nova
-        adicionada ao package.json além do que já existe hoje.
-```
+- **Backend:** `backend/financeiro/views.py`, view `dashboard_financeiro()`
+  (linha 541), já devolve `grafico_6_meses`, `despesas_pagas_por_mes`,
+  `receitas_recebidas_por_mes`, `indicadores`, `balanco_resumo` — **não
+  possui `despesas_por_categoria`**. É o endpoint a estender (não é preciso
+  criar endpoint novo).
+- **Models:** `Categoria` (`nome`, `tipo` = `ENTRADA`/`SAIDA`) e `Despesa`
+  (`categoria` FK para `Categoria` com `limit_choices_to={'tipo': 'SAIDA'}`,
+  `valor_liquido`, `status`, `estornado`, `pagamento`, `is_active`) já
+  existem em `backend/financeiro/models.py` com a mesma semântica do
+  SystemD — nenhuma migration é necessária.
+- **Divergência de base de cálculo a resolver:** no UidCore,
+  `despesa_mes` (o KPI "Despesa (mês)") é calculado via `LivroCaixa` (fluxo
+  de caixa, campo `data`), enquanto `despesas_pagas_por_mes` (os cards
+  colapsáveis logo abaixo) já usa `Despesa` filtrado por `pagamento` dentro
+  do mês — duas bases diferentes que já convivem hoje na mesma tela. Para o
+  gráfico de pizza, replicar a base de `despesas_pagas_por_mes` (não a de
+  `despesa_mes`/LivroCaixa) — mesmo padrão de filtro (`is_active=True,
+  status='PAGO', estornado=False, pagamento` dentro do mês corrente) já
+  usado nessa mesma view para os cards por mês. Isso garante que a soma das
+  fatias do gráfico bata com o total do mês corrente já exibido no card
+  "Despesas Pagas". Ver RN-01.
+- **Frontend:** `frontend/src/pages/Financeiro.jsx`, componente
+  `ResumoTab()` (linha 205). Já renderiza o card "Receita x Despesa (6
+  meses)" (linha 294) do mesmo jeito hand-rolled em SVG/CSS que o SystemD
+  usa para barras — não há `recharts`/`chart.js`/`d3` no
+  `frontend/package.json` do UidCore (confirmado). **Local natural para o
+  gráfico de pizza:** logo depois do card "Receita x Despesa (6 meses)",
+  dentro do mesmo `ResumoTab`, no mesmo padrão de grid 2 colunas usado no
+  SystemD (`grid grid-cols-1 md:grid-cols-2 gap-4` — mesma classe já usada
+  linha 256 do próprio arquivo para o par "Receitas/Despesas a Vencer").
+- **Diferença de tema a resolver:** o SystemD é single-theme (fundo roxo
+  escuro fixo, cores em `style` inline hardcoded, ex. `#1a0a2e`). O UidCore
+  tem dark mode com toggle (Manutenção #31 — paleta `navy`/`violet` via
+  Tailwind, `darkMode: 'class'`). O componente não pode copiar os hex fixos
+  do SystemD — precisa usar Tailwind + tokens `navy-*`/`violet-*` como o
+  resto do `ResumoTab()` já faz (`dark:bg-navy-800 dark:border-navy-600`),
+  e a paleta de cores das fatias precisa ler bem tanto em fundo claro
+  quanto em `navy-800`. Ver RF-05 e Spec Frontend.
+- **Componente `Card`:** `frontend/src/components/ui/Card.jsx`, já
+  importado e usado no `ResumoTab()` — reutilizar (`<Card title="...">`),
+  não criar um novo wrapper.
 
 ---
 
-**Observação para o Planner:** esta manutenção é 100% frontend
-(`feature_pequena`/`melhoria_ux` — não requer aprovação comercial,
-não há mudança de contrato de API, não há risco de dado). O único ponto
-de atenção para o roteamento é que a extensão do ResourceCrud (§7.2) é um
-componente COMPARTILHADO por praticamente todos os módulos do sistema —
-Sentinel precisa necessariamente rodar os testes/fluxos das demais telas
-que usam ResourceCrud, não só do Agendamento, antes de aprovar.
+## 2. Requisitos Funcionais (RF)
+
+**RF-01 — Novo dado no endpoint de dashboard**
+`GET /api/v1/financeiro/dashboard/` passa a devolver a chave
+`despesas_por_categoria`: lista de objetos
+`{ categoria_id, nome, total, percentual }`, ordenada por `total`
+decrescente, agrupando as despesas do mês corrente por `categoria__nome`.
+Despesa sem categoria (`categoria_id is NULL`) entra agrupada sob o nome
+`"Sem categoria"` com `categoria_id: null`.
+
+**RF-02 — Gráfico de pizza SVG (sem biblioteca nova)**
+Novo componente frontend que renderiza um gráfico de pizza em SVG puro
+(mesma técnica do SystemD — `polarToCartesian`/`fatiaPath`, sem adicionar
+`recharts`/`chart.js`/`d3` ao `package.json`), consumindo
+`data.despesas_por_categoria` do payload já buscado pelo `ResumoTab()`
+(nenhuma chamada de API adicional).
+
+**RF-03 — Legenda com percentual e valor**
+Ao lado (ou abaixo, em telas estreitas) do SVG, lista com: bolinha colorida
+da fatia, nome da categoria, percentual (`XX.X%`) e valor formatado em BRL
+— mesmo padrão de legenda do SystemD.
+
+**RF-04 — Tooltip nativo por fatia**
+Cada fatia (`<path>`/`<circle>`) expõe `<title>{nome}: {valor BRL}</title>`
+para tooltip nativo do navegador ao passar o mouse — paridade com o
+SystemD.
+
+**RF-05 — Paleta compatível com dark mode**
+Paleta de cores das fatias definida em hex fixo (não pode usar classes
+Tailwind dinâmicas em `fill` de SVG), mas escolhida para ter contraste
+legível tanto sobre fundo claro (`bg-white`, tema claro do `Card`) quanto
+sobre `navy-800` (tema escuro) — reutilizar tons já usados no restante do
+projeto (`blue-500 #3b82f6`, `violet-500 #8b5cf6`, `emerald-500 #10b981`,
+`amber-500 #f59e0b`, `red-500 #ef4444`, `cyan-500 #06b6d4`,
+`pink-500 #ec4899`, `lime-500 #84cc16` — 8 cores, aplicadas ciclicamente
+como no SystemD).
+
+**RF-06 — Card posicionado no Resumo**
+O card "Gastos por Categoria" aparece dentro de `ResumoTab()`
+(`frontend/src/pages/Financeiro.jsx`), logo após o card "Receita x Despesa
+(6 meses)", em grid de 2 colunas (`grid grid-cols-1 md:grid-cols-2 gap-4`),
+reutilizando o componente `Card` já importado no arquivo.
+
+**RF-07 — Estado vazio**
+Quando `despesas_por_categoria` vier vazio (nenhuma despesa paga no mês),
+exibir mensagem "Nenhuma despesa registrada neste mês." no lugar do SVG —
+mesmo padrão textual das outras mensagens de estado vazio já existentes no
+`ResumoTab()` (ex.: "Nenhuma receita pendente.").
+
+---
+
+## 3. Regras de Negócio (RN)
+
+**RN-01 — Base de cálculo: Despesa paga por competência do mês, não
+LivroCaixa**
+`despesas_por_categoria` usa a mesma base de filtro já aplicada em
+`despesas_pagas_por_mes` na própria `dashboard_financeiro()`:
+`Despesa.objects.filter(is_active=True, status='PAGO', estornado=False,
+pagamento__gte=primeiro_dia, pagamento__lte=ultimo_dia)` (mês corrente).
+**Não** usar `LivroCaixa` (base do KPI `despesa_mes`) — evita reabrir a
+divergência de bases já documentada na Manutenção #9/#13 para
+patrimônio/DRE.
+
+**RN-02 — Percentual soma 100% (não usa `despesa_mes` como denominador)**
+`percentual` de cada categoria é calculado como
+`total_categoria / soma_de_todos_os_totais_de_categoria * 100`, arredondado
+a 1 casa decimal — **não** contra `despesa_mes` (que vem do `LivroCaixa` e
+pode divergir da soma das categorias, conforme RN-01). Isso garante que a
+soma dos percentuais exibidos feche em 100% (± arredondamento).
+
+**RN-03 — Despesa sem categoria não é descartada**
+Despesas com `categoria_id NULL` entram no agrupamento sob a categoria
+sintética `"Sem categoria"` (`categoria_id: null` no payload) — mesmo
+comportamento do SystemD (`nome = row['categoria__nome'] or 'Sem
+categoria'`). Não excluir essas despesas do gráfico.
+
+**RN-04 — Período fixo: mês corrente**
+Sem seletor de mês/ano nesta manutenção — paridade com o SystemD, que
+também não tem seletor no gráfico de pizza. Fora de escopo (ver seção 7).
+
+**RN-05 — Estorno exclui a despesa do agrupamento**
+Despesa com `estornado=True` não entra na soma nem aparece na legenda —
+mesmo filtro (`estornado=False`) já usado em `despesas_pagas_por_mes` e no
+SystemD.
+
+**RN-06 — Apenas Despesas, não Receitas**
+Gráfico mostra somente gastos (Despesas), não Receitas — paridade exata
+com o nome "Gastos por Categoria" do SystemD. Gráfico de receitas por
+categoria está fora de escopo desta manutenção.
+
+---
+
+## 4. Spec Backend
+
+**Arquivo:** `backend/financeiro/views.py`
+**Função:** `dashboard_financeiro()` (view existente, GET
+`/api/v1/financeiro/dashboard/`)
+
+Adicionar bloco de agregação por categoria, usando `primeiro_dia`/
+`ultimo_dia` já calculados no início da função (linhas 542-547), seguindo
+o mesmo formato de `desp_por_mes_qs` (linha 614) mas agrupando por
+`categoria` em vez de por mês:
+
+```python
+# Despesas pagas do mes corrente agrupadas por categoria — alimenta o
+# card "Gastos por Categoria" (pizza SVG) no Resumo. Mesma base de
+# despesas_pagas_por_mes (pagamento dentro do mes corrente), NAO a
+# mesma base de despesa_mes (LivroCaixa) — ver RN-01/RN-02.
+despesas_categoria_qs = (
+    Despesa.objects.filter(
+        is_active=True, status='PAGO', estornado=False,
+        pagamento__gte=primeiro_dia, pagamento__lte=ultimo_dia,
+    )
+    .values('categoria_id', 'categoria__nome')
+    .annotate(total=Sum('valor_liquido'))
+    .order_by('-total')
+)
+soma_categorias = sum((row['total'] or Decimal('0')) for row in despesas_categoria_qs)
+despesas_por_categoria = []
+for row in despesas_categoria_qs:
+    total = row['total'] or Decimal('0')
+    percentual = float((total / soma_categorias) * 100) if soma_categorias else 0.0
+    despesas_por_categoria.append({
+        'categoria_id': row['categoria_id'],
+        'nome': row['categoria__nome'] or 'Sem categoria',
+        'total': total,
+        'percentual': round(percentual, 1),
+    })
+```
+
+E incluir a chave no `Response(...)` final (perto de
+`'despesas_pagas_por_mes'`, linha ~714):
+
+```python
+'despesas_por_categoria': despesas_por_categoria,
+```
+
+Nenhuma migration, nenhum model novo, nenhum endpoint novo — `Decimal` e
+`Sum` já estão importados no topo do arquivo (mesmo padrão usado
+logo acima em `desp_por_mes_qs`).
+
+**Serializer:** não aplicável — `dashboard_financeiro()` monta `Response()`
+com dict puro, sem serializer, mesmo padrão do restante da view.
+
+---
+
+## 5. Spec Frontend
+
+**Arquivo:** `frontend/src/pages/Financeiro.jsx` (mesmo arquivo do
+`ResumoTab()` — não criar página nova).
+
+1. Novo componente `GraficoPizzaCategorias({ dados })` no mesmo arquivo
+   (ou extraído para `frontend/src/components/financeiro/
+   GraficoPizzaCategorias.jsx`, se o Loom preferir manter `Financeiro.jsx`
+   enxuto — decisão de implementação, não de requisito), adaptando o do
+   SystemD:
+   - `polarToCartesian`/`fatiaPath` idênticos (matemática pura, não tem
+     acoplamento com tema).
+   - Paleta `CORES_PIZZA` em hex conforme RF-05 (não os hex do SystemD,
+     que foram calibrados pro roxo escuro fixo).
+   - Container e legenda em Tailwind (`flex flex-col sm:flex-row items-
+     center gap-4`), texto com `text-gray-800 dark:text-slate-200` /
+     `text-gray-400 dark:text-slate-500` — mesmo padrão de classes já
+     usado no restante do `ResumoTab()` (nada de `style={{ color:
+     '#e2d9f3' }}` fixo como no SystemD).
+   - Formatação de valor: reaproveitar o helper `BRL()` já usado em todo
+     o `ResumoTab()` (não recriar `formatMoeda`).
+
+2. Envolver o card novo e o card "Receita x Despesa (6 meses)" (linha 294)
+   num grid 2 colunas:
+   ```jsx
+   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+     <Card title="Receita x Despesa (6 meses)">
+       {/* conteúdo existente, inalterado */}
+     </Card>
+     <Card title="Gastos por Categoria">
+       <GraficoPizzaCategorias dados={data.despesas_por_categoria} />
+     </Card>
+   </div>
+   ```
+   (hoje o card de barras está solto, fora de um grid — envolver os dois
+   sem alterar o conteúdo interno do card de barras existente.)
+
+3. Estado vazio: se `!dados || dados.length === 0`, renderizar
+   `<p className="text-sm text-gray-400 dark:text-slate-500">Nenhuma
+   despesa registrada neste mês.</p>` (RF-07).
+
+Nenhuma dependência nova em `package.json` (confirma RF-02 — sem
+`recharts`/`chart.js`/`d3`).
+
+---
+
+## 6. Critérios de Aceite
+
+- **CA-01:** `GET /api/v1/financeiro/dashboard/` (autenticado) retorna a
+  chave `despesas_por_categoria` como lista (vazia ou populada).
+- **CA-02:** Cada item da lista tem exatamente as chaves `categoria_id`,
+  `nome`, `total`, `percentual`.
+- **CA-03:** A soma de `total` de todos os itens de
+  `despesas_por_categoria` é igual à soma de `valor_liquido` de todas as
+  `Despesa` com `is_active=True, status='PAGO', estornado=False,
+  pagamento` no mês corrente (bate com o `total` do mês corrente já
+  presente em `despesas_pagas_por_mes`).
+- **CA-04:** A soma de `percentual` de todos os itens fecha em
+  100.0 (± 0.1 de arredondamento) quando `soma_categorias > 0`.
+- **CA-05:** Despesa paga no mês corrente sem `categoria` aparece
+  agrupada sob `nome: "Sem categoria"`, `categoria_id: null`.
+- **CA-06:** Despesa com `estornado=True` no mês corrente **não** entra em
+  nenhuma linha de `despesas_por_categoria`.
+- **CA-07:** Despesa com `status != 'PAGO'` (ex. `PENDENTE`) no mês
+  corrente **não** entra em `despesas_por_categoria`.
+- **CA-08:** Quando não há nenhuma despesa paga no mês corrente,
+  `despesas_por_categoria` retorna `[]` (lista vazia, não erro/null).
+- **CA-09:** Tela Financeiro → aba Resumo (`ResumoTab`) renderiza o card
+  "Gastos por Categoria" ao lado do card "Receita x Despesa (6 meses)",
+  lado a lado em telas ≥ `md` e empilhados em telas menores.
+- **CA-10:** Com `despesas_por_categoria` vazio, o card exibe "Nenhuma
+  despesa registrada neste mês." em vez do SVG.
+- **CA-11:** Com 1 categoria, o gráfico renderiza um círculo único
+  (mesmo tratamento do SystemD para evitar arco degenerado de 360°).
+- **CA-12:** Com 2+ categorias, cada fatia do SVG tem `<title>` com
+  `{nome}: {valor em BRL}` — confirmar via inspeção do DOM renderizado.
+- **CA-13:** Card e gráfico legíveis (contraste adequado) em tema claro e
+  em tema escuro (toggle ☀️/🌙 do Header, Manutenção #31) — sem hex fixo
+  incompatível com `navy-800`.
+- **CA-14:** `npm run build` limpo, 0 erros, nenhuma dependência nova
+  adicionada ao `package.json`.
+- **CA-15:** Testes Django existentes (todos os módulos) continuam
+  passando — 0 regressão (view estendida, não substituída).
+
+---
+
+## 7. Fora do Escopo
+
+- Seletor de mês/ano para o gráfico de pizza (paridade com SystemD, que
+  também não tem — RN-04).
+- Gráfico de pizza para Receitas por categoria (RN-06 — só Despesas).
+- Exportação do gráfico (PDF/imagem).
+- Drill-down (clicar na fatia para ver lançamentos daquela categoria) —
+  o SystemD também não tem essa interação.
+- Migração de `despesa_mes` (KPI) de `LivroCaixa` para `Despesa` — fora de
+  escopo desta manutenção; divergência de base pré-existente, documentada
+  na seção 1.2, não é objeto deste hotfix.
+
+---
+
+## 8. Riscos e Dependências
+
+- **Risco baixo:** view estendida (não reescrita) — `Response()` ganha uma
+  chave nova, nenhum contrato de campo existente muda.
+- **Dependência:** nenhuma — models `Categoria`/`Despesa` já existem com
+  os campos necessários; nenhuma migration.
+- **Atenção do Loom:** não copiar hex inline do SystemD (`#1a0a2e`,
+  `#a78bca` etc.) — projeto tem dark mode com toggle, precisa de classes
+  Tailwind (ver RF-05 e Spec Frontend item 1).
+- **Atenção do Sentinel:** validar CA-03/CA-04 com dado real no banco
+  (não só teste unitário isolado) — mesma recomendação já registrada nas
+  manutenções anteriores de módulo financeiro (Manutenção #9/#13),
+  divergência de base de cálculo é a categoria de bug mais recorrente
+  nesse módulo.
