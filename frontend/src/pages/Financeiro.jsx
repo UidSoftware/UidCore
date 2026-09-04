@@ -291,30 +291,36 @@ function ResumoTab() {
         </Card>
       </div>
 
-      {data.grafico_6_meses && (
-        <Card title="Receita x Despesa (6 meses)">
-          <div className="flex items-end gap-2 h-40">
-            {data.grafico_6_meses.map((m) => {
-              const max = Math.max(...data.grafico_6_meses.map((x) => Math.max(Number(x.receita), Number(x.despesa), 1)))
-              const hRec = (Number(m.receita) / max) * 100
-              const hDes = (Number(m.despesa) / max) * 100
-              return (
-                <div key={m.mes} className="flex-1 flex flex-col items-center gap-1">
-                  <div className="flex gap-0.5 items-end h-32 w-full justify-center">
-                    <div className="w-3 bg-green-400 rounded-t" style={{ height: `${hRec}%` }} title={BRL(m.receita)} />
-                    <div className="w-3 bg-red-400 rounded-t" style={{ height: `${hDes}%` }} title={BRL(m.despesa)} />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {data.grafico_6_meses && (
+          <Card title="Receita x Despesa (6 meses)">
+            <div className="flex items-end gap-2 h-40">
+              {data.grafico_6_meses.map((m) => {
+                const max = Math.max(...data.grafico_6_meses.map((x) => Math.max(Number(x.receita), Number(x.despesa), 1)))
+                const hRec = (Number(m.receita) / max) * 100
+                const hDes = (Number(m.despesa) / max) * 100
+                return (
+                  <div key={m.mes} className="flex-1 flex flex-col items-center gap-1">
+                    <div className="flex gap-0.5 items-end h-32 w-full justify-center">
+                      <div className="w-3 bg-green-400 rounded-t" style={{ height: `${hRec}%` }} title={BRL(m.receita)} />
+                      <div className="w-3 bg-red-400 rounded-t" style={{ height: `${hDes}%` }} title={BRL(m.despesa)} />
+                    </div>
+                    <span className="text-[10px] text-gray-500 dark:text-slate-500">{m.label}</span>
                   </div>
-                  <span className="text-[10px] text-gray-500 dark:text-slate-500">{m.label}</span>
-                </div>
-              )
-            })}
-          </div>
-          <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-slate-500">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-green-400 rounded-full" />Receita</span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 bg-red-400 rounded-full" />Despesa</span>
-          </div>
+                )
+              })}
+            </div>
+            <div className="flex gap-4 mt-2 text-xs text-gray-500 dark:text-slate-500">
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-green-400 rounded-full" />Receita</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 bg-red-400 rounded-full" />Despesa</span>
+            </div>
+          </Card>
+        )}
+
+        <Card title="Gastos por Categoria">
+          <GraficoPizzaCategorias dados={data.despesas_por_categoria} />
         </Card>
-      )}
+      </div>
 
       {/* Cards colapsaveis Despesas/Receitas pagas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
@@ -378,6 +384,94 @@ function KpiCard({ label, value, color }) {
     <div className={`rounded-xl p-4 ${colors[color] || colors.blue}`}>
       <p className="text-xs font-medium opacity-70">{label}</p>
       <p className="text-lg font-bold mt-1">{value}</p>
+    </div>
+  )
+}
+
+// Paleta fixa (RF-05) — tons "500", contraste legível tanto em bg-white
+// quanto em navy-800. Fill de SVG não aceita classe Tailwind dinâmica,
+// por isso hex fixo em vez de token de design.
+const CORES_PIZZA = [
+  '#3b82f6', // blue-500
+  '#8b5cf6', // violet-500
+  '#10b981', // emerald-500
+  '#f59e0b', // amber-500
+  '#ef4444', // red-500
+  '#06b6d4', // cyan-500
+  '#ec4899', // pink-500
+  '#84cc16', // lime-500
+]
+
+function polarToCartesian(cx, cy, r, angleInDegrees) {
+  const angleInRadians = ((angleInDegrees - 90) * Math.PI) / 180.0
+  return {
+    x: cx + r * Math.cos(angleInRadians),
+    y: cy + r * Math.sin(angleInRadians),
+  }
+}
+
+function fatiaPath(cx, cy, r, startAngle, endAngle) {
+  const start = polarToCartesian(cx, cy, r, endAngle)
+  const end = polarToCartesian(cx, cy, r, startAngle)
+  const largeArcFlag = endAngle - startAngle <= 180 ? '0' : '1'
+  return ['M', cx, cy, 'L', start.x, start.y, 'A', r, r, 0, largeArcFlag, 0, end.x, end.y, 'Z'].join(' ')
+}
+
+function GraficoPizzaCategorias({ dados }) {
+  if (!dados || dados.length === 0) {
+    return (
+      <p className="text-sm text-gray-400 dark:text-slate-500">
+        Nenhuma despesa registrada neste mês.
+      </p>
+    )
+  }
+
+  const cx = 50
+  const cy = 50
+  const r = 50
+  let anguloAtual = 0
+  const fatias = dados.map((item, i) => {
+    const angulo = (Number(item.percentual) / 100) * 360
+    const startAngle = anguloAtual
+    const endAngle = anguloAtual + angulo
+    anguloAtual = endAngle
+    return {
+      ...item,
+      cor: CORES_PIZZA[i % CORES_PIZZA.length],
+      startAngle,
+      endAngle,
+    }
+  })
+
+  return (
+    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      <svg viewBox="0 0 100 100" className="w-32 h-32 flex-shrink-0">
+        {fatias.length === 1 ? (
+          <circle cx={cx} cy={cy} r={r} fill={fatias[0].cor}>
+            <title>{fatias[0].nome}: {BRL(fatias[0].total)}</title>
+          </circle>
+        ) : (
+          fatias.map((f, i) => (
+            <path
+              key={f.categoria_id ?? `sem-categoria-${i}`}
+              d={fatiaPath(cx, cy, r, f.startAngle, f.endAngle)}
+              fill={f.cor}
+            >
+              <title>{f.nome}: {BRL(f.total)}</title>
+            </path>
+          ))
+        )}
+      </svg>
+      <div className="flex-1 min-w-0 w-full space-y-1.5 max-h-32 overflow-y-auto">
+        {fatias.map((f, i) => (
+          <div key={f.categoria_id ?? `sem-categoria-${i}`} className="flex items-center gap-2 text-sm">
+            <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: f.cor }} />
+            <span className="text-gray-700 dark:text-slate-200 truncate">{f.nome}</span>
+            <span className="text-gray-400 dark:text-slate-500 text-xs">{Number(f.percentual).toFixed(1)}%</span>
+            <span className="font-semibold text-gray-800 dark:text-slate-200 whitespace-nowrap ml-auto">{BRL(f.total)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
