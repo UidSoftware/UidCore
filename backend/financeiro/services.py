@@ -118,3 +118,70 @@ def estornar_receita(receita, valor, motivo, data_estorno=None, item_venda=None,
         _reconstruir_cadeia(conta)
 
     return estorno
+
+
+def estornar_despesa(despesa, motivo, data_estorno=None, usuario=None):
+    """
+    Estorno total de uma Despesa (Manutencao 58, Fase 2 — extraida de
+    DespesaViewSet.estornar_despesa, sem alteração de comportamento
+    observável, mesmo padrão de estornar_receita() acima). Reaproveitada
+    tanto pelo endpoint POST /api/v1/financeiro/despesas/{id}/estornar/
+    quanto por compras/views.py::CompraViewSet.cancelar (RF-10).
+
+    Regras (iguais às do endpoint original):
+      - Somente Despesa com status=PAGO pode ser estornada.
+      - Despesa já estornada não pode ser estornada de novo.
+      - Motivo não pode ser vazio.
+
+    Retorna o LivroCaixa de estorno criado.
+    """
+    if despesa.status != 'PAGO':
+        raise ValidationError({'detail': 'Somente despesas com status PAGO podem ser estornadas.'})
+
+    if despesa.estornado:
+        raise ValidationError({'detail': 'Despesa já foi estornada.'})
+
+    if not motivo or not str(motivo).strip():
+        raise ValidationError({'motivo': 'Motivo do estorno é obrigatório.'})
+
+    data_estorno = data_estorno or _date.today()
+    conta = despesa.conta
+
+    with transaction.atomic():
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta.id])
+
+        lancamento_original = (
+            LivroCaixa.objects.select_for_update()
+            .filter(origem='DESPESA', origem_id=despesa.id, estornado=False)
+            .first()
+        )
+
+        lancamento = LivroCaixa.objects.create(
+            conta=conta,
+            tipo='ENTRADA',
+            origem='ESTORNO',
+            origem_id=despesa.id,
+            descricao=f'Estorno despesa: {despesa.descricao} — {motivo}',
+            valor=despesa.valor_liquido,
+            data=data_estorno,
+            saldo_anterior=Decimal('0'),
+            saldo_atual=Decimal('0'),
+            criado_por=usuario,
+            estorno_de=lancamento_original,
+            estornado=True,
+        )
+
+        if lancamento_original:
+            lancamento_original.estornado = True
+            lancamento_original.save(update_fields=['estornado'])
+
+        despesa.estornado = True
+        despesa.data_estorno = data_estorno
+        despesa.motivo_estorno = motivo
+        despesa.save(update_fields=['estornado', 'data_estorno', 'motivo_estorno'])
+
+        _reconstruir_cadeia(conta)
+        lancamento.refresh_from_db()
+
+    return lancamento

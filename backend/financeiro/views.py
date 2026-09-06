@@ -261,6 +261,13 @@ class DespesaViewSet(ModelViewSet):
 
     @action(detail=True, methods=['post'], url_path='estornar', permission_classes=[IsAdmin])
     def estornar_despesa(self, request, pk=None):
+        # RF-10/secao 6.3 (Manutencao 58): logica movida para
+        # financeiro/services.py::estornar_despesa() para ser reaproveitada
+        # também por compras/views.py::CompraViewSet.cancelar — mesmo
+        # comportamento observável de antes (mesmo status code, mesmo
+        # payload de resposta, mesmo efeito em LivroCaixa).
+        from financeiro.services import estornar_despesa as _estornar_despesa
+
         despesa = self.get_object()
 
         if despesa.status != 'PAGO':
@@ -280,44 +287,9 @@ class DespesaViewSet(ModelViewSet):
         except ValueError:
             return Response({'data_estorno': 'Data inválida.'}, status=400)
 
-        conta = despesa.conta
-
-        with transaction.atomic():
-            with connection.cursor() as cursor:
-                cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta.id])
-
-            lancamento_original = (
-                LivroCaixa.objects.select_for_update()
-                .filter(origem='DESPESA', origem_id=despesa.id, estornado=False)
-                .first()
-            )
-
-            lancamento = LivroCaixa.objects.create(
-                conta=conta,
-                tipo='ENTRADA',
-                origem='ESTORNO',
-                origem_id=despesa.id,
-                descricao=f'Estorno despesa: {despesa.descricao} — {motivo}',
-                valor=despesa.valor_liquido,
-                data=data_estorno,
-                saldo_anterior=Decimal('0'),
-                saldo_atual=Decimal('0'),
-                criado_por=request.user,
-                estorno_de=lancamento_original,
-                estornado=True,
-            )
-
-            if lancamento_original:
-                lancamento_original.estornado = True
-                lancamento_original.save(update_fields=['estornado'])
-
-            despesa.estornado = True
-            despesa.data_estorno = data_estorno
-            despesa.motivo_estorno = motivo
-            despesa.save(update_fields=['estornado', 'data_estorno', 'motivo_estorno'])
-
-            _reconstruir_cadeia(conta)
-            lancamento.refresh_from_db()
+        lancamento = _estornar_despesa(
+            despesa, motivo=motivo, data_estorno=data_estorno, usuario=request.user,
+        )
 
         return Response(LivroCaixaSerializer(lancamento).data, status=201)
 
