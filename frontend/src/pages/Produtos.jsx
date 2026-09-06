@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Plus, Trash2, ArrowRight, Gift, Pencil } from 'lucide-react'
+import { Plus, Trash2, ArrowRight, Gift, Pencil, Package } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -23,6 +23,16 @@ const UNIDADE_OPTIONS = [
 const UNIDADE_SELECT = [
   { value: '', label: 'Selecione...' },
   ...UNIDADE_OPTIONS,
+]
+
+// RF-06: ENTRADA_INICIAL e uso interno de ProdutoSerializer.create() — nunca
+// aparece neste seletor (bloqueado tambem no backend, ver views.py::movimentos).
+const TIPO_MOVIMENTO_OPTIONS = [
+  { value: 'ENTRADA', label: 'Entrada' },
+  { value: 'DEVOLUCAO_CLIENTE', label: 'Devolução de Cliente' },
+  { value: 'PERDA', label: 'Perda / Quebra' },
+  { value: 'AJUSTE', label: 'Ajuste de Inventário' },
+  { value: 'SAIDA_MANUAL', label: 'Saída Manual' },
 ]
 
 const BRL = (v) =>
@@ -95,6 +105,7 @@ const EMPTY_FORM = {
   codigo_barras: '',
   unidade_base: 'UN',
   quantidade_estoque: '',
+  estoque_inicial: '',
   estoque_minimo: '',
   valor_unitario: '',
   preco_venda: '',
@@ -113,10 +124,11 @@ export default function Produtos() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
   const [conversoes, setConversoes] = useState([])
-  const [entradas, setEntradas] = useState([])
-  const [loadingEntradas, setLoadingEntradas] = useState(false)
-  const [novaEntrada, setNovaEntrada] = useState(null)
-  const [savingEntrada, setSavingEntrada] = useState(false)
+  const [movimentos, setMovimentos] = useState([])
+  const [loadingMovimentos, setLoadingMovimentos] = useState(false)
+  const [novoMovimento, setNovoMovimento] = useState(null)
+  const [savingMovimento, setSavingMovimento] = useState(false)
+  const [erroMotivo, setErroMotivo] = useState(false)
   // Snapshot das conversoes carregadas do backend (id -> {unidade, converte_para,
   // quantidade_por_base}) — usado no handleSubmit pra so fazer PATCH das linhas
   // que realmente mudaram (RF-02).
@@ -302,8 +314,9 @@ export default function Produtos() {
   const openNew = () => {
     setForm(EMPTY_FORM)
     setConversoes([])
-    setEntradas([])
-    setNovaEntrada(null)
+    setMovimentos([])
+    setNovoMovimento(null)
+    setErroMotivo(false)
     setEditingId(null)
     conversoesSnapshotRef.current = {}
     setModalOpen(true)
@@ -315,6 +328,7 @@ export default function Produtos() {
       codigo_barras: produto.codigo_barras || '',
       unidade_base: produto.unidade_base || 'UN',
       quantidade_estoque: produto.quantidade_estoque || '',
+      estoque_inicial: '',
       estoque_minimo: produto.estoque_minimo || '',
       valor_unitario: produto.valor_unitario || '',
       preco_venda: produto.preco_venda || '',
@@ -322,17 +336,18 @@ export default function Produtos() {
     })
     setEditingId(produto.id)
     setConversoes([])
-    setEntradas([])
-    setNovaEntrada(null)
+    setMovimentos([])
+    setNovoMovimento(null)
+    setErroMotivo(false)
     conversoesSnapshotRef.current = {}
     setModalOpen(true)
 
-    // Carregar conversoes e entradas em paralelo
-    setLoadingEntradas(true)
+    // Carregar conversoes e movimentos em paralelo
+    setLoadingMovimentos(true)
     try {
-      const [convR, entR] = await Promise.all([
+      const [convR, movR] = await Promise.all([
         api.get(`/produtos/${produto.id}/conversoes/`).catch(() => ({ data: [] })),
-        api.get(`/produtos/${produto.id}/entradas/`).catch(() => ({ data: [] })),
+        api.get(`/produtos/${produto.id}/movimentos/`).catch(() => ({ data: [] })),
       ])
       const convList = convR.data.results || convR.data || []
       setConversoes(convList)
@@ -345,9 +360,9 @@ export default function Produtos() {
         }
       })
       conversoesSnapshotRef.current = snapshot
-      setEntradas(entR.data.results || entR.data || [])
+      setMovimentos(movR.data.results || movR.data || [])
     } finally {
-      setLoadingEntradas(false)
+      setLoadingMovimentos(false)
     }
   }
 
@@ -356,8 +371,9 @@ export default function Produtos() {
     setEditingId(null)
     setForm(EMPTY_FORM)
     setConversoes([])
-    setEntradas([])
-    setNovaEntrada(null)
+    setMovimentos([])
+    setNovoMovimento(null)
+    setErroMotivo(false)
     conversoesSnapshotRef.current = {}
   }
 
@@ -486,20 +502,28 @@ export default function Produtos() {
     setPage(1)
   }
 
-  const handleRegistrarEntrada = async (e) => {
-    e.preventDefault()
-    if (!novaEntrada || !editingId) return
-    setSavingEntrada(true)
+  // RN-04: cria o movimento; se o backend responder com
+  // confirmacao_necessaria (estoque ficaria negativo), reenvia com
+  // forcar_negativo=true somente se o usuario confirmar no window.confirm.
+  const enviarMovimento = async (forcarNegativo) => {
+    setSavingMovimento(true)
     try {
-      await api.post(`/produtos/${editingId}/entradas/`, stripEmptyStrings(novaEntrada))
-      showToast('Entrada registrada.')
-      setNovaEntrada(null)
-      // Recarregar entradas e produto
-      const [entR, prodR] = await Promise.all([
-        api.get(`/produtos/${editingId}/entradas/`).catch(() => ({ data: [] })),
+      await api.post(
+        `/produtos/${editingId}/movimentos/`,
+        stripEmptyStrings({
+          ...novoMovimento,
+          ...(forcarNegativo ? { forcar_negativo: true } : {}),
+        }),
+      )
+      showToast('Movimento registrado.')
+      setNovoMovimento(null)
+      setErroMotivo(false)
+      // Recarregar movimentos e produto
+      const [movR, prodR] = await Promise.all([
+        api.get(`/produtos/${editingId}/movimentos/`).catch(() => ({ data: [] })),
         api.get(`/produtos/${editingId}/`).catch(() => ({ data: null })),
       ])
-      setEntradas(entR.data.results || entR.data || [])
+      setMovimentos(movR.data.results || movR.data || [])
       if (prodR.data) {
         setForm((prev) => ({
           ...prev,
@@ -508,10 +532,30 @@ export default function Produtos() {
       }
       fetchProdutos()
     } catch (error) {
-      showToast(extractErrorMessage(error, 'Erro ao registrar entrada.'), 'error')
+      const data = error?.response?.data
+      if (data?.confirmacao_necessaria) {
+        const ok = window.confirm(data.mensagem)
+        if (ok) {
+          await enviarMovimento(true)
+        }
+        // usuario cancelou — formulario permanece aberto, nada e limpo
+        return
+      }
+      showToast(extractErrorMessage(error, 'Erro ao registrar movimento.'), 'error')
     } finally {
-      setSavingEntrada(false)
+      setSavingMovimento(false)
     }
+  }
+
+  const handleRegistrarMovimento = async (e) => {
+    e.preventDefault()
+    if (!novoMovimento || !editingId) return
+    setErroMotivo(false)
+    if (novoMovimento.tipo !== 'ENTRADA' && !novoMovimento.observacoes.trim()) {
+      setErroMotivo(true)
+      return
+    }
+    await enviarMovimento(false)
   }
 
   return (
@@ -786,16 +830,30 @@ export default function Produtos() {
                 value={form.unidade_base}
                 onChange={handleChange}
               />
-              <Input
-                label="Qtd em Estoque"
-                name="quantidade_estoque"
-                type="number"
-                step="0.001"
-                min="0"
-                value={form.quantidade_estoque}
-                onChange={handleChange}
-                placeholder="0"
-              />
+              {editingId ? (
+                <div className="flex flex-col gap-1">
+                  <label className="text-sm font-medium text-gray-700 dark:text-slate-300">
+                    Estoque Atual
+                  </label>
+                  <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 dark:border-navy-700 dark:bg-navy-900/50 dark:text-slate-300">
+                    <Package size={14} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                    <span className="font-medium">
+                      {form.quantidade_estoque || 0} {unidadeLabel(form.unidade_base)}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <Input
+                  label="Estoque Inicial"
+                  name="estoque_inicial"
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  value={form.estoque_inicial}
+                  onChange={handleChange}
+                  placeholder="0"
+                />
+              )}
               <Input
                 label="Estoque Minimo"
                 name="estoque_minimo"
@@ -935,50 +993,56 @@ export default function Produtos() {
               </div>
             </div>
 
-            {/* Entradas de estoque (somente edicao) */}
+            {/* Movimentar estoque (somente edicao) */}
             {editingId && (
               <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Entradas de Estoque</h3>
-                  {!novaEntrada && (
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Movimentar Estoque</h3>
+                  {!novoMovimento && (
                     <button
                       type="button"
                       onClick={() =>
-                        setNovaEntrada({ quantidade: '', unidade: form.unidade_base, nota_fiscal: '', observacoes: '' })
+                        setNovoMovimento({ tipo: 'ENTRADA', quantidade: '', unidade: form.unidade_base, nota_fiscal: '', observacoes: '' })
                       }
                       className="flex items-center gap-1 text-xs text-primary-600 font-medium hover:text-primary-800 transition-colors dark:text-violet-400 dark:hover:text-violet-300"
                     >
                       <Plus size={14} />
-                      Registrar Entrada
+                      Registrar Movimento
                     </button>
                   )}
                 </div>
 
-                {/* Formulario nova entrada */}
-                {novaEntrada && (
+                {/* Formulario novo movimento */}
+                {novoMovimento && (
                   <div className="bg-white rounded-lg border border-gray-200 p-3 mb-3 space-y-2 dark:bg-navy-800 dark:border-navy-600">
+                    <Select
+                      label="Tipo de Movimento"
+                      options={TIPO_MOVIMENTO_OPTIONS}
+                      value={novoMovimento.tipo}
+                      onChange={(e) => setNovoMovimento((p) => ({ ...p, tipo: e.target.value, quantidade: '' }))}
+                    />
                     <div className="grid grid-cols-2 gap-2">
                       <Input
                         label="Quantidade"
                         type="number"
                         step="0.001"
-                        min="0"
-                        value={novaEntrada.quantidade}
-                        onChange={(e) => setNovaEntrada((p) => ({ ...p, quantidade: e.target.value }))}
-                        placeholder="0"
+                        min={novoMovimento.tipo === 'AJUSTE' ? undefined : '0'}
+                        value={novoMovimento.quantidade}
+                        onChange={(e) => setNovoMovimento((p) => ({ ...p, quantidade: e.target.value }))}
+                        placeholder={novoMovimento.tipo === 'AJUSTE' ? 'Ex: -3 ou 3' : '0'}
                       />
                       <Select
                         label="Unidade"
                         options={UNIDADE_OPTIONS}
-                        value={novaEntrada.unidade}
-                        onChange={(e) => setNovaEntrada((p) => ({ ...p, unidade: e.target.value }))}
+                        value={novoMovimento.unidade}
+                        onChange={(e) => setNovoMovimento((p) => ({ ...p, unidade: e.target.value }))}
                       />
                     </div>
                     {/* RF-08: preview da quantidade equivalente em unidade base */}
-                    {novaEntrada.unidade &&
-                      novaEntrada.unidade !== form.unidade_base &&
-                      novaEntrada.quantidade && (() => {
-                        const resultado = resolverFatorBase(conversoes, form.unidade_base || 'UN', novaEntrada.unidade)
+                    {novoMovimento.unidade &&
+                      novoMovimento.unidade !== form.unidade_base &&
+                      novoMovimento.quantidade && (() => {
+                        const resultado = resolverFatorBase(conversoes, form.unidade_base || 'UN', novoMovimento.unidade)
                         if (!resultado.ok) {
                           return (
                             <p className="text-xs text-amber-700 dark:text-amber-400">
@@ -986,53 +1050,65 @@ export default function Produtos() {
                             </p>
                           )
                         }
-                        const convertido = parseFloat(novaEntrada.quantidade) * resultado.fator
+                        const convertido = parseFloat(novoMovimento.quantidade) * resultado.fator
                         return (
                           <p className="text-xs text-gray-500 dark:text-slate-400">
                             = {formatFator(convertido)} {form.unidade_base}
                           </p>
                         )
                       })()}
-                    <Input
-                      label="Nota Fiscal"
-                      value={novaEntrada.nota_fiscal}
-                      onChange={(e) => setNovaEntrada((p) => ({ ...p, nota_fiscal: e.target.value }))}
-                      placeholder="NF-e 00001..."
-                    />
                     <div className="flex flex-col gap-1">
-                      <label className="text-xs font-medium text-gray-600 dark:text-slate-400">Observacoes</label>
+                      <label className="text-xs font-medium text-gray-600 dark:text-slate-400">
+                        {novoMovimento.tipo === 'ENTRADA' ? 'Observações' : 'Motivo'}
+                        {novoMovimento.tipo !== 'ENTRADA' && <span className="text-red-500 ml-0.5">*</span>}
+                      </label>
                       <textarea
-                        value={novaEntrada.observacoes}
-                        onChange={(e) => setNovaEntrada((p) => ({ ...p, observacoes: e.target.value }))}
+                        value={novoMovimento.observacoes}
+                        onChange={(e) => setNovoMovimento((p) => ({ ...p, observacoes: e.target.value }))}
                         rows={2}
+                        placeholder={novoMovimento.tipo === 'ENTRADA' ? '' : 'Descreva o motivo deste movimento...'}
                         className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
                       />
+                      {erroMotivo && (
+                        <p className="text-xs text-red-600 dark:text-red-400">Motivo é obrigatório para este tipo de movimento.</p>
+                      )}
                     </div>
+                    {novoMovimento.tipo === 'ENTRADA' && (
+                      <Input
+                        label="Nota Fiscal"
+                        value={novoMovimento.nota_fiscal}
+                        onChange={(e) => setNovoMovimento((p) => ({ ...p, nota_fiscal: e.target.value }))}
+                        placeholder="NF-e 00001..."
+                      />
+                    )}
                     <div className="flex gap-2">
-                      <Button size="sm" onClick={handleRegistrarEntrada} loading={savingEntrada}>
+                      <Button size="sm" onClick={handleRegistrarMovimento} loading={savingMovimento}>
                         Confirmar
                       </Button>
-                      <Button size="sm" variant="secondary" onClick={() => setNovaEntrada(null)}>
+                      <Button size="sm" variant="secondary" onClick={() => { setNovoMovimento(null); setErroMotivo(false) }}>
                         Cancelar
                       </Button>
                     </div>
                   </div>
                 )}
 
-                {loadingEntradas ? (
-                  <p className="text-xs text-gray-400 dark:text-slate-500">Carregando entradas...</p>
-                ) : entradas.length === 0 ? (
-                  <p className="text-xs text-gray-400 dark:text-slate-500">Nenhuma entrada registrada.</p>
+                {loadingMovimentos ? (
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Carregando movimentos...</p>
+                ) : movimentos.length === 0 ? (
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Nenhum movimento registrado.</p>
                 ) : (
                   <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {entradas.map((en, i) => (
-                      <div key={en.id || i} className="flex items-center justify-between text-xs py-1 border-b border-gray-100 last:border-0 dark:border-navy-700">
+                    {movimentos.map((mov, i) => (
+                      <div key={mov.id || i} className="flex items-center justify-between text-xs py-1 border-b border-gray-100 last:border-0 dark:border-navy-700">
                         <div className="min-w-0">
-                          <span className="font-medium text-gray-700 dark:text-slate-300">{en.quantidade} {en.unidade}</span>
-                          {en.nota_fiscal && <span className="text-gray-400 ml-1 dark:text-slate-500">({en.nota_fiscal})</span>}
+                          <span className={mov.efeito === '-' ? 'font-medium text-red-600 dark:text-red-400' : 'font-medium text-gray-700 dark:text-slate-300'}>
+                            {mov.efeito}{mov.quantidade} {mov.unidade}
+                          </span>
+                          <span className="text-gray-400 ml-1 dark:text-slate-500">— {mov.tipo_display}</span>
+                          {mov.nota_fiscal && <span className="text-gray-400 ml-1 dark:text-slate-500">({mov.nota_fiscal})</span>}
                         </div>
                         <span className="text-gray-400 ml-2 shrink-0 dark:text-slate-500">
-                          {en.created_at ? new Date(en.created_at).toLocaleDateString('pt-BR') : ''}
+                          {mov.created_at ? new Date(mov.created_at).toLocaleDateString('pt-BR') : ''}
                         </span>
                       </div>
                     ))}
