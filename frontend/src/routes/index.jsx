@@ -16,6 +16,7 @@ import Usuarios from '../pages/Usuarios.jsx'
 import Agendamento from '../pages/Agendamento.jsx'
 import Portal from '../pages/Portal.jsx'
 import Produtos from '../pages/Produtos.jsx'
+import Compras from '../pages/Compras.jsx'
 import Marketing from '../pages/Marketing.jsx'
 import AberturaCaixa from '../pages/pdv/AberturaCaixa.jsx'
 import FrenteDeCaixa from '../pages/pdv/FrenteDeCaixa.jsx'
@@ -61,6 +62,14 @@ export default function AppRoutes() {
         <Route path="/fornecedores" element={<Fornecedores />} />
         <Route path="/vendas" element={<Vendas />} />
         <Route path="/produtos" element={<Produtos />} />
+        <Route
+          path="/compras"
+          element={
+            <StaffRoute>
+              <Compras />
+            </StaffRoute>
+          }
+        />
         <Route path="/pagamentos" element={<Pagamentos />} />
         <Route path="/financeiro" element={<Financeiro />} />
         <Route path="/conciliacao" element={<Conciliacao />} />

@@ -5,6 +5,7 @@ const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '📊' },
   { to: '/clientes', label: 'Clientes', icon: '👥' },
   { to: '/fornecedores', label: 'Fornecedores', icon: '🏭' },
+  { to: '/compras', label: 'Compras', icon: '🧾', staffOnly: true },
   { to: '/vendas', label: 'Vendas', icon: '🛒' },
   { to: '/produtos', label: 'Produtos', icon: '📦' },
   { to: '/marketing', label: 'Marketing', icon: '📣', marketingOnly: true },
