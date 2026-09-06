@@ -1,7 +1,8 @@
 """Testes do app produtos — Fase B da Manutenção #11.
 
-Cobre: Produto, ConversaoUnidade, EntradaEstoque (com conversão de unidade),
-endpoints /produtos/, /produtos/{id}/conversoes/, /produtos/{id}/entradas/.
+Cobre: Produto, ConversaoUnidade, MovimentoEstoque (com conversão de
+unidade, generalizado de EntradaEstoque na Manutencao 58), endpoints
+/produtos/, /produtos/{id}/conversoes/, /produtos/{id}/movimentos/.
 """
 from decimal import Decimal
 
@@ -10,7 +11,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from .models import Combo, ConversaoUnidade, EntradaEstoque, ItemCombo, Produto
+from .models import Combo, ConversaoUnidade, ItemCombo, MovimentoEstoque, Produto, TipoMovimento
 
 
 def _make_user(email='admin@teste.com'):
@@ -56,7 +57,7 @@ class ConversaoUnidadeModelTest(TestCase):
             ConversaoUnidade.objects.create(produto=self.produto, unidade='CX', quantidade_por_base=6)
 
 
-class EntradaEstoqueModelTest(TestCase):
+class MovimentoEstoqueModelTest(TestCase):
     def setUp(self):
         self.produto = _make_produto(unidade_base='UN')
         ConversaoUnidade.objects.create(
@@ -64,15 +65,17 @@ class EntradaEstoqueModelTest(TestCase):
         )
 
     def test_entrada_na_unidade_base_atualiza_estoque(self):
-        EntradaEstoque.objects.create(
-            produto=self.produto, quantidade=Decimal('10'), unidade='UN',
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.ENTRADA,
+            quantidade=Decimal('10'), unidade='UN',
         )
         self.produto.refresh_from_db()
         self.assertEqual(self.produto.quantidade_estoque, Decimal('10'))
 
     def test_entrada_com_conversao_atualiza_estoque_em_base(self):
-        EntradaEstoque.objects.create(
-            produto=self.produto, quantidade=Decimal('2'), unidade='CX',
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.ENTRADA,
+            quantidade=Decimal('2'), unidade='CX',
         )
         self.produto.refresh_from_db()
         # 2 CX * 12 UN/CX = 24 UN
@@ -85,18 +88,53 @@ class EntradaEstoqueModelTest(TestCase):
         from django.core.exceptions import ValidationError
 
         with self.assertRaises(ValidationError):
-            EntradaEstoque.objects.create(
-                produto=self.produto, quantidade=Decimal('5'), unidade='KG',
+            MovimentoEstoque.objects.create(
+                produto=self.produto, tipo=TipoMovimento.ENTRADA,
+                quantidade=Decimal('5'), unidade='KG',
             )
         self.produto.refresh_from_db()
         self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
 
     def test_quantidade_base_salva_corretamente(self):
-        entrada = EntradaEstoque.objects.create(
-            produto=self.produto, quantidade=Decimal('3'), unidade='CX',
+        entrada = MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.ENTRADA,
+            quantidade=Decimal('3'), unidade='CX',
         )
         entrada.refresh_from_db()
         self.assertEqual(entrada.quantidade_base, Decimal('36'))
+
+    def test_perda_subtrai_do_estoque(self):
+        """CA-05: tipo=PERDA subtrai (em base) do estoque."""
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.ENTRADA,
+            quantidade=Decimal('20'), unidade='UN',
+        )
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.PERDA,
+            quantidade=Decimal('5'), unidade='UN', observacoes='Quebrou',
+        )
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('15'))
+
+    def test_ajuste_positivo_e_negativo(self):
+        """CA-06: tipo=AJUSTE com quantidade negativa subtrai, positiva soma."""
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.ENTRADA,
+            quantidade=Decimal('20'), unidade='UN',
+        )
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.AJUSTE,
+            quantidade=Decimal('-3'), unidade='UN', observacoes='Contagem',
+        )
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('17'))
+
+        MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.AJUSTE,
+            quantidade=Decimal('3'), unidade='UN', observacoes='Contagem',
+        )
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('20'))
 
 
 class FatorParaBaseServiceTest(TestCase):
@@ -155,8 +193,8 @@ class FatorParaBaseServiceTest(TestCase):
             fator_para_base(self.produto, 'KG')
 
 
-class EntradaEstoqueCadeiaTest(TestCase):
-    """EntradaEstoque.save() usando cadeia de conversao (Manutencao 37)."""
+class MovimentoEstoqueCadeiaTest(TestCase):
+    """MovimentoEstoque.save() usando cadeia de conversao (Manutencao 37)."""
 
     def setUp(self):
         self.produto = _make_produto(unidade_base='UN')
@@ -168,8 +206,9 @@ class EntradaEstoqueCadeiaTest(TestCase):
         )
 
     def test_entrada_cadeia_dois_elos_atualiza_estoque_correto(self):
-        entrada = EntradaEstoque.objects.create(
-            produto=self.produto, quantidade=Decimal('1'), unidade='CX',
+        entrada = MovimentoEstoque.objects.create(
+            produto=self.produto, tipo=TipoMovimento.ENTRADA,
+            quantidade=Decimal('1'), unidade='CX',
         )
         entrada.refresh_from_db()
         self.produto.refresh_from_db()
@@ -385,8 +424,8 @@ class ConversaoUnidadeRN06Test(APITestCase):
         self.assertEqual(self.cx.quantidade_por_base, Decimal('12'))
 
 
-class EntradaEstoqueAPICadeiaTest(APITestCase):
-    """POST /produtos/{id}/entradas/ com unidade sem conversao (RN-05)."""
+class MovimentoEstoqueAPICadeiaTest(APITestCase):
+    """POST /produtos/{id}/movimentos/ com unidade sem conversao (RN-05)."""
 
     def setUp(self):
         self.user = _make_user()
@@ -395,7 +434,7 @@ class EntradaEstoqueAPICadeiaTest(APITestCase):
 
     def test_entrada_unidade_sem_conversao_retorna_400(self):
         resp = self.client.post(
-            f'/api/v1/produtos/{self.produto.id}/entradas/',
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
             {'quantidade': '5', 'unidade': 'KG'},
             format='json',
         )
@@ -403,6 +442,153 @@ class EntradaEstoqueAPICadeiaTest(APITestCase):
         self.assertIn('unidade', resp.data)
         self.produto.refresh_from_db()
         self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
+
+
+class MovimentoEstoqueAPITest(APITestCase):
+    """Manutencao 58 — CA-01 a CA-12 (endpoint /produtos/{id}/movimentos/
+    e estoque_inicial em ProdutoSerializer)."""
+
+    def setUp(self):
+        self.user = _make_user()
+        self.client.force_authenticate(self.user)
+        self.produto = _make_produto(unidade_base='UN')
+
+    def test_patch_quantidade_estoque_e_ignorado(self):
+        """CA-01: quantidade_estoque é read_only por design — PATCH com
+        esse campo no payload não altera o valor em banco."""
+        resp = self.client.patch(
+            f'/api/v1/produtos/{self.produto.id}/',
+            {'quantidade_estoque': '999'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
+
+    def test_criar_produto_com_estoque_inicial(self):
+        """CA-02: POST /produtos/ com estoque_inicial cria o produto já
+        com quantidade_estoque preenchida + 1 MovimentoEstoque ENTRADA_INICIAL."""
+        resp = self.client.post('/api/v1/produtos/', {
+            'nome': 'Produto Com Estoque', 'unidade_base': 'UN',
+            'valor_unitario': '5.00', 'preco_venda': '8.00',
+            'estoque_inicial': '15',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(Decimal(str(resp.data['quantidade_estoque'])), Decimal('15'))
+        self.assertNotIn('estoque_inicial', resp.data)
+
+        produto = Produto.objects.get(pk=resp.data['id'])
+        self.assertEqual(produto.quantidade_estoque, Decimal('15'))
+        movimentos = MovimentoEstoque.objects.filter(produto=produto)
+        self.assertEqual(movimentos.count(), 1)
+        self.assertEqual(movimentos.first().tipo, TipoMovimento.ENTRADA_INICIAL)
+
+    def test_criar_produto_sem_estoque_inicial(self):
+        """CA-03: sem estoque_inicial, produto nasce com 0 e sem movimento."""
+        resp = self.client.post('/api/v1/produtos/', {
+            'nome': 'Produto Sem Estoque', 'unidade_base': 'UN',
+            'valor_unitario': '5.00', 'preco_venda': '8.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(Decimal(str(resp.data['quantidade_estoque'])), Decimal('0'))
+        produto = Produto.objects.get(pk=resp.data['id'])
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=produto).count(), 0)
+
+    def test_patch_com_estoque_inicial_nao_tem_efeito(self):
+        """RN-05: estoque_inicial não tem efeito em update() — write_only
+        sem tratamento especial em update é ignorado pelo DRF."""
+        resp = self.client.patch(
+            f'/api/v1/produtos/{self.produto.id}/',
+            {'estoque_inicial': '50'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.produto).count(), 0)
+
+    def test_movimento_perda_sem_observacoes_retorna_400(self):
+        """CA-07: motivo obrigatório para PERDA."""
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {'tipo': 'PERDA', 'quantidade': '5', 'unidade': 'UN'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('observacoes', resp.data)
+
+    def test_movimento_entrada_sem_observacoes_continua_opcional(self):
+        """CA-08: ENTRADA continua aceitando observacoes vazia."""
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {'tipo': 'ENTRADA', 'quantidade': '5', 'unidade': 'UN'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_movimento_negativo_sem_forcar_retorna_confirmacao(self):
+        """CA-09: efeito deixaria estoque negativo — 400 com
+        confirmacao_necessaria, sem alterar o estoque."""
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {'tipo': 'PERDA', 'quantidade': '5', 'unidade': 'UN', 'observacoes': 'Quebrou'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(resp.data.get('confirmacao_necessaria'))
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.produto).count(), 0)
+
+    def test_movimento_negativo_com_forcar_persiste(self):
+        """CA-10: mesmo payload + forcar_negativo=true → 201, estoque
+        negativo confirmado em banco."""
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {
+                'tipo': 'PERDA', 'quantidade': '5', 'unidade': 'UN',
+                'observacoes': 'Quebrou', 'forcar_negativo': True,
+            },
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('-5'))
+
+    def test_movimento_entrada_inicial_direto_via_api_bloqueado(self):
+        """CA-11: ENTRADA_INICIAL é uso interno — bloqueado no endpoint público."""
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {'tipo': 'ENTRADA_INICIAL', 'quantidade': '5', 'unidade': 'UN'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('tipo', resp.data)
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('0'))
+
+    def test_movimento_ajuste_quantidade_zero_retorna_400(self):
+        resp = self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {'tipo': 'AJUSTE', 'quantidade': '0', 'unidade': 'UN', 'observacoes': 'Contagem'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('quantidade', resp.data)
+
+    def test_listar_movimentos_expoe_tipo_e_efeito(self):
+        """CA-05/RF-05: GET expõe tipo, tipo_display e efeito."""
+        self.client.post(
+            f'/api/v1/produtos/{self.produto.id}/movimentos/',
+            {'tipo': 'ENTRADA', 'quantidade': '10', 'unidade': 'UN'},
+            format='json',
+        )
+        resp = self.client.get(f'/api/v1/produtos/{self.produto.id}/movimentos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data), 1)
+        self.assertEqual(resp.data[0]['tipo'], 'ENTRADA')
+        self.assertEqual(resp.data[0]['efeito'], '+')
+        self.assertIn('tipo_display', resp.data[0])
 
 
 class ProdutoAPITest(APITestCase):
@@ -450,7 +636,7 @@ class ProdutoAPITest(APITestCase):
     def test_criar_entrada_endpoint_atualiza_estoque(self):
         p = _make_produto()
         resp = self.client.post(
-            f'/api/v1/produtos/{p.id}/entradas/',
+            f'/api/v1/produtos/{p.id}/movimentos/',
             {'quantidade': '10.000', 'unidade': 'UN'},
             format='json',
         )

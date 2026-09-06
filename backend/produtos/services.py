@@ -10,7 +10,7 @@ cadeia recursivamente até a unidade_base.
 
 `fator_para_base()` substitui a lógica antes triplicada (e com fallback
 1:1 silencioso — achado crítico RN-05) em:
-  - produtos/models.py::EntradaEstoque.save()
+  - produtos/models.py::MovimentoEstoque.save()
   - pdv/services.py::_quantidade_base / _reverter_estoque
   - pdv/views.py::adicionar_item (cálculo de valor_unitario)
 

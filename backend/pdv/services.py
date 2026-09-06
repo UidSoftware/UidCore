@@ -10,7 +10,7 @@ pg_advisory_xact_lock (ADR-020 + ADR-021):
   - cancelar_venda  : mesmos locks de finalizar (estoque volta + receitas estornadas)
   - devolver_item   : lock por conta do pagamento (estoque parcial volta + estorno receita)
 
-Baixa/reversão de estoque é a operação INVERSA exata de EntradaEstoque.save()
+Baixa/reversão de estoque é a operação INVERSA exata de MovimentoEstoque.save()
 (achado A7 do Analista): mesma resolução de ConversaoUnidade, F() atômico.
 """
 from datetime import date, timedelta
@@ -40,7 +40,7 @@ from .models import (
 
 
 # ---------------------------------------------------------------------------
-# Conversão de unidade (espelho de EntradaEstoque.save())
+# Conversão de unidade (espelho de MovimentoEstoque.save())
 # ---------------------------------------------------------------------------
 
 def _fator_conversao(item):
@@ -68,7 +68,7 @@ def _quantidade_base(item):
 
 
 def _debitar_estoque(item):
-    """Debita estoque do produto (operação inversa de EntradaEstoque)."""
+    """Debita estoque do produto (operação inversa de MovimentoEstoque)."""
     qtd_base = _quantidade_base(item)
     Produto.objects.filter(pk=item.produto_id).update(
         quantidade_estoque=F('quantidade_estoque') - qtd_base,

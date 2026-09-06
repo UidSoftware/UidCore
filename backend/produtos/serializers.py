@@ -1,7 +1,18 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
-from .models import Combo, ConversaoUnidade, EntradaEstoque, ItemCombo, Produto, UnidadeBase
+from .models import (
+    Combo,
+    ConversaoUnidade,
+    EFEITO_NEGATIVO,
+    ItemCombo,
+    MovimentoEstoque,
+    Produto,
+    TipoMovimento,
+    UnidadeBase,
+)
 from .services import validar_cadeia
 
 
@@ -26,7 +37,7 @@ class ConversaoUnidadeSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         # RN-01/RN-03: valida a cadeia ANTES de salvar — não só no uso
-        # posterior (EntradaEstoque/PDV). `produto` vem do contexto (create,
+        # posterior (MovimentoEstoque/PDV). `produto` vem do contexto (create,
         # via views.py) ou da instância já persistida (edição via PATCH).
         produto = self.context.get('produto') or getattr(self.instance, 'produto', None)
         if produto is None:
@@ -54,24 +65,66 @@ class ConversaoUnidadeSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class EntradaEstoqueSerializer(serializers.ModelSerializer):
+class MovimentoEstoqueSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     unidade_display = serializers.CharField(source='get_unidade_display', read_only=True)
+    tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
+    efeito = serializers.SerializerMethodField()
 
     class Meta:
-        model = EntradaEstoque
+        model = MovimentoEstoque
         fields = [
-            'id', 'quantidade', 'unidade', 'unidade_display',
+            'id', 'tipo', 'tipo_display', 'efeito',
+            'quantidade', 'unidade', 'unidade_display',
             'quantidade_base', 'nota_fiscal', 'observacoes',
             'is_active', 'created_at',
         ]
         read_only_fields = ['quantidade_base', 'created_at']
+
+    def get_efeito(self, obj):
+        if obj.tipo in EFEITO_NEGATIVO:
+            return '-'
+        if obj.tipo == TipoMovimento.AJUSTE:
+            return '+' if obj.quantidade >= 0 else '-'
+        return '+'
+
+    def validate(self, attrs):
+        # RN-01: para todo tipo exceto AJUSTE, quantidade deve ser
+        # estritamente positiva — o sinal do efeito vem do `tipo`, não do
+        # valor digitado. Só AJUSTE aceita valor negativo (delta assinado).
+        tipo = attrs.get('tipo', getattr(self.instance, 'tipo', TipoMovimento.ENTRADA))
+        quantidade = attrs.get('quantidade', getattr(self.instance, 'quantidade', None))
+
+        if tipo == TipoMovimento.AJUSTE:
+            if quantidade == 0:
+                raise serializers.ValidationError({'quantidade': 'Ajuste não pode ser zero.'})
+        elif quantidade is not None and quantidade <= 0:
+            raise serializers.ValidationError({
+                'quantidade': 'Deve ser maior que zero para este tipo de movimento.',
+            })
+
+        # RN-02: observacoes funciona como "motivo" — obrigatório para
+        # todo tipo exceto ENTRADA/ENTRADA_INICIAL.
+        observacoes = attrs.get('observacoes', getattr(self.instance, 'observacoes', '') or '')
+        if tipo not in (TipoMovimento.ENTRADA, TipoMovimento.ENTRADA_INICIAL) and not observacoes.strip():
+            raise serializers.ValidationError({
+                'observacoes': 'Motivo obrigatório para este tipo de movimento.',
+            })
+        return attrs
 
 
 class ProdutoSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     unidade_base_display = serializers.CharField(source='get_unidade_base_display', read_only=True)
     conversoes = serializers.SerializerMethodField()
+    # RF-04/RN-05: write_only, nunca aparece no retorno da API — o retorno
+    # usa sempre quantidade_estoque, calculado pelo MovimentoEstoque criado
+    # internamente em create(). Sem efeito em update() (DRF ignora campo
+    # write_only sem tratamento especial — confirmado em teste).
+    estoque_inicial = serializers.DecimalField(
+        max_digits=12, decimal_places=3, write_only=True,
+        required=False, default=Decimal('0'),
+    )
 
     class Meta:
         model = Produto
@@ -81,9 +134,23 @@ class ProdutoSerializer(serializers.ModelSerializer):
             'unidade_base', 'unidade_base_display',
             'valor_unitario', 'preco_venda',
             'observacoes', 'is_active', 'created_at', 'updated_at',
-            'conversoes',
+            'conversoes', 'estoque_inicial',
         ]
         read_only_fields = ['quantidade_estoque', 'created_at', 'updated_at']
+
+    def create(self, validated_data):
+        estoque_inicial = validated_data.pop('estoque_inicial', Decimal('0'))
+        produto = super().create(validated_data)
+        if estoque_inicial and estoque_inicial > 0:
+            MovimentoEstoque.objects.create(
+                produto=produto,
+                tipo=TipoMovimento.ENTRADA_INICIAL,
+                quantidade=estoque_inicial,
+                unidade=produto.unidade_base,
+                observacoes='Estoque inicial no cadastro do produto.',
+            )
+            produto.refresh_from_db(fields=['quantidade_estoque'])
+        return produto
 
     def get_conversoes(self, obj):
         # CA-03: conversão soft-deletada (is_active=False) nunca pode

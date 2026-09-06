@@ -1,6 +1,6 @@
 from django.contrib import admin
-from .models import ConversaoUnidade, EntradaEstoque, Produto
+from .models import ConversaoUnidade, MovimentoEstoque, Produto
 
 admin.site.register(Produto)
 admin.site.register(ConversaoUnidade)
-admin.site.register(EntradaEstoque)
+admin.site.register(MovimentoEstoque)

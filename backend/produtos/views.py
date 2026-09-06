@@ -5,13 +5,22 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from .models import Combo, ConversaoUnidade, EntradaEstoque, ItemCombo, Produto
+from .models import (
+    Combo,
+    ConversaoUnidade,
+    EFEITO_NEGATIVO,
+    ItemCombo,
+    MovimentoEstoque,
+    Produto,
+    TipoMovimento,
+)
 from .serializers import (
     ComboSerializer,
     ConversaoUnidadeSerializer,
-    EntradaEstoqueSerializer,
+    MovimentoEstoqueSerializer,
     ProdutoSerializer,
 )
+from .services import fator_para_base
 
 
 class ProdutoViewSet(ModelViewSet):
@@ -101,19 +110,57 @@ class ProdutoViewSet(ModelViewSet):
         serializer.save()
         return Response(serializer.data)
 
-    @action(detail=True, methods=['get', 'post'], url_path='entradas')
-    def entradas(self, request, pk=None):
+    @action(detail=True, methods=['get', 'post'], url_path='movimentos')
+    def movimentos(self, request, pk=None):
         produto = self.get_object()
         if request.method == 'GET':
-            qs = EntradaEstoque.objects.filter(produto=produto, is_active=True).order_by('-created_at')
-            return Response(EntradaEstoqueSerializer(qs, many=True).data)
-        serializer = EntradaEstoqueSerializer(data=request.data)
+            qs = MovimentoEstoque.objects.filter(produto=produto, is_active=True).order_by('-created_at')
+            return Response(MovimentoEstoqueSerializer(qs, many=True).data)
+
+        serializer = MovimentoEstoqueSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+
+        tipo = serializer.validated_data.get('tipo', TipoMovimento.ENTRADA)
+        if tipo == TipoMovimento.ENTRADA_INICIAL:
+            # RF-04/CA-11: ENTRADA_INICIAL é uso exclusivo interno de
+            # ProdutoSerializer.create() — bloqueado no endpoint público.
+            return Response(
+                {'tipo': ['Não permitido criar este tipo diretamente.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            # RN-04: cálculo prévio só para a checagem de estoque negativo
+            # — o save() do model recalcula por conta própria de forma
+            # atômica (F() expression). A conversão é feita duas vezes de
+            # propósito: a confirmação de negativo precisa acontecer ANTES
+            # de persistir qualquer coisa.
+            fator = fator_para_base(produto, serializer.validated_data['unidade'])
+        except DjangoValidationError as exc:
+            # RN-05 (herdada da Manutencao 37): unidade sem conversão
+            # cadastrada — nunca fallback 1:1 silencioso.
+            return Response(
+                {'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        quantidade_base = serializer.validated_data['quantidade'] * fator
+        delta = -quantidade_base if tipo in EFEITO_NEGATIVO else quantidade_base
+        resultante = produto.quantidade_estoque + delta
+
+        if resultante < 0 and not request.data.get('forcar_negativo'):
+            return Response({
+                'confirmacao_necessaria': True,
+                'mensagem': (
+                    f'Esta operação deixará o estoque negativo ({resultante}). '
+                    f'Confirmar mesmo assim?'
+                ),
+                'quantidade_resultante': str(resultante),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         try:
             serializer.save(produto=produto, criado_por=request.user)
         except DjangoValidationError as exc:
-            # RN-05: unidade sem conversão cadastrada (direta ou em cadeia)
-            # — nunca mais soma no estoque com fallback 1:1 silencioso.
             return Response(
                 {'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)]},
                 status=status.HTTP_400_BAD_REQUEST,

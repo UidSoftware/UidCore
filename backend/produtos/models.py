@@ -80,28 +80,65 @@ class ConversaoUnidade(BaseModel):
         return f'{self.produto.nome}: 1 {self.unidade} = {self.quantidade_por_base} {self.produto.unidade_base}'
 
 
-class EntradaEstoque(BaseModel):
+class TipoMovimento(models.TextChoices):
+    ENTRADA = 'ENTRADA', 'Entrada'
+    ENTRADA_INICIAL = 'ENTRADA_INICIAL', 'Estoque Inicial'
+    DEVOLUCAO_CLIENTE = 'DEVOLUCAO_CLIENTE', 'Devolução de Cliente'
+    PERDA = 'PERDA', 'Perda/Quebra'
+    AJUSTE = 'AJUSTE', 'Ajuste de Inventário'
+    SAIDA_MANUAL = 'SAIDA_MANUAL', 'Saída Manual'
+
+
+# Tipos cujo efeito sobre Produto.quantidade_estoque é sempre negativo.
+# AJUSTE tem sinal embutido na própria `quantidade` (pode ser negativa) —
+# não entra aqui. Os demais tipos (ENTRADA/ENTRADA_INICIAL/DEVOLUCAO_CLIENTE)
+# são sempre positivos, validados no serializer (RN-01, Manutencao 58).
+EFEITO_NEGATIVO = {TipoMovimento.PERDA, TipoMovimento.SAIDA_MANUAL}
+
+
+class MovimentoEstoque(BaseModel):
+    """
+    Generalização de EntradaEstoque (Manutencao 58 — antes só suportava
+    entradas, sempre positivas). Herda o padrão atômico de save() com
+    F() expression e a resolução de cadeia de unidade via
+    produtos.services.fator_para_base (Manutencao 37) — RN-05: sem
+    fallback 1:1 silencioso, unidade sem conversão cadastrada levanta
+    ValidationError. Único consumidor do endpoint é frontend/Produtos.jsx
+    (confirmado na Especificacao_Hotfix.md da Manutencao 58) — o módulo
+    pdv NÃO usa este model, só a função fator_para_base.
+    """
     produto = models.ForeignKey(
-        Produto, on_delete=models.CASCADE, related_name='entradas',
+        Produto, on_delete=models.CASCADE, related_name='movimentos',
     )
-    quantidade = models.DecimalField('quantidade', max_digits=12, decimal_places=3)
+    tipo = models.CharField(
+        'tipo', max_length=20, choices=TipoMovimento.choices,
+        default=TipoMovimento.ENTRADA,
+    )
+    quantidade = models.DecimalField(
+        'quantidade', max_digits=12, decimal_places=3,
+        help_text='Pode ser negativa somente quando tipo=AJUSTE.',
+    )
     unidade = models.CharField('unidade', max_length=2, choices=UnidadeBase.choices)
     quantidade_base = models.DecimalField(
         'quantidade em unidade base', max_digits=12, decimal_places=3, default=0,
         help_text='Calculado automaticamente no save()',
     )
     nota_fiscal = models.CharField('nota fiscal', max_length=50, blank=True, default='')
-    observacoes = models.TextField('observações', blank=True, default='')
+    observacoes = models.TextField(
+        'observações', blank=True, default='',
+        help_text='Funciona como "motivo" do movimento — obrigatório '
+                   'para todo tipo exceto ENTRADA/ENTRADA_INICIAL (RN-02).',
+    )
     criado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+',
     )
 
     class Meta:
-        db_table = 'prd_entrada_estoque'
+        db_table = 'prd_movimento_estoque'
         ordering = ['-created_at']
-        verbose_name = 'Entrada de Estoque'
-        verbose_name_plural = 'Entradas de Estoque'
+        verbose_name = 'Movimento de Estoque'
+        verbose_name_plural = 'Movimentos de Estoque'
 
     def save(self, *args, **kwargs):
         # Converter quantidade para unidade base — resolve cadeia (RN-01)
@@ -110,22 +147,27 @@ class EntradaEstoque(BaseModel):
         from .services import fator_para_base
 
         if self.unidade == self.produto.unidade_base:
-            self.quantidade_base = self.quantidade
+            fator = Decimal('1')
         else:
             fator = fator_para_base(self.produto, self.unidade)
-            self.quantidade_base = self.quantidade * fator
+        self.quantidade_base = self.quantidade * fator
 
         is_new = self.pk is None
         super().save(*args, **kwargs)
 
-        # Atualizar estoque do produto somente em criações (não em updates)
+        # Atualizar estoque do produto somente em criações (não em updates
+        # — RN-06: editar um movimento passado não deve re-somar o efeito).
         if is_new:
+            delta = (
+                -self.quantidade_base if self.tipo in EFEITO_NEGATIVO
+                else self.quantidade_base
+            )
             Produto.objects.filter(pk=self.produto_id).update(
-                quantidade_estoque=models.F('quantidade_estoque') + self.quantidade_base,
+                quantidade_estoque=models.F('quantidade_estoque') + delta,
             )
 
     def __str__(self):
-        return f'Entrada {self.quantidade} {self.unidade} — {self.produto.nome}'
+        return f'{self.get_tipo_display()} {self.quantidade} {self.unidade} — {self.produto.nome}'
 
 
 class Combo(BaseModel):
