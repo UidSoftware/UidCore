@@ -3,7 +3,19 @@ import ResourceCrud from '../components/ui/ResourceCrud.jsx'
 import api from '../api/client.js'
 import useAuthStore from '../stores/authStore.js'
 
+const PERFIL_OPTIONS = [
+  { value: 'ADMIN', label: 'Admin' },
+  { value: 'OPERACIONAL', label: 'Operacional' },
+  { value: 'MARKETING', label: 'Marketing' },
+  { value: 'SUPERADMIN', label: '👑 Superadmin' },
+]
+
 export default function Usuarios() {
+  const currentUserPerfil = useAuthStore((s) => s.user?.perfil)
+  const perfilOptions = PERFIL_OPTIONS.filter(
+    (opt) => opt.value !== 'SUPERADMIN' || currentUserPerfil === 'SUPERADMIN',
+  )
+
   return (
     <div className="space-y-4">
       <div>
@@ -22,8 +34,13 @@ export default function Usuarios() {
           { key: 'nome_completo', label: 'Nome' },
           { key: 'email', label: 'E-mail' },
           { key: 'colaborador_nome', label: 'Colaborador' },
-          { key: 'perfil', label: 'Perfil', badge: true },
-          { key: 'is_staff', label: 'Admin', boolean: true },
+          {
+            key: 'perfil',
+            label: 'Perfil',
+            badge: true,
+            badgeColorMap: { SUPERADMIN: 'gold', ADMIN: 'violet', OPERACIONAL: 'neutral', MARKETING: 'neutral' },
+          },
+          { key: 'tem_acesso_total', label: 'Acesso total', boolean: true },
           { key: 'is_active', label: 'Ativo', boolean: true },
           { key: 'date_joined', label: 'Desde', date: true },
         ]}
@@ -40,19 +57,14 @@ export default function Usuarios() {
                 ? 'Deixe em branco para não alterar a senha atual.'
                 : 'Deixe em branco para enviar link de definição de senha por e-mail.',
           },
-          { name: 'is_staff', label: 'Administrador', type: 'checkbox' },
           {
             name: 'perfil',
             label: 'Perfil',
             type: 'select',
-            options: [
-              { value: 'ADMIN', label: 'Admin' },
-              { value: 'OPERACIONAL', label: 'Operacional' },
-              { value: 'MARKETING', label: 'Marketing' },
-            ],
+            options: perfilOptions,
           },
         ]}
-        emptyForm={{ email: '', nome_completo: '', telefone: '', password: '', is_staff: false, perfil: 'OPERACIONAL' }}
+        emptyForm={{ email: '', nome_completo: '', telefone: '', password: '', perfil: 'OPERACIONAL' }}
         deleteLabel="Desativar"
         deleteConfirm={(item) =>
           `Desativar o acesso de "${item.nome_completo}"? O usuário não poderá mais fazer login, mas o registro não será apagado.`
@@ -72,9 +84,14 @@ export default function Usuarios() {
         onBeforeSubmit={(form, editingId) => {
           const currentUser = useAuthStore.getState().user
           const isSelf = editingId && currentUser && String(editingId) === String(currentUser.id)
-          if (isSelf && !form.is_staff) {
+          const perderiaAcesso =
+            isSelf &&
+            currentUser.tem_acesso_total &&
+            !currentUser.is_staff &&
+            !['ADMIN', 'SUPERADMIN'].includes(form.perfil)
+          if (perderiaAcesso) {
             const confirmado = window.confirm(
-              'Você está removendo seu próprio acesso de administrador. Depois de salvar, não poderá mais acessar esta tela. Deseja continuar?',
+              'Você está removendo seu próprio acesso administrativo. Depois de salvar, não poderá mais acessar esta tela. Deseja continuar?',
             )
             if (!confirmado) return false
           }

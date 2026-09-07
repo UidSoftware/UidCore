@@ -309,7 +309,7 @@ export default function HistoricoVendas() {
                     <Eye size={14} className="mr-1" />
                     Ver
                   </Button>
-                  {venda.status === 'FINALIZADA' && user?.is_staff && (
+                  {venda.status === 'FINALIZADA' && user?.tem_acesso_total && (
                     <Button size="sm" variant="danger" onClick={() => abrirCancelar(venda)}>
                       <XCircle size={14} className="mr-1" />
                       Cancelar
@@ -373,7 +373,7 @@ export default function HistoricoVendas() {
                             >
                               <Eye size={16} />
                             </button>
-                            {venda.status === 'FINALIZADA' && user?.is_staff && (
+                            {venda.status === 'FINALIZADA' && user?.tem_acesso_total && (
                               <button
                                 type="button"
                                 onClick={() => abrirCancelar(venda)}
@@ -513,7 +513,7 @@ export default function HistoricoVendas() {
             </div>
 
             {/* Ações */}
-            {vendaDetalhe.status === 'FINALIZADA' && user?.is_staff && (
+            {vendaDetalhe.status === 'FINALIZADA' && user?.tem_acesso_total && (
               <div className="flex justify-end pt-2">
                 <Button
                   variant="danger"

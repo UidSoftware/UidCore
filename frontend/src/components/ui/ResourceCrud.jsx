@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { Crown } from 'lucide-react'
 import api from '../../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../../utils/errors.js'
 import Card from './Card.jsx'
@@ -222,6 +223,15 @@ export default function ResourceCrud({
     if (col.date) return new Date(value).toLocaleDateString('pt-BR')
     if (col.datetime) return new Date(value).toLocaleString('pt-BR')
     if (col.badge) {
+      const variant = col.badgeColorMap?.[value]
+      if (variant === 'gold') {
+        return (
+          <span className="inline-flex items-center gap-1 text-xs bg-amber-50 text-amber-800 ring-1 ring-amber-300 rounded-full px-2 py-0.5 font-medium dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-400/30">
+            <Crown size={11} />
+            {value}
+          </span>
+        )
+      }
       return (
         <span className="text-xs bg-primary-50 text-primary-700 rounded-full px-2 py-0.5 font-medium dark:bg-violet-900/30 dark:text-violet-300">
           {value}

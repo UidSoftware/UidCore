@@ -178,7 +178,7 @@ export default function RelatorioSessoesCaixa() {
 
   // Proteção: only staff
   useEffect(() => {
-    if (user && !user.is_staff) {
+    if (user && !user.tem_acesso_total) {
       navigate('/pdv/venda', { replace: true })
     }
   }, [user, navigate])
@@ -245,7 +245,7 @@ export default function RelatorioSessoesCaixa() {
   }, [])
 
   const carregarSessoes = useCallback(async () => {
-    if (user && !user.is_staff) return
+    if (user && !user.tem_acesso_total) return
     setLoading(true)
     try {
       const params = { page, page_size: PAGE_SIZE, ordering: '-data_abertura' }

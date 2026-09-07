@@ -50,4 +50,6 @@ const useAuthStore = create(
   ),
 )
 
+export const selectTemAcessoTotal = (state) => Boolean(state.user?.tem_acesso_total)
+
 export default useAuthStore

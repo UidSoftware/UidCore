@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import useAuthStore from '../../stores/authStore.js'
+import useAuthStore, { selectTemAcessoTotal } from '../../stores/authStore.js'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '📊' },
@@ -20,12 +20,12 @@ const navItems = [
 ]
 
 export default function Sidebar({ collapsed, onToggle }) {
-  const isStaff = useAuthStore((s) => s.user?.is_staff)
+  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
   const perfil = useAuthStore((s) => s.user?.perfil)
   const visibleItems = navItems.filter(
     (item) =>
-      (!item.staffOnly || isStaff) &&
-      (!item.marketingOnly || isStaff || perfil === 'MARKETING'),
+      (!item.staffOnly || temAcessoTotal) &&
+      (!item.marketingOnly || temAcessoTotal || perfil === 'MARKETING'),
   )
 
   return (

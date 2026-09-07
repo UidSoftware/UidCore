@@ -1,5 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import useAuthStore from '../stores/authStore.js'
+import useAuthStore, { selectTemAcessoTotal } from '../stores/authStore.js'
 import AppLayout from '../components/layout/AppLayout.jsx'
 import Login from '../pages/Login.jsx'
 import DefinirSenha from '../pages/DefinirSenha.jsx'
@@ -31,15 +31,15 @@ function ProtectedRoute({ children }) {
 }
 
 function StaffRoute({ children }) {
-  const isStaff = useAuthStore((s) => s.user?.is_staff)
-  if (!isStaff) return <Navigate to="/dashboard" replace />
+  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
+  if (!temAcessoTotal) return <Navigate to="/dashboard" replace />
   return children
 }
 
 function MarketingRoute({ children }) {
-  const isStaff = useAuthStore((s) => s.user?.is_staff)
+  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
   const perfil = useAuthStore((s) => s.user?.perfil)
-  if (!isStaff && perfil !== 'MARKETING') return <Navigate to="/dashboard" replace />
+  if (!temAcessoTotal && perfil !== 'MARKETING') return <Navigate to="/dashboard" replace />
   return children
 }
 
