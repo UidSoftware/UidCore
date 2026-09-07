@@ -106,6 +106,7 @@ const EMPTY_FORM = {
   unidade_base: 'UN',
   quantidade_estoque: '',
   estoque_inicial: '',
+  nota_fiscal_inicial: '',
   estoque_minimo: '',
   valor_unitario: '',
   preco_venda: '',
@@ -329,6 +330,7 @@ export default function Produtos() {
       unidade_base: produto.unidade_base || 'UN',
       quantidade_estoque: produto.quantidade_estoque || '',
       estoque_inicial: '',
+      nota_fiscal_inicial: '',
       estoque_minimo: produto.estoque_minimo || '',
       valor_unitario: produto.valor_unitario || '',
       preco_venda: produto.preco_venda || '',
@@ -866,6 +868,18 @@ export default function Produtos() {
               />
             </div>
 
+            {!editingId && (
+              <Input
+                label="Nota Fiscal (entrada inicial)"
+                name="nota_fiscal_inicial"
+                value={form.nota_fiscal_inicial}
+                onChange={handleChange}
+                placeholder="NF-e 12345"
+                maxLength={50}
+                disabled={!form.estoque_inicial || Number(form.estoque_inicial) <= 0}
+              />
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
                 label="Valor Unitario / Custo (R$)"
@@ -888,6 +902,21 @@ export default function Produtos() {
                 placeholder="0,00"
               />
             </div>
+
+            {/* Markup % ao vivo — calculado entre Custo e Preco de Venda */}
+            {(() => {
+              const custo = parseFloat(form.valor_unitario)
+              const preco = parseFloat(form.preco_venda)
+              if (!form.valor_unitario || isNaN(custo) || custo <= 0) return null
+              if (!form.preco_venda || isNaN(preco)) return null
+              const markup = ((preco - custo) / custo) * 100
+              const positivo = markup > 0
+              return (
+                <p className={`text-sm font-medium ${positivo ? 'text-green-400' : 'text-red-400'}`}>
+                  Markup: {positivo ? '+' : ''}{markup.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+                </p>
+              )
+            })()}
 
             {/* Secao Conversoes */}
             <div className="bg-gray-50 rounded-lg border border-gray-200 p-4 dark:bg-navy-900/50 dark:border-navy-700">
