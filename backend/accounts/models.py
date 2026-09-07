@@ -7,6 +7,7 @@ class PerfilUsuario(models.TextChoices):
     ADMIN = 'ADMIN', 'Admin'
     OPERACIONAL = 'OPERACIONAL', 'Operacional'
     MARKETING = 'MARKETING', 'Marketing'
+    SUPERADMIN = 'SUPERADMIN', 'Superadmin'
 
 
 class User(AbstractBaseUser, PermissionsMixin):
@@ -33,3 +34,14 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self):
         return self.email
+
+    @property
+    def tem_acesso_total(self):
+        """
+        Manutencao 60 -- unifica toda checagem de negocio de "e admin" num
+        so lugar. is_staff continua controlando so o Django Admin
+        (PermissionsMixin/createsuperuser), sem mudar de significado --
+        aditivo/retrocompativel: is_staff=True sempre concede acesso
+        total, independente do perfil (RN-01).
+        """
+        return self.is_staff or self.perfil in (PerfilUsuario.ADMIN, PerfilUsuario.SUPERADMIN)

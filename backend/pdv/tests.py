@@ -16,7 +16,7 @@ from decimal import Decimal
 
 from django.test import TestCase
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from accounts.models import User
 from clientes.models import Cliente
@@ -32,6 +32,7 @@ from .models import (
     Venda,
 )
 from .services import abrir_sessao, fechar_sessao, finalizar_venda
+from .views import SessaoCaixaViewSet
 
 
 # ---------------------------------------------------------------------------
@@ -829,3 +830,58 @@ class ConversaoUnidadePDVAPITest(PDVAPITestBase):
 
         self.produto.refresh_from_db()
         self.assertEqual(self.produto.quantidade_estoque, estoque_antes)
+
+
+# ---------------------------------------------------------------------------
+# Manutencao #60 -- SessaoCaixaViewSet.get_queryset via tem_acesso_total (CA-07)
+# ---------------------------------------------------------------------------
+#
+# Nota: permission_classes = [IsAdmin] no ViewSet inteiro (RN08, Manutencao
+# #54) ja bloqueia qualquer usuario sem tem_acesso_total de chegar em
+# list/get_queryset via API -- por isso o teste chama get_queryset()
+# diretamente (unit, bypassando o dispatch de permissoes do DRF) pra
+# validar exatamente a troca is_staff -> tem_acesso_total feita na
+# Manutencao #60 (RF-03), sem se acoplar ao comportamento (fora de escopo
+# desta manutencao) da permissao de nivel de view.
+
+class SessaoCaixaGetQuerysetTemAcessoTotalTest(TestCase):
+    """CA-07: get_queryset() filtra por operador quando tem_acesso_total=False;
+    retorna todas quando tem_acesso_total=True (via perfil=ADMIN, sem is_staff)."""
+
+    def setUp(self):
+        from rest_framework.test import APIRequestFactory
+
+        self.factory = APIRequestFactory()
+
+        self.conta = _criar_conta('Caixa M60')
+        self.operador_comum = _criar_usuario(email='comum.m60@pdv.test', is_staff=False)
+        self.operador_comum.perfil = 'OPERACIONAL'
+        self.operador_comum.save(update_fields=['perfil'])
+
+        self.admin_via_perfil = _criar_usuario(email='adminperfil.m60@pdv.test', is_staff=False)
+        self.admin_via_perfil.perfil = 'ADMIN'
+        self.admin_via_perfil.save(update_fields=['perfil'])
+
+        from .services import abrir_sessao
+        abrir_sessao(conta_id=self.conta.id, valor_abertura=Decimal('0'), usuario=self.operador_comum)
+
+        outra_conta = _criar_conta('Caixa M60 B')
+        abrir_sessao(conta_id=outra_conta.id, valor_abertura=Decimal('0'), usuario=self.admin_via_perfil)
+
+    def _queryset_para(self, usuario):
+        request = self.factory.get('/api/v1/pdv/sessoes/')
+        request.user = usuario
+        view = SessaoCaixaViewSet()
+        view.request = request
+        return view.get_queryset()
+
+    def test_operador_comum_ve_so_a_propria_sessao(self):
+        qs = self._queryset_para(self.operador_comum)
+        self.assertEqual(set(qs.values_list('operador_id', flat=True)), {self.operador_comum.id})
+
+    def test_admin_via_perfil_sem_is_staff_ve_todas_as_sessoes(self):
+        qs = self._queryset_para(self.admin_via_perfil)
+        self.assertEqual(
+            set(qs.values_list('operador_id', flat=True)),
+            {self.operador_comum.id, self.admin_via_perfil.id},
+        )

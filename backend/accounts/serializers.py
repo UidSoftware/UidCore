@@ -1,13 +1,15 @@
 from django.contrib.auth.password_validation import validate_password
 from rest_framework import serializers
-from .models import User
+from .models import PerfilUsuario, User
 
 
 class UserSerializer(serializers.ModelSerializer):
+    tem_acesso_total = serializers.BooleanField(read_only=True)
+
     class Meta:
         model = User
-        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'perfil', 'date_joined']
-        read_only_fields = ['id', 'is_active', 'is_staff', 'perfil', 'date_joined']
+        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'date_joined']
+        read_only_fields = ['id', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'date_joined']
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -15,14 +17,26 @@ class UserAdminSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     colaborador_nome = serializers.CharField(source='colaborador.nome', read_only=True, default=None)
+    tem_acesso_total = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'nome_completo', 'telefone', 'password',
-            'is_active', 'is_staff', 'perfil', 'date_joined', 'colaborador_nome',
+            'is_active', 'perfil', 'tem_acesso_total', 'date_joined', 'colaborador_nome',
         ]
-        read_only_fields = ['id', 'date_joined', 'colaborador_nome']
+        read_only_fields = ['id', 'date_joined', 'colaborador_nome', 'tem_acesso_total']
+
+    def validate(self, attrs):
+        perfil_novo = attrs.get('perfil')
+        if perfil_novo == PerfilUsuario.SUPERADMIN:
+            request = self.context.get('request')
+            solicitante = getattr(request, 'user', None)
+            if not solicitante or solicitante.perfil != PerfilUsuario.SUPERADMIN:
+                raise serializers.ValidationError(
+                    {'perfil': 'Somente um usuário Superadmin pode conceder o perfil Superadmin.'}
+                )
+        return attrs
 
     def create(self, validated_data):
         senha = validated_data.pop('password', '')

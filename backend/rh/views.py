@@ -58,7 +58,7 @@ class ColaboradorViewSet(ModelViewSet):
         espacos (usuario_email do request tem prioridade sobre
         email_fallback), senha como veio (sem espacos nas pontas) ou ''.
         """
-        if not self.request.user.is_staff:
+        if not self.request.user.tem_acesso_total:
             raise PermissionDenied('Somente administradores podem criar acesso ao sistema.')
 
         from accounts.models import User

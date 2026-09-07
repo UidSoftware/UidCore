@@ -308,3 +308,40 @@ class ColaboradorAtualizarUsuarioAPITest(APITestCase):
 
         colaborador.refresh_from_db()
         self.assertEqual(colaborador.usuario_id, usuario_existente.pk)
+
+
+class ColaboradorCriarUsuarioTemAcessoTotalAPITest(APITestCase):
+    """Manutencao #60 (CA-08) -- _validar_criar_usuario usa tem_acesso_total:
+    bloqueia sem tem_acesso_total, libera via perfil=ADMIN mesmo sem is_staff."""
+
+    def setUp(self):
+        self.sem_acesso = User.objects.create_user(
+            email='semacesso.m60rh@teste.com', password='x', nome_completo='Sem Acesso',
+            perfil='OPERACIONAL', is_staff=False,
+        )
+        self.admin_via_perfil = User.objects.create_user(
+            email='adminperfil.m60rh@teste.com', password='x', nome_completo='Admin Perfil',
+            perfil='ADMIN', is_staff=False,
+        )
+        self.cargo = _make_cargo(nome='Vendedor M60', salario_base=Decimal('2500.00'))
+
+    def _payload(self, cpf, **overrides):
+        data = {
+            'nome': 'Fulano M60', 'cpf': cpf, 'email': 'fulano.m60rh@teste.com',
+            'cargo': self.cargo.id, 'data_admissao': '2026-08-01', 'salario_atual': '3000.00',
+            'regime': 'CLT', 'criar_usuario': 'true',
+        }
+        data.update(overrides)
+        return data
+
+    def test_sem_tem_acesso_total_retorna_403(self):
+        self.client.force_authenticate(self.sem_acesso)
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload('90066677788'), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch('accounts.services.enviar_email_sistema')
+    def test_admin_via_perfil_sem_is_staff_consegue_criar_acesso(self, mock_enviar):
+        self.client.force_authenticate(self.admin_via_perfil)
+        resp = self.client.post('/api/v1/rh/colaboradores/', self._payload('90077788800'), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.content)
+        self.assertTrue(resp.data['tem_acesso'])

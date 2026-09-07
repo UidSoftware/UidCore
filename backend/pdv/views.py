@@ -58,7 +58,7 @@ class SessaoCaixaViewSet(ModelViewSet):
     """
     Gerencia sessões de caixa.
 
-    GET list: operador comum vê só as próprias; is_staff vê todas (RF-16).
+    GET list: operador comum vê só as próprias; tem_acesso_total vê todas (RF-16, RF-03 Manutencao #60).
     """
     serializer_class = SessaoCaixaSerializer
     permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
@@ -71,7 +71,7 @@ class SessaoCaixaViewSet(ModelViewSet):
         qs = SessaoCaixa.objects.filter(is_active=True).select_related(
             'conta', 'operador',
         ).prefetch_related('movimentos')
-        if not self.request.user.is_staff:
+        if not self.request.user.tem_acesso_total:
             qs = qs.filter(operador=self.request.user)
         return qs
 
