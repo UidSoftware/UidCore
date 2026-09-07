@@ -125,6 +125,11 @@ class ProdutoSerializer(serializers.ModelSerializer):
         max_digits=12, decimal_places=3, write_only=True,
         required=False, default=Decimal('0'),
     )
+    # Manutencao 59: NF vinculada ao MovimentoEstoque ENTRADA_INICIAL.
+    # write_only — nunca exposto na leitura. Sem efeito em update().
+    nota_fiscal_inicial = serializers.CharField(
+        max_length=50, required=False, allow_blank=True, default='', write_only=True,
+    )
 
     class Meta:
         model = Produto
@@ -134,12 +139,13 @@ class ProdutoSerializer(serializers.ModelSerializer):
             'unidade_base', 'unidade_base_display',
             'valor_unitario', 'preco_venda',
             'observacoes', 'is_active', 'created_at', 'updated_at',
-            'conversoes', 'estoque_inicial',
+            'conversoes', 'estoque_inicial', 'nota_fiscal_inicial',
         ]
         read_only_fields = ['quantidade_estoque', 'created_at', 'updated_at']
 
     def create(self, validated_data):
         estoque_inicial = validated_data.pop('estoque_inicial', Decimal('0'))
+        nota_fiscal_inicial = validated_data.pop('nota_fiscal_inicial', '')
         produto = super().create(validated_data)
         if estoque_inicial and estoque_inicial > 0:
             MovimentoEstoque.objects.create(
@@ -147,6 +153,7 @@ class ProdutoSerializer(serializers.ModelSerializer):
                 tipo=TipoMovimento.ENTRADA_INICIAL,
                 quantidade=estoque_inicial,
                 unidade=produto.unidade_base,
+                nota_fiscal=nota_fiscal_inicial,
                 observacoes='Estoque inicial no cadastro do produto.',
             )
             produto.refresh_from_db(fields=['quantidade_estoque'])

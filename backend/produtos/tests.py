@@ -590,6 +590,33 @@ class MovimentoEstoqueAPITest(APITestCase):
         self.assertEqual(resp.data[0]['efeito'], '+')
         self.assertIn('tipo_display', resp.data[0])
 
+    def test_criar_produto_com_estoque_inicial_e_nota_fiscal(self):
+        """Manutencao 59: nota_fiscal_inicial passada no create() deve ser
+        gravada no MovimentoEstoque ENTRADA_INICIAL correspondente."""
+        resp = self.client.post('/api/v1/produtos/', {
+            'nome': 'Produto NF Inicial', 'unidade_base': 'UN',
+            'valor_unitario': '10.00', 'preco_venda': '15.00',
+            'estoque_inicial': '10',
+            'nota_fiscal_inicial': 'NF-e 12345',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        produto = Produto.objects.get(pk=resp.data['id'])
+        movimento = MovimentoEstoque.objects.get(produto=produto, tipo=TipoMovimento.ENTRADA_INICIAL)
+        self.assertEqual(movimento.nota_fiscal, 'NF-e 12345')
+
+    def test_criar_produto_estoque_zero_com_nota_fiscal_nao_cria_movimento(self):
+        """Manutencao 59: estoque_inicial=0 nao cria MovimentoEstoque mesmo
+        que nota_fiscal_inicial seja informada."""
+        resp = self.client.post('/api/v1/produtos/', {
+            'nome': 'Produto Sem Estoque NF', 'unidade_base': 'UN',
+            'valor_unitario': '10.00', 'preco_venda': '15.00',
+            'estoque_inicial': '0',
+            'nota_fiscal_inicial': 'NF-e 99999',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        produto = Produto.objects.get(pk=resp.data['id'])
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=produto).count(), 0)
+
 
 class ProdutoAPITest(APITestCase):
     def setUp(self):
