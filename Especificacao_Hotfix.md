@@ -1,24 +1,38 @@
-# Especificação Hotfix — Manutenção #58 (FASE 2)
+# Especificação Hotfix — Manutenção #60
 
 **Sistema:** UidCore (OS #7)
-**Módulo novo:** `compras` (depende de `fornecedores`, `produtos`, `financeiro`)
-**Tipo:** `feature_grande` (novo módulo + integração de 3 apps existentes — Compras entra no escopo de Fase 2 da Manutenção #58, não é módulo pago à parte)
-**Requer aprovação comercial:** não — evolução do módulo Estoque/Financeiro já contratado, dentro do ciclo de Manutenção #58 já aberto
-**Analista:** leitura de código confirmada em `backend/fornecedores/models.py`, `backend/financeiro/{models,signals,serializers,views,services}.py`, `backend/produtos/{models,serializers,views,services}.py`, `backend/core/urls.py`
+**Módulo:** `accounts` (backend) + `authStore`/`Sidebar`/`routes`/telas PDV (frontend)
+**Tipo:** `melhoria_ux` + hardening de segurança (RBAC) — não é bug isolado, é reforço de controle de acesso administrativo
+**Requer aprovação comercial:** não — hardening interno de segurança, sem novo módulo cobrável
+**Analista:** leitura de código confirmada em `backend/accounts/{models,serializers,views,managers,admin}.py`, `backend/common/permissions.py`, `backend/pdv/views.py`, `backend/rh/views.py`, `frontend/src/stores/authStore.js`, `frontend/src/components/layout/Sidebar.jsx`, `frontend/src/routes/index.jsx`, `frontend/src/pages/Usuarios.jsx`, `frontend/src/pages/pdv/{HistoricoVendas,RelatorioSessoesCaixa}.jsx`
 
 ---
 
-## 1. Diagnóstico confirmado (gap real, não suposição)
+## 1. Diagnóstico confirmado (grep + leitura de código)
 
-- `fornecedores.Fornecedor` existe como cadastro completo (`PessoaBase` — CPF/CNPJ, contato, categoria) mas **não é referenciado por nenhuma FK em nenhum outro app** (`grep -rn "fornecedores.Fornecedor\|ForeignKey(Fornecedor" backend/` só retorna o próprio app `fornecedores`).
-- `financeiro.Despesa.fornecedor` é `CharField(max_length=150)` — texto livre, sem vínculo com o cadastro real. Uma compra registrada como Despesa hoje não sabe "qual" fornecedor foi, só um texto digitado à mão.
-- `produtos.MovimentoEstoque` (Fase 1, em produção) não tem nenhum campo de origem financeira — `nota_fiscal` é `CharField` livre, sem custo, sem fornecedor, sem vínculo com uma compra real.
-- Não existe, em lugar nenhum do backend, um model que amarre as três pontas: **fornecedor → itens comprados com custo → lançamento financeiro → entrada de estoque**. Hoje o fluxo real de "comprei mercadoria" exige 2 ações manuais desconectadas: lançar uma Despesa avulsa (fornecedor em texto livre) e lançar um `MovimentoEstoque` tipo `ENTRADA` (sem custo, sem fornecedor) — sem nenhuma garantia de que os dois batem.
-
-**Compatibilidade verificada antes de propor a mudança:**
-- `produtos.MovimentoEstoque.save()` (Fase 1) já resolve conversão de unidade via `produtos.services.fator_para_base` e atualiza `Produto.quantidade_estoque` via `F()` de forma atômica — **reaproveitado integralmente**, Fase 2 não duplica essa lógica em lugar nenhum.
-- `financeiro.signals.despesa_para_livro_caixa` já cria o `LivroCaixa` automaticamente quando `Despesa.status == 'PAGO' and despesa.pagamento` — **reaproveitado integralmente**, Compra nunca escreve em `LivroCaixa` diretamente (regra absoluta do projeto, `financeiro/signals.py` é o único ponto de escrita em `LivroCaixa` fora de estornos manuais).
-- `financeiro.views.DespesaViewSet.estornar_despesa` (linha 262) já contém a lógica de reversão (cria `LivroCaixa` de estorno em par, marca `despesa.estornado=True`) — Fase 2 **extrai** essa lógica para `financeiro/services.py::estornar_despesa()` (mesmo padrão de `estornar_receita()`, que já existe nesse arquivo) para ser reaproveitada tanto pelo endpoint existente quanto pelo cancelamento de Compra, sem duplicar o bloco de `pg_advisory_xact_lock` + criação de `LivroCaixa` de estorno.
+- `PerfilUsuario` (`backend/accounts/models.py`) hoje só tem `ADMIN`, `OPERACIONAL`, `MARKETING`. Não existe `SUPERADMIN`.
+- `User.is_staff` é o único campo hoje usado tanto para (a) acesso ao Django Admin (`/admin/`, seu propósito original no `PermissionsMixin`) quanto para (b) toda a checagem de negócio de "é administrador" — os dois papéis estão misturados no mesmo campo. Uso de negócio confirmado em **4 pontos exatos**:
+  - `backend/common/permissions.py:6` — `IsAdmin.has_permission` → `request.user.is_staff`
+  - `backend/common/permissions.py:17` — `IsMarketing.has_permission` → `... or u.is_staff`
+  - `backend/pdv/views.py:74` — `SessaoCaixaViewSet.get_queryset` → `if not self.request.user.is_staff:` (operador só vê as próprias sessões)
+  - `backend/rh/views.py:61` — `ColaboradorViewSet._validar_criar_usuario` → `if not self.request.user.is_staff:` (só admin pode criar acesso ao sistema)
+  - `IsAdmin` é reutilizada em **todos** os módulos com efeito financeiro/administrativo: `accounts`, `financeiro`, `pdv`, `rh`, `compras`, `marketing` (via `IsAdmin | IsMarketing`) — corrigir a classe central em `common/permissions.py` propaga a correção para todos eles sem tocar em cada `views.py` individualmente.
+  - `backend/accounts/tests.py`, `backend/pdv/tests.py`, `backend/financeiro/tests.py`, `backend/rh/tests.py` usam `is_staff=True` nos helpers de fixture (`_make_user`) para simular admin — **não precisam mudar**, pois `is_staff=True` continuará concedendo acesso total via a nova property (regra 100% retrocompatível).
+- `UserAdminSerializer` (`backend/accounts/serializers.py:19-25`) expõe `is_staff` como campo editável (não está em `read_only_fields`) — qualquer usuário com acesso à tela de Usuários pode promover/rebaixar `is_staff` de qualquer conta, incluindo a própria, sem nenhuma trava de perfil.
+- Não existe hoje **nenhuma validação** impedindo que um ADMIN comum crie ou edite outro usuário definindo um perfil mais privilegiado do que o dele próprio, nem impedindo que um ADMIN edite/desative a conta de outro ADMIN "acima" dele — não há hierarquia nenhuma dentro de `PerfilUsuario`, todos os valores atuais (`ADMIN`, `OPERACIONAL`, `MARKETING`) são irmãos, não há um nível "acima de ADMIN".
+- `UserViewSet.destroy()` (`backend/accounts/views.py:24-28`) já é soft-delete (`is_active=False`) — ponto de extensão correto para bloquear desativação de conta `SUPERADMIN` por não-`SUPERADMIN` (item 6).
+- **Frontend duplica a checagem `is_staff` em 4 arquivos**, sem nenhuma centralização (grep completo):
+  - `frontend/src/components/layout/Sidebar.jsx:23,27-28`
+  - `frontend/src/routes/index.jsx:34-35,40-42` (`StaffRoute` e `MarketingRoute`)
+  - `frontend/src/pages/pdv/HistoricoVendas.jsx:312,376,516` (`user?.is_staff`)
+  - `frontend/src/pages/pdv/RelatorioSessoesCaixa.jsx:181,248` (`user.is_staff`)
+  - `frontend/src/stores/authStore.js` não expõe nenhum seletor/computed — cada componente lê `s.user?.is_staff` cru.
+- `frontend/src/pages/Usuarios.jsx` tem checkbox `is_staff` (linha 43) e dropdown de Perfil com 3 opções (linhas 48-52).
+- **Gap não citado no pedido, mas obrigatório corrigir junto (achado do Analista, não suposição):**
+  1. A coluna da listagem `{ key: 'is_staff', label: 'Admin', boolean: true }` (`Usuarios.jsx:26`) vai quebrar silenciosamente assim que `is_staff` sair do `UserAdminSerializer` (item 4) — a API para de devolver o campo, a coluna passa a exibir sempre "não" mesmo para SUPERADMIN/ADMIN reais.
+  2. `onBeforeSubmit` (`Usuarios.jsx:72-82`) lê `form.is_staff` para decidir se mostra o aviso de "você está removendo seu próprio acesso" — assim que o checkbox for removido do formulário (item 8), `form.is_staff` vira `undefined`, e `!form.is_staff` passa a ser **sempre `true`**. Resultado: o aviso de autobloqueio dispararia em **toda** edição do próprio usuário, mesmo sem nenhuma perda de acesso real — regressão de UX introduzida pela própria correção se não for ajustada junto.
+  Ambos os pontos entram como RF/RN nesta especificação (seções 3 e 6.4) para não deixar a Manutenção #60 incompleta.
+- `accounts/migrations/` hoje tem só `0001_initial.py` e `0002_add_perfil_usuario.py` — próxima migration schema é `0003`, próxima migration de dado é `0004`.
 
 ---
 
@@ -26,416 +40,474 @@
 
 | Decisão em aberto no pedido | Escolha | Justificativa |
 |---|---|---|
-| App novo `compras` vs. dentro de `produtos` | **App novo `compras`** | SRP — Compra depende de 3 apps (`fornecedores`, `produtos`, `financeiro`); colocar dentro de `produtos` criaria dependência de `produtos` → `financeiro` (hoje `produtos` não importa `financeiro` em lugar nenhum) e inverteria a direção natural de dependência do domínio (Compras é o processo, Produtos e Financeiro são os efeitos). |
-| Endpoint | **`/api/v1/compras/`** (top-level, mesmo padrão de `pdv`, `marketing`) | Compra não é sub-recurso de Produto nem de Fornecedor — é uma entidade de primeira classe com fluxo próprio (confirmar, cancelar). |
-| Gerar Despesa em qualquer status ou só quando PAGO | **Em qualquer status, espelhando `Compra.status` 1:1 na `Despesa` criada** | Reaproveita o mecanismo já existente: `Despesa` já tem ciclo de vida `PENDENTE → PAGO` e o signal `despesa_para_livro_caixa` já só cria `LivroCaixa` quando `status=PAGO`. Criar a Despesa sempre (com status espelhado) evita um segundo caminho de código pra "criar Despesa depois, na hora que a Compra virar PAGO" — a transição de status da Compra apenas atualiza a Despesa já existente, e o `LivroCaixa` nasce sozinho pelo signal que já está em produção. Se a Despesa só nascesse em PAGO, uma Compra PENDENTE ficaria sem nenhum registro financeiro visível no módulo Financeiro, quebrando a rastreabilidade "tenho uma nota fiscal a pagar" que o pedido menciona no campo `status`. |
-| FK reversa Compra→Despesa | **`Compra.despesa` — `OneToOneField` nullable para `financeiro.Despesa`, `on_delete=SET_NULL`** | Rastreabilidade direta sem tocar no model `Despesa` (que seria compartilhado com Despesas avulsas não vinda de Compra — não pode ganhar uma FK obrigatória para Compra). `SET_NULL` porque `Despesa` é soft-delete (`is_active=False`), nunca apagada de fato — mas a referência não deve travar exclusão lógica futura da Despesa se algum dia isso for permitido fora deste fluxo. |
-| Tela frontend | **Página separada `Compras.jsx`** com modal "Nova Compra" em formato carrinho (reaproveita o padrão já validado de `BuscaProdutoRapida` — Manutenção #32 — para adicionar itens por busca, em vez de criar componente novo do zero) | Compra tem ciclo de vida próprio (listar, filtrar por fornecedor/status, cancelar) que não cabe bem dentro de um modal de outra tela, mas a *criação* de uma compra é conceitualmente um carrinho (fornecedor + N itens + total), igual ao PDV e ao padrão já usado em Orçamento/Pedido. |
+| `is_staff` continua existindo no model? | **Sim, sem alteração de significado.** Continua controlando só o acesso ao Django Admin (`PermissionsMixin`/`createsuperuser`). Não é removido nem repurposed. | O pedido pede para trocar as checagens *de negócio*, não para eliminar o campo — `is_staff` é infraestrutura do Django, mexer nele quebraria `createsuperuser`/`/admin/`. `tem_acesso_total` é a camada de negócio que se sobrepõe, mantendo `is_staff=True` como "acesso total sempre concedido" por retrocompatibilidade (superusers legados continuam funcionando sem migração adicional). |
+| `tem_acesso_total` é campo persistido ou `@property`? | **`@property` calculada, não é coluna no banco.** | Pedido explícito no item 2 ("property"). Evita duplicar estado (perfil + is_staff já bastam) e evita nova migration de schema para um valor 100% derivável dos dois campos existentes. |
+| Como o frontend obtém `tem_acesso_total` sem duplicar a regra `is_staff OR perfil in (...)`? | **Backend expõe `tem_acesso_total` como campo read-only calculado em `UserSerializer`** (endpoint `/api/v1/accounts/me/`, já consumido pelo `authStore.login()`). O `authStore` apenas repassa esse campo via um seletor central — **não reimplementa a regra em JS**. | "Centralizar" (item 7) é mais forte se a fonte da verdade for uma só (o backend). Duplicar `is_staff \|\| ['ADMIN','SUPERADMIN'].includes(perfil)` em JS criaria uma segunda cópia da regra que pode divergir da property do backend se algum dia um novo perfil equivalente for adicionado e alguém esquecer de atualizar o frontend. |
+| `UserAdminSerializer` também ganha `tem_acesso_total`? | **Sim, read-only.** Não pedido explicitamente, mas necessário para fechar o gap da coluna "Admin" da listagem de Usuários (achado do diagnóstico, item 1 da seção 1) sem reintroduzir `is_staff` no serializer (o que violaria o item 4 do pedido). | Sem isso, a tela de Usuários perde a única indicação visual de quem tem acesso total — regressão de UX. |
+| Onde validar perfil=SUPERADMIN só por SUPERADMIN (item 5)? | **`UserAdminSerializer.validate()`**, usando `self.context['request'].user` (DRF `ModelViewSet.get_serializer_context()` já injeta `request` por padrão, confirmado em `UserViewSet` — não precisa sobrescrever `get_serializer_context`). | Roda tanto em `create` quanto em `update` sem duplicar código, e falha com `400` (erro de validação) antes de qualquer `save()`, em vez de `403` — é uma regra de dado inválido para quem não é SUPERADMIN, não falta de permissão para acessar a tela (o ADMIN pode acessar `UserViewSet` normalmente, só não pode setar esse valor específico). |
+| Onde bloquear edição/desativação de conta SUPERADMIN por não-SUPERADMIN (item 6)? | **`UserViewSet.perform_update()` + `UserViewSet.destroy()`**, via helper privado `_bloquear_edicao_superadmin(instance)` chamado nos dois pontos. | `perform_update` cobre `PUT`/`PATCH`; `destroy()` já é sobrescrito no projeto para soft-delete — adicionar a checagem ali evita duplicar a query em `get_object`/`has_object_permission` de uma `BasePermission` nova só para isso. |
+| Ordem de execução da migration de dado (item 9) | **Uma única `RunPython`, em duas etapas sequenciais dentro da mesma função**: (1) promove todo `is_staff=True AND is_superuser=True` para `SUPERADMIN`; (2) **depois**, sobrescreve especificamente `editoresdesucessos@gmail.com` para `perfil=ADMIN, is_staff=False`. | Se a etapa 2 rodasse antes da 1, e essa conta hoje for `is_staff=True AND is_superuser=True`, a etapa 1 a promoveria de volta para `SUPERADMIN` — a ordem importa. A etapa 2 usa `.first()` (não `.get()`) e só age `if` o registro existir, para **não quebrar `migrate` em ambientes onde esse e-mail não existe** (ambiente de teste do Sentinel, CI, dev local) — migration de dado nunca pode assumir que uma linha específica existe. |
 
 ---
 
 ## 3. Requisitos Funcionais (RF)
 
-- **RF-01** — Novo app `compras` com models `Compra` e `ItemCompra`, registrado em `INSTALLED_APPS` e roteado em `core/urls.py` como `path('api/v1/compras/', include('compras.urls'))`.
-- **RF-02** — `Compra`: `fornecedor` (FK `fornecedores.Fornecedor`, `PROTECT` — não pode excluir fornecedor com compra vinculada), `conta` (FK `financeiro.Conta`, `PROTECT` — de onde sai o dinheiro), `numero_nota_fiscal` (CharField, opcional), `data_emissao` (DateField, obrigatório), `forma_pagamento` (reaproveita `financeiro.FormaPagamento.choices`), `status` (`PENDENTE`/`PAGO`/`CANCELADO` — novo `TextChoices` `StatusCompra` no app `compras`, não reaproveita `financeiro.StatusDespesa` diretamente para não acoplar os dois apps num único enum, mas os valores `PENDENTE`/`PAGO` são espelhados 1:1 na Despesa gerada), `valor_total` (DecimalField, calculado no `create()` do serializer a partir da soma dos itens — nunca editável via payload direto), `observacoes` (TextField, opcional), `despesa` (OneToOneField nullable, ver decisão acima), `criado_por`.
-- **RF-03** — `ItemCompra`: `compra` (FK `CASCADE`), `produto` (FK `produtos.Produto`, `PROTECT`), `quantidade` (Decimal, > 0), `unidade` (choices `produtos.UnidadeBase`, resolvida via `fator_para_base` — mesma cadeia de conversão da Fase 1, `RN-01`/`RN-05` da Manutenção #37 continuam valendo sem exceção), `valor_unitario_custo` (Decimal, > 0), `movimento_estoque` (OneToOneField nullable para `produtos.MovimentoEstoque`, populado na criação).
-- **RF-04** — Ao criar um `ItemCompra`, o `save()` cria automaticamente 1 `MovimentoEstoque` com `tipo=ENTRADA`, `quantidade`/`unidade` do item, `nota_fiscal=compra.numero_nota_fiscal`, `observacoes=f'Compra #{compra.id} — {fornecedor.nome_razao_social}'` — reaproveitando 100% do `MovimentoEstoque.save()` da Fase 1 (conversão de unidade + `F()` atômico em `Produto.quantidade_estoque`). **Nenhuma lógica de estoque é duplicada em `compras`.**
-- **RF-05** — Ao criar um `ItemCompra`, `Produto.valor_unitario` (campo de custo, já existente desde antes da Manutenção #58) é sobrescrito com `valor_unitario_custo` do item — regra "último custo sobrescreve" (item 4 do pedido). Feito via `Produto.objects.filter(pk=...).update(...)`, mesmo padrão atômico do `F()` já usado em `MovimentoEstoque.save()` (sem race condition com outra escrita concorrente de estoque).
-- **RF-06** — Ao criar uma `Compra` (`POST /api/v1/compras/`), o `create()` do serializer:
-  1. calcula `valor_total = Σ (quantidade × valor_unitario_custo)` de todos os itens do payload;
-  2. cria `Compra` já com `valor_total` correto (dispara o signal que gera a `Despesa` — ver RF-07 — com o valor certo já na primeira escrita, sem necessidade de recalcular/resalvar depois);
-  3. cria cada `ItemCompra` em loop (dispara RF-04/RF-05 por item).
+- **RF-01** — `PerfilUsuario` ganha `SUPERADMIN = 'SUPERADMIN', 'Superadmin'` como 4º valor (mantendo `ADMIN`, `OPERACIONAL`, `MARKETING` inalterados). Nova migration de schema `accounts/migrations/0003_alter_user_perfil.py` (gerada por `makemigrations`, altera só o `choices` do `CharField`, sem alterar dado).
+- **RF-02** — `User` ganha `@property tem_acesso_total` (`backend/accounts/models.py`):
+  ```python
+  @property
+  def tem_acesso_total(self):
+      return self.is_staff or self.perfil in (PerfilUsuario.ADMIN, PerfilUsuario.SUPERADMIN)
+  ```
+- **RF-03** — As 4 checagens de negócio identificadas na seção 1 trocam `is_staff` por `tem_acesso_total`:
+  - `common/permissions.py::IsAdmin.has_permission` → `request.user.tem_acesso_total`
+  - `common/permissions.py::IsMarketing.has_permission` → `u.perfil == 'MARKETING' or u.tem_acesso_total`
+  - `pdv/views.py::SessaoCaixaViewSet.get_queryset` (linha 74) → `if not self.request.user.tem_acesso_total:`
+  - `rh/views.py::ColaboradorViewSet._validar_criar_usuario` (linha 61) → `if not self.request.user.tem_acesso_total:`
+  - Nenhum outro ponto do backend usa `is_staff` para regra de negócio (confirmado por grep completo, seção 1) — não há mais nada a trocar.
+- **RF-04** — `UserAdminSerializer.Meta.fields` remove `'is_staff'`. Adiciona `tem_acesso_total = serializers.BooleanField(read_only=True)` como novo campo read-only (ver Decisões, seção 2) para a listagem continuar mostrando quem tem acesso total.
+- **RF-05** — `UserSerializer` (usado por `/api/v1/accounts/me/`, fonte do `authStore.user`) ganha o mesmo `tem_acesso_total = serializers.BooleanField(read_only=True)` em `fields` e `read_only_fields` — é o valor que o frontend vai consumir (RF-07).
+- **RF-06** — `UserAdminSerializer.validate()`: se `attrs.get('perfil') == PerfilUsuario.SUPERADMIN` e o usuário autenticado (`self.context['request'].user`) não tiver `perfil == PerfilUsuario.SUPERADMIN`, levanta `serializers.ValidationError({'perfil': '...'})`. Cobre tanto `create` quanto `update`.
+- **RF-07** — `UserViewSet` ganha `_bloquear_edicao_superadmin(self, instance)`: se `instance.perfil == PerfilUsuario.SUPERADMIN` e `self.request.user.perfil != PerfilUsuario.SUPERADMIN`, levanta `rest_framework.exceptions.PermissionDenied(...)`. Chamado em `perform_update()` (novo método) e no início de `destroy()` (já existente, só adiciona a chamada antes do soft-delete).
+- **RF-08 (frontend)** — `authStore.js` exporta um seletor `selectTemAcessoTotal(state)` que retorna `Boolean(state.user?.tem_acesso_total)` — não reimplementa a regra `is_staff OR perfil in (...)`, só repassa o campo que o backend já calculou (RF-05).
+- **RF-09 (frontend)** — `Sidebar.jsx`, `routes/index.jsx` (`StaffRoute`, `MarketingRoute`), `HistoricoVendas.jsx` (3 usos) e `RelatorioSessoesCaixa.jsx` (2 usos) trocam toda leitura de `user?.is_staff` / `user.is_staff` por `useAuthStore(selectTemAcessoTotal)` (ou, nos arquivos que já têm `user` completo carregado, `user?.tem_acesso_total`).
+- **RF-10 (frontend)** — `Usuarios.jsx`: remove o campo `{ name: 'is_staff', label: 'Administrador', type: 'checkbox' }` de `fields` e `is_staff: false` de `emptyForm`; dropdown `Perfil` ganha a 4ª opção `{ value: 'SUPERADMIN', label: 'Superadmin' }`.
+- **RF-11 (frontend, gap do diagnóstico)** — `Usuarios.jsx`: coluna `{ key: 'is_staff', label: 'Admin', boolean: true }` vira `{ key: 'tem_acesso_total', label: 'Acesso total', boolean: true }` (consome RF-04).
+- **RF-12 (frontend, gap do diagnóstico)** — `Usuarios.jsx`: `onBeforeSubmit` reescrito para não depender de `form.is_staff` (campo removido em RF-10) — ver regra exata em RN-05.
+- **RF-13** — Data migration `accounts/migrations/0004_seed_superadmin_perfil.py` (`RunPython`, ver seção 6.3): promove `is_staff=True AND is_superuser=True` → `perfil=SUPERADMIN`; em seguida força `editoresdesucessos@gmail.com` → `perfil=ADMIN, is_staff=False` (só se a conta existir).
 
-  Tudo dentro de uma única `transaction.atomic()` — se qualquer item falhar (produto sem conversão de unidade cadastrada, RN-05 da Manutenção #37), a Compra inteira é revertida, nenhuma Despesa nem MovimentoEstoque órfão fica no banco.
-- **RF-07** — Signal `post_save` em `Compra` (`compras/signals.py`):
-  - **Na criação (`created=True`)**: cria 1 `financeiro.Despesa` com `categoria` = "Compra de Mercadoria" (RF-09), `descricao` gerada automaticamente, `fornecedor` (CharField) preenchido com `compra.fornecedor.nome_razao_social` (Despesa continua sem FK — RN-04), `valor_bruto=compra.valor_total`, `conta=compra.conta`, `forma_pagamento=compra.forma_pagamento`, `status` espelhado de `compra.status`, `vencimento=compra.data_emissao`, `pagamento=compra.data_emissao` **somente se** `compra.status == 'PAGO'` (caso contrário `None` — Despesa nasce pendente, sem lançamento no Livro Caixa, exatamente como qualquer outra Despesa `PENDENTE` do sistema hoje). Vincula a Despesa criada de volta em `Compra.despesa` via `update()` (evita re-disparar o próprio signal).
-  - **Na atualização (`created=False`)**: se `compra.despesa_id` existe e `despesa.status != compra.status`, sincroniza `despesa.status` (e `despesa.pagamento = hoje` se virou `PAGO` e ainda não tinha data) e chama `despesa.save()` — isso **re-dispara o signal `despesa_para_livro_caixa` já existente em produção**, que cria o `LivroCaixa` sozinho quando `status` vira `PAGO`. Nenhum código novo escreve em `LivroCaixa`.
-- **RF-08** — Endpoint `PATCH /api/v1/compras/{id}/` aceita **apenas** os campos `status` (transição `PENDENTE → PAGO`, ver RN-06 sobre imutabilidade dos itens) e `observacoes`. Qualquer tentativa de alterar `itens`, `valor_total`, `fornecedor` ou `conta` via PATCH é ignorada (campos `read_only` no serializer de update).
-- **RF-09** — Data migration (`compras/migrations/0002_categoria_compra_mercadoria.py`, `RunPython`) cria (via `get_or_create`, idempotente) a `financeiro.Categoria(nome='Compra de Mercadoria', tipo='SAIDA')` usada em RF-07. Primeira `RunPython` de seed de dado do projeto — documentar no código o motivo (evita depender de fixture manual ou de alguém criar a categoria certa via admin antes do primeiro uso).
-- **RF-10** — Ação `POST /api/v1/compras/{id}/cancelar/`:
-  1. Bloqueia se `compra.status == 'CANCELADO'` (`400`, já cancelada).
-  2. Para cada `ItemCompra`, cria 1 `MovimentoEstoque` `tipo=AJUSTE`, `quantidade=-item.quantidade` (mesma `unidade` do item original), `observacoes=f'Cancelamento Compra #{compra.id}'` — reverte o estoque exatamente pela função de conversão já existente (RN-03), sem duplicar cálculo.
-  3. Se `compra.despesa` existe:
-     - `despesa.status == 'PAGO'` → chama `financeiro.services.estornar_despesa(despesa, motivo=f'Compra #{compra.id} cancelada', data_estorno=hoje, usuario=request.user)` (função **extraída** de `DespesaViewSet.estornar_despesa`, ver seção 6.3);
-     - `despesa.status == 'PENDENTE'` → `despesa.is_active = False` (soft delete simples, nunca existiu `LivroCaixa` pra essa Despesa).
-  4. `compra.status = 'CANCELADO'`, `save()`.
-  Tudo em `transaction.atomic()`.
-- **RF-11** — Tela frontend `Compras.jsx`: listagem (fornecedor, NF, data, valor total, status com badge colorido, ação Cancelar) + modal "Nova Compra" em formato carrinho (fornecedor + conta + NF + data + forma de pagamento + status inicial + busca de produto estilo `BuscaProdutoRapida` para adicionar itens com quantidade/unidade/valor unitário de custo + total ao vivo) + confirmar cria tudo de uma vez via `POST /api/v1/compras/`.
+---
 
 ## 4. Regras de Negócio (RN)
 
-- **RN-01** — `ItemCompra.unidade` segue a mesma cadeia de conversão de `MovimentoEstoque` (herdada da Manutenção #37/#58): sem fallback 1:1 silencioso, unidade sem `ConversaoUnidade` cadastrada levanta `400` **antes** de persistir qualquer coisa (a checagem acontece no `validate()` do serializer, chamando `fator_para_base`, do mesmo jeito que o endpoint de movimentos da Fase 1 já faz).
-- **RN-02** — Compra precisa ter **pelo menos 1 item** (mesma regra de `ComboSerializer.validate_itens`, RN-01 do Combo — Manutenção #53). `quantidade` e `valor_unitario_custo` de cada item devem ser `> 0`.
-- **RN-03** — Reversão de estoque no cancelamento (RF-10.2) recalcula o fator de conversão **no momento do cancelamento**, não reusa o fator gravado na compra original. Se a tabela de conversão do produto mudar entre a compra e o cancelamento, a reversão pode não ser bit-a-bit simétrica — risco aceito e documentado (cenário raro: produto mudando conversão de unidade justamente entre compra e cancelamento). Não bloqueante para esta fase.
-- **RN-04** — `financeiro.Despesa.fornecedor` **continua `CharField`** (não vira FK nesta fase) — Despesas avulsas não vindas de Compra continuam existindo e usam texto livre normalmente. A Compra só *preenche* esse texto a partir do cadastro real de Fornecedor; não há migração de dado histórico (Despesas antigas mantêm o texto que já tinham).
-- **RN-05** — `Compra` e `ItemCompra` são **imutáveis após criação**, exceto a transição de `status` (RF-08) — mesmo espírito da regra absoluta de `LivroCaixa` (`ReadCreateViewSet`, sem PUT/PATCH/DELETE de itens) já em vigor no projeto. Para "corrigir" uma compra lançada errada, o fluxo é **cancelar (RF-10) e lançar uma nova** — nunca editar itens de uma compra existente. Evita duplicidade/inconsistência entre `MovimentoEstoque` já aplicado e um novo valor de item editado.
-- **RN-06** — A transição de status só é permitida `PENDENTE → PAGO` (nunca o contrário, e nunca direto para `CANCELADO` via PATCH — cancelamento é sempre via ação dedicada RF-10, que tem efeitos colaterais de reversão que um PATCH simples de `status` não deve disparar por engano).
-- **RN-07** — `Categoria` "Compra de Mercadoria" (RF-09) é a única categoria usada pelo signal de RF-07 — não há mapeamento por `CategoriaFornecedor` (ex.: `MATERIA_PRIMA` → categoria financeira diferente) nesta fase. Fica documentado como possível refinamento futuro, fora de escopo agora.
-- **RN-08** — Todos os endpoints de `compras` exigem `IsAdmin` (mesmo padrão de `DespesaViewSet`/`ReceitaViewSet` pós-Manutenção #54 — RN08 daquela manutenção), não `IsAuthenticated` genérico — Compra tem efeito financeiro direto.
+- **RN-01** — `tem_acesso_total` é **aditivo**, nunca restritivo: uma conta com `is_staff=True` mantém acesso total independentemente do `perfil`, mesmo que o `perfil` seja `OPERACIONAL` ou `MARKETING` (retrocompatibilidade com contas antigas criadas antes desta manutenção).
+- **RN-02** — Só uma conta com `perfil == SUPERADMIN` pode **atribuir** `perfil=SUPERADMIN` a qualquer usuário (RF-06). Uma conta `ADMIN` (mesmo com `tem_acesso_total=True`) não pode se autopromover nem promover terceiros a `SUPERADMIN`.
+- **RN-03** — Só uma conta com `perfil == SUPERADMIN` pode **editar** (`PUT`/`PATCH`) ou **desativar** (`DELETE`/soft-disable) uma conta que já é `SUPERADMIN` — inclusive a própria conta SUPERADMIN não fica bloqueada de se autoeditar (`instance.perfil == SUPERADMIN and request.user.perfil != SUPERADMIN` só é `True` quando o solicitante **não** é SUPERADMIN; um SUPERADMIN editando outro SUPERADMIN, ou a si mesmo, passa normalmente).
+- **RN-04** — Leitura (`GET`/`list`) de contas `SUPERADMIN` continua permitida para qualquer `IsAdmin` (`tem_acesso_total=True`) — a trava é só de escrita (RN-03), pois a tela de Usuários precisa listar todas as contas para um ADMIN comum administrar o restante da equipe.
+- **RN-05 (fecha o gap do diagnóstico)** — O aviso de autobloqueio em `Usuarios.jsx` dispara apenas quando a edição **realmente** resultaria em perda de `tem_acesso_total` para o próprio usuário logado:
+  ```js
+  const currentUser = useAuthStore.getState().user
+  const isSelf = editingId && currentUser && String(editingId) === String(currentUser.id)
+  const perderiaAcesso =
+    isSelf &&
+    currentUser.tem_acesso_total &&
+    !currentUser.is_staff &&
+    !['ADMIN', 'SUPERADMIN'].includes(form.perfil)
+  ```
+  (`currentUser.is_staff` continua disponível via `UserSerializer`/`/me/`, que não teve `is_staff` removido — só `UserAdminSerializer` perdeu o campo, RF-04.) Se `currentUser.is_staff` for `true`, a conta nunca perde acesso só por causa do `perfil`, então o aviso não deve aparecer.
+- **RN-06** — Migration de dado (RF-13) é **idempotente**: rodar `migrate` duas vezes não deve alterar novamente contas já ajustadas nem falhar se `editoresdesucessos@gmail.com` não existir na base (ambiente de teste/CI).
 
-## 5. Fora de escopo (Fase 2)
+---
 
-- Mapear `CategoriaFornecedor` → categoria financeira específica por tipo de compra (RN-07).
-- Edição de itens de uma compra já criada (RN-05) — só cancelar e recriar.
-- Parcelamento de compra (uma Compra gera sempre exatamente 1 Despesa) — parcelamento fica para uma fase futura, se necessário (reaproveitaria `pagamentos.Parcela`, já existente no sistema para outro fluxo).
-- Anexo de PDF/XML da nota fiscal (`Despesa.comprovante` já existe como `FileField` — poderia ser reaproveitado depois, não faz parte desta especificação).
-- Relatório de compras por fornecedor/período.
+## 5. Fora de escopo (Manutenção #60)
+
+- Hierarquia genérica de perfis (ex.: um sistema de "níveis" numéricos comparáveis) — a trava é específica para `SUPERADMIN`, não um sistema geral de hierarquia entre `ADMIN`/`OPERACIONAL`/`MARKETING`.
+- Impedir que o **último** `SUPERADMIN` do sistema se autodesative ou se autorrebaixe (risco de sistema ficar sem nenhum SUPERADMIN) — não pedido, fica para uma manutenção futura se for um risco real percebido em produção.
+- Esconder na UI os botões de editar/desativar em linhas `SUPERADMIN` para um ADMIN comum — o backend responde `403`/erro de validação (RF-06/RF-07) e o `ResourceCrud` já tem o padrão de exibir a mensagem de erro da API (`.catch` + `extractErrorMessage`, RNF já em produção); esconder o botão é refinamento de UX opcional, não bloqueante.
+- Log de auditoria de quem promoveu/editou quem — não pedido nesta manutenção.
 
 ---
 
 ## 6. Spec Backend
 
-### 6.1 Novo app `compras`
-
-```
-backend/compras/
-├── __init__.py
-├── apps.py           # ComprasConfig, default_auto_field, name='compras'
-├── models.py
-├── signals.py
-├── serializers.py
-├── views.py
-├── urls.py
-├── admin.py
-├── tests.py
-└── migrations/
-    ├── 0001_initial.py
-    └── 0002_categoria_compra_mercadoria.py   # RunPython, RF-09
-```
-
-`compras/apps.py` precisa de `ready()` importando `signals` (mesmo padrão de `financeiro/apps.py`, confirmar antes de implementar).
-
-`config/settings.py` (ou `core/settings.py` — confirmar nome exato no momento da implementação): adicionar `'compras'` em `INSTALLED_APPS`.
-
-`core/urls.py`:
-```python
-path('api/v1/compras/', include('compras.urls')),
-```
-
-### 6.2 `compras/models.py`
+### 6.1 `backend/accounts/models.py`
 
 ```python
-from decimal import Decimal
-
-from django.conf import settings
-from django.db import models
-
-from common.models import BaseModel
-from fornecedores.models import Fornecedor
-from financeiro.models import Conta, FormaPagamento, Despesa
-from produtos.models import Produto, UnidadeBase, MovimentoEstoque, TipoMovimento
+class PerfilUsuario(models.TextChoices):
+    ADMIN = 'ADMIN', 'Admin'
+    OPERACIONAL = 'OPERACIONAL', 'Operacional'
+    MARKETING = 'MARKETING', 'Marketing'
+    SUPERADMIN = 'SUPERADMIN', 'Superadmin'
 
 
-class StatusCompra(models.TextChoices):
-    PENDENTE = 'PENDENTE', 'Pendente'
-    PAGO = 'PAGO', 'Pago'
-    CANCELADO = 'CANCELADO', 'Cancelado'
-
-
-class Compra(BaseModel):
-    fornecedor = models.ForeignKey(Fornecedor, on_delete=models.PROTECT, related_name='compras')
-    conta = models.ForeignKey(Conta, on_delete=models.PROTECT, related_name='compras')
-    numero_nota_fiscal = models.CharField(max_length=50, blank=True, default='')
-    data_emissao = models.DateField()
-    forma_pagamento = models.CharField(max_length=20, choices=FormaPagamento.choices, blank=True)
-    status = models.CharField(max_length=20, choices=StatusCompra.choices, default=StatusCompra.PENDENTE)
-    valor_total = models.DecimalField(max_digits=12, decimal_places=2, default=0, editable=False)
-    observacoes = models.TextField(blank=True, default='')
-    despesa = models.OneToOneField(
-        Despesa, null=True, blank=True, on_delete=models.SET_NULL, related_name='compra',
-    )
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
-
-    class Meta:
-        db_table = 'cmp_compra'
-        ordering = ['-data_emissao', '-created_at']
-        verbose_name = 'Compra'
-        verbose_name_plural = 'Compras'
-
-    def __str__(self):
-        return f'Compra #{self.pk} — {self.fornecedor.nome_razao_social} — R$ {self.valor_total}'
-
-
-class ItemCompra(models.Model):
-    # Sem BaseModel, mesmo racional de ItemCombo (Manutencao 53): filho de
-    # Compra, ciclo de vida atrelado ao pai, imutavel apos criacao (RN-05).
-    compra = models.ForeignKey(Compra, on_delete=models.CASCADE, related_name='itens')
-    produto = models.ForeignKey(Produto, on_delete=models.PROTECT, related_name='compra_itens')
-    quantidade = models.DecimalField(max_digits=12, decimal_places=3)
-    unidade = models.CharField(max_length=2, choices=UnidadeBase.choices)
-    valor_unitario_custo = models.DecimalField(max_digits=12, decimal_places=2)
-    movimento_estoque = models.OneToOneField(
-        MovimentoEstoque, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='item_compra',
-    )
-
-    class Meta:
-        db_table = 'cmp_item_compra'
-        verbose_name = 'Item da Compra'
-        verbose_name_plural = 'Itens da Compra'
+class User(AbstractBaseUser, PermissionsMixin):
+    # ... campos existentes sem alteração ...
 
     @property
-    def subtotal(self):
-        return self.quantidade * self.valor_unitario_custo
-
-    def save(self, *args, **kwargs):
-        is_new = self.pk is None
-        super().save(*args, **kwargs)
-        if is_new:
-            movimento = MovimentoEstoque.objects.create(
-                produto=self.produto,
-                tipo=TipoMovimento.ENTRADA,
-                quantidade=self.quantidade,
-                unidade=self.unidade,
-                nota_fiscal=self.compra.numero_nota_fiscal,
-                observacoes=f'Compra #{self.compra_id} — {self.compra.fornecedor.nome_razao_social}',
-            )
-            ItemCompra.objects.filter(pk=self.pk).update(movimento_estoque=movimento)
-            # RF-05: ultimo custo sobrescreve Produto.valor_unitario
-            Produto.objects.filter(pk=self.produto_id).update(
-                valor_unitario=self.valor_unitario_custo,
-            )
-
-    def __str__(self):
-        return f'{self.compra} — {self.produto.nome} x{self.quantidade}'
+    def tem_acesso_total(self):
+        return self.is_staff or self.perfil in (PerfilUsuario.ADMIN, PerfilUsuario.SUPERADMIN)
 ```
 
-> Atenção Forge: `MovimentoEstoque.save()` (Fase 1) já roda dentro de `ItemCompra.save()` acima — **não** reimplementar a resolução de `fator_para_base` nem o `F()` de estoque aqui. Se `fator_para_base` levantar `ValidationError` (unidade sem conversão), ela precisa borbulhar até o serializer/view para virar `400` — não capturar silenciosamente dentro do `save()` do model.
-
-### 6.3 `financeiro/services.py` — extrair `estornar_despesa()`
-
-Mover o bloco de `DespesaViewSet.estornar_despesa` (views.py:262-322) para uma função nova em `financeiro/services.py`, mesmo padrão de `estornar_receita()` já existente no arquivo:
+### 6.2 `backend/common/permissions.py`
 
 ```python
-def estornar_despesa(despesa, motivo, data_estorno=None, usuario=None):
-    if despesa.status != 'PAGO':
-        raise ValidationError({'detail': 'Somente despesas com status PAGO podem ser estornadas.'})
-    if despesa.estornado:
-        raise ValidationError({'detail': 'Despesa já foi estornada.'})
-    if not motivo or not str(motivo).strip():
-        raise ValidationError({'motivo': 'Motivo do estorno é obrigatório.'})
+from rest_framework.permissions import BasePermission
 
-    data_estorno = data_estorno or _date.today()
-    conta = despesa.conta
-    with transaction.atomic():
-        with connection.cursor() as cursor:
-            cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta.id])
-        # ... resto do bloco já existente, sem alteração de comportamento ...
-    return lancamento
+
+class IsAdmin(BasePermission):
+    def has_permission(self, request, view):
+        return bool(request.user and request.user.is_authenticated and request.user.tem_acesso_total)
+
+
+class IsOwner(BasePermission):
+    def has_object_permission(self, request, view, obj):
+        return obj == request.user
+
+
+class IsMarketing(BasePermission):
+    def has_permission(self, request, view):
+        u = request.user
+        return bool(u and u.is_authenticated and (u.perfil == 'MARKETING' or u.tem_acesso_total))
 ```
 
-`DespesaViewSet.estornar_despesa` (view) passa a só validar o request (parse de data/motivo) e chamar `estornar_despesa(...)`, devolvendo `400` em `ValidationError` — **mesmo comportamento observável de hoje**, só reorganização para reaproveitar em `compras`. Cobrir com o mesmo teste que já existe para o endpoint (regressão zero).
-
-### 6.4 `compras/signals.py`
+### 6.3 `backend/accounts/serializers.py`
 
 ```python
-from datetime import date
-
-from django.db.models.signals import post_save
-from django.dispatch import receiver
-
-from financeiro.models import Categoria, Despesa
-
-from .models import Compra
-
-
-@receiver(post_save, sender=Compra)
-def compra_sincroniza_despesa(sender, instance, created, **kwargs):
-    if created:
-        categoria = Categoria.objects.filter(
-            nome='Compra de Mercadoria', tipo='SAIDA', is_active=True,
-        ).first()
-        despesa = Despesa.objects.create(
-            tipo='VARIAVEL',
-            descricao=f'Compra #{instance.pk} — NF {instance.numero_nota_fiscal or "s/n"} — '
-                      f'{instance.fornecedor.nome_razao_social}',
-            fornecedor=instance.fornecedor.nome_razao_social,
-            valor_bruto=instance.valor_total,
-            conta=instance.conta,
-            categoria=categoria,
-            forma_pagamento=instance.forma_pagamento,
-            status=instance.status,
-            vencimento=instance.data_emissao,
-            pagamento=instance.data_emissao if instance.status == 'PAGO' else None,
-            observacoes=instance.observacoes,
-            criado_por=instance.criado_por,
-        )
-        Compra.objects.filter(pk=instance.pk).update(despesa=despesa)
-        return
-
-    if instance.despesa_id and instance.despesa.status != instance.status:
-        despesa = instance.despesa
-        despesa.status = instance.status
-        if instance.status == 'PAGO' and not despesa.pagamento:
-            despesa.pagamento = date.today()
-        despesa.save()  # re-dispara financeiro.signals.despesa_para_livro_caixa
-```
-
-> Ponto de atenção para o Forge: o `update()` em `Compra.objects.filter(pk=...).update(despesa=despesa)` dentro do próprio handler de `post_save` **não** dispara o signal de novo (`update()` de queryset não chama `save()`/signals) — é o mesmo truque já usado em `ProdutoSerializer.create()` da Fase 1 (`produto.refresh_from_db(...)` depois de um `MovimentoEstoque` criado à parte). Confirmar em teste que `instance.despesa` (em memória, no restante da request) não fica desatualizado — usar `instance.refresh_from_db()` se necessário antes de serializar a resposta do `POST`.
-
-### 6.5 `compras/serializers.py`
-
-```python
-class ItemCompraSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source='pk', read_only=True)
-    produto_nome = serializers.CharField(source='produto.nome', read_only=True)
-    subtotal = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
+class UserSerializer(serializers.ModelSerializer):
+    tem_acesso_total = serializers.BooleanField(read_only=True)
 
     class Meta:
-        model = ItemCompra
-        fields = ['id', 'produto', 'produto_nome', 'quantidade', 'unidade', 'valor_unitario_custo', 'subtotal']
-
-    def validate(self, data):
-        from produtos.services import fator_para_base
-        from django.core.exceptions import ValidationError as DjangoValidationError
-        if data['quantidade'] <= 0:
-            raise serializers.ValidationError({'quantidade': 'Deve ser maior que zero.'})
-        if data['valor_unitario_custo'] <= 0:
-            raise serializers.ValidationError({'valor_unitario_custo': 'Deve ser maior que zero.'})
-        try:
-            fator_para_base(data['produto'], data['unidade'])  # RN-01 — só valida, não usa o retorno aqui
-        except DjangoValidationError as exc:
-            raise serializers.ValidationError({'unidade': exc.messages})
-        return data
+        model = User
+        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'date_joined']
+        read_only_fields = ['id', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'date_joined']
 
 
-class CompraSerializer(serializers.ModelSerializer):
+class UserAdminSerializer(serializers.ModelSerializer):
+    """Usada pela tela de Usuarios (IsAdmin) — cria/edita qualquer User do sistema."""
     id = serializers.IntegerField(source='pk', read_only=True)
-    itens = ItemCompraSerializer(many=True)
-    fornecedor_nome = serializers.CharField(source='fornecedor.nome_razao_social', read_only=True)
-    conta_nome = serializers.CharField(source='conta.nome', read_only=True)
+    password = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    colaborador_nome = serializers.CharField(source='colaborador.nome', read_only=True, default=None)
+    tem_acesso_total = serializers.BooleanField(read_only=True)
 
     class Meta:
-        model = Compra
+        model = User
         fields = [
-            'id', 'fornecedor', 'fornecedor_nome', 'conta', 'conta_nome',
-            'numero_nota_fiscal', 'data_emissao', 'forma_pagamento', 'status',
-            'valor_total', 'observacoes', 'itens', 'despesa',
-            'is_active', 'created_at', 'updated_at',
+            'id', 'email', 'nome_completo', 'telefone', 'password',
+            'is_active', 'perfil', 'tem_acesso_total', 'date_joined', 'colaborador_nome',
         ]
-        read_only_fields = ['valor_total', 'despesa', 'is_active', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'date_joined', 'colaborador_nome', 'tem_acesso_total']
 
-    def validate_itens(self, value):
-        if not value:
-            raise serializers.ValidationError('A compra precisa ter pelo menos 1 item.')  # RN-02
-        return value
+    def validate(self, attrs):
+        perfil_novo = attrs.get('perfil')
+        if perfil_novo == PerfilUsuario.SUPERADMIN:
+            request = self.context.get('request')
+            solicitante = getattr(request, 'user', None)
+            if not solicitante or solicitante.perfil != PerfilUsuario.SUPERADMIN:
+                raise serializers.ValidationError(
+                    {'perfil': 'Somente um usuário Superadmin pode conceder o perfil Superadmin.'}
+                )
+        return attrs
 
-    def create(self, validated_data):
-        itens_data = validated_data.pop('itens')
-        valor_total = sum(
-            (i['quantidade'] * i['valor_unitario_custo'] for i in itens_data), Decimal('0.00'),
-        )
-        compra = Compra.objects.create(valor_total=valor_total, **validated_data)
-        for item in itens_data:
-            ItemCompra.objects.create(compra=compra, **item)
-        return compra
-
-
-class CompraStatusUpdateSerializer(serializers.ModelSerializer):
-    """RF-08: PATCH só aceita status (PENDENTE->PAGO, RN-06) e observacoes."""
-    class Meta:
-        model = Compra
-        fields = ['status', 'observacoes']
-
-    def validate_status(self, value):
-        if self.instance.status != 'PENDENTE' or value != 'PAGO':
-            raise serializers.ValidationError('Única transição permitida via PATCH é PENDENTE -> PAGO.')
-        return value
+    # create()/update() sem alteração
 ```
+(`is_staff` **não é mais campo do formulário** — continua existindo no model, só não é mais editável por esta tela; import de `PerfilUsuario` a adicionar no topo do arquivo.)
 
-### 6.6 `compras/views.py`
+### 6.4 `backend/accounts/views.py`
 
 ```python
-class CompraViewSet(viewsets.ModelViewSet):
-    queryset = Compra.objects.filter(is_active=True).select_related(
-        'fornecedor', 'conta', 'despesa',
-    ).prefetch_related('itens__produto')
-    permission_classes = [IsAdmin]  # RN-08
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['status', 'fornecedor', 'conta']
-    search_fields = ['numero_nota_fiscal', 'fornecedor__nome_razao_social']
-    ordering_fields = ['data_emissao', 'valor_total', 'status']
-    http_method_names = ['get', 'post', 'patch', 'head', 'options']  # RN-05: sem put/delete
+from rest_framework.exceptions import PermissionDenied
 
-    def get_serializer_class(self):
-        return CompraStatusUpdateSerializer if self.request.method == 'PATCH' else CompraSerializer
+from .models import PerfilUsuario, User
 
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
 
-    @action(detail=True, methods=['post'])
-    def cancelar(self, request, pk=None):
-        # RF-10 — ver spec completa na secao 3
-        ...
+class UserViewSet(ModelViewSet):
+    queryset = User.objects.all().select_related('colaborador').order_by('-date_joined')
+    serializer_class = UserAdminSerializer
+    permission_classes = [IsAdmin]
+    filter_backends = [SearchFilter]
+    search_fields = ['email', 'nome_completo']
+
+    def _bloquear_edicao_superadmin(self, instance):
+        if instance.perfil == PerfilUsuario.SUPERADMIN and self.request.user.perfil != PerfilUsuario.SUPERADMIN:
+            raise PermissionDenied('Somente um usuário Superadmin pode editar ou desativar outra conta Superadmin.')
+
+    def perform_update(self, serializer):
+        self._bloquear_edicao_superadmin(serializer.instance)
+        serializer.save()
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        self._bloquear_edicao_superadmin(instance)
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 ```
 
-### 6.7 `compras/urls.py`
+### 6.5 `backend/pdv/views.py` (linha 74) e `backend/rh/views.py` (linha 61)
+
+Troca pontual, sem mudança de estrutura:
+```python
+# pdv/views.py — SessaoCaixaViewSet.get_queryset
+if not self.request.user.tem_acesso_total:
+    qs = qs.filter(operador=self.request.user)
+
+# rh/views.py — ColaboradorViewSet._validar_criar_usuario
+if not self.request.user.tem_acesso_total:
+    raise PermissionDenied('Somente administradores podem criar acesso ao sistema.')
+```
+
+### 6.6 Migrations
+
+```
+backend/accounts/migrations/
+├── 0003_alter_user_perfil.py     # gerada por `makemigrations` — só amplia choices
+└── 0004_seed_superadmin_perfil.py  # RunPython — dado, ver abaixo
+```
 
 ```python
-from rest_framework.routers import DefaultRouter
-from .views import CompraViewSet
+# 0004_seed_superadmin_perfil.py
+from django.db import migrations
 
-router = DefaultRouter()
-router.register(r'', CompraViewSet, basename='compra')
 
-urlpatterns = router.urls
+def seed_superadmin(apps, schema_editor):
+    User = apps.get_model('accounts', 'User')
+
+    User.objects.filter(is_staff=True, is_superuser=True).update(perfil='SUPERADMIN')
+
+    conta_especifica = User.objects.filter(email__iexact='editoresdesucessos@gmail.com').first()
+    if conta_especifica:
+        conta_especifica.perfil = 'ADMIN'
+        conta_especifica.is_staff = False
+        conta_especifica.save(update_fields=['perfil', 'is_staff'])
+
+
+def noop(apps, schema_editor):
+    pass
+
+
+class Migration(migrations.Migration):
+    dependencies = [
+        ('accounts', '0003_alter_user_perfil'),
+    ]
+    operations = [
+        migrations.RunPython(seed_superadmin, noop),
+    ]
 ```
-Endpoint final: `/api/v1/compras/`, ação de cancelar em `/api/v1/compras/{id}/cancelar/`.
 
 ---
 
-## 7. Spec Frontend (`frontend/src/pages/Compras.jsx`, novo arquivo)
+## 7. Spec Frontend
 
-- Nova página, registrada em `frontend/src/routes/index.jsx` (`/compras`) e item de menu na `Sidebar.jsx` (seção próxima de Produtos/Fornecedores).
-- **Listagem:** tabela com Fornecedor, NF, Data Emissão, Valor Total (BRL), Status (badge: cinza=Pendente, verde=Pago, vermelho=Cancelado), ação "Cancelar" (ícone lixeira, `window.confirm` + prompt de motivo, some se já `CANCELADO`). Filtro por status e busca por fornecedor/NF (`SearchFilter` do backend).
-- **Modal "Nova Compra":**
-  - Cabeçalho: `Select` de Fornecedor (busca por nome, reaproveitando padrão de autocomplete já usado em Vendas/PDV), `Select` de Conta, input NF, input Data de Emissão, `Select` Forma de Pagamento, `Select` Status inicial (Pendente/Pago).
-  - Seção de itens (carrinho): campo de busca de produto igual `BuscaProdutoRapida` (Manutenção #32) — buscar → clicar → linha criada com produto, quantidade padrão 1, unidade padrão = `unidade_base` do produto (com `Select` para trocar, populado com `unidade_base` + `conversoes` do produto, mesmo padrão do modal `MovimentarEstoque` da Fase 1), campo Valor Unitário de Custo.
-  - Total ao vivo calculado no frontend (soma de `quantidade × valor_unitario_custo`) — **só exibição**, o backend recalcula por conta própria e é o valor que efetivamente persiste (RF-06).
-  - Botão remover item da lista antes de confirmar.
-  - Confirmar → `POST /api/v1/compras/` com `{fornecedor, conta, numero_nota_fiscal, data_emissao, forma_pagamento, status, observacoes, itens: [...]}`. Erro de unidade sem conversão (`400` em `itens[i].unidade`) exibido inline na linha do item correspondente (mesmo padrão de erro por campo já usado no formulário de Produto).
-  - Após sucesso: fecha modal, refetch da listagem, toast de sucesso mencionando se a Despesa foi criada como Pendente ou Paga.
-- Sem edição de compra existente (RN-05) — só visualização (modal read-only ao clicar na linha, mostrando itens e o link para a Despesa gerada) e cancelamento.
+### 7.1 `frontend/src/stores/authStore.js`
+
+```js
+const useAuthStore = create(persist(/* ...sem alteração no corpo... */))
+
+export const selectTemAcessoTotal = (state) => Boolean(state.user?.tem_acesso_total)
+
+export default useAuthStore
+```
+
+### 7.2 `frontend/src/components/layout/Sidebar.jsx`
+
+```jsx
+import useAuthStore, { selectTemAcessoTotal } from '../../stores/authStore.js'
+// ...
+const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
+const perfil = useAuthStore((s) => s.user?.perfil)
+const visibleItems = navItems.filter(
+  (item) =>
+    (!item.staffOnly || temAcessoTotal) &&
+    (!item.marketingOnly || temAcessoTotal || perfil === 'MARKETING'),
+)
+```
+
+### 7.3 `frontend/src/routes/index.jsx`
+
+```jsx
+function StaffRoute({ children }) {
+  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
+  if (!temAcessoTotal) return <Navigate to="/dashboard" replace />
+  return children
+}
+
+function MarketingRoute({ children }) {
+  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
+  const perfil = useAuthStore((s) => s.user?.perfil)
+  if (!temAcessoTotal && perfil !== 'MARKETING') return <Navigate to="/dashboard" replace />
+  return children
+}
+```
+(import `selectTemAcessoTotal` de `../stores/authStore.js`)
+
+### 7.4 `frontend/src/pages/pdv/HistoricoVendas.jsx` (linhas 312, 376, 516)
+
+Trocar `user?.is_staff` → `user?.tem_acesso_total` nas 3 ocorrências (o componente já obtém `user` completo do `authStore` — não precisa do seletor, só ler o novo campo).
+
+### 7.5 `frontend/src/pages/pdv/RelatorioSessoesCaixa.jsx` (linhas 181, 248)
+
+Trocar `user.is_staff` → `user.tem_acesso_total` nas 2 ocorrências.
+
+### 7.6 `frontend/src/pages/Usuarios.jsx`
+
+```jsx
+columns={[
+  { key: 'nome_completo', label: 'Nome' },
+  { key: 'email', label: 'E-mail' },
+  { key: 'colaborador_nome', label: 'Colaborador' },
+  { key: 'perfil', label: 'Perfil', badge: true },
+  { key: 'tem_acesso_total', label: 'Acesso total', boolean: true },  // era 'is_staff'/'Admin'
+  { key: 'is_active', label: 'Ativo', boolean: true },
+  { key: 'date_joined', label: 'Desde', date: true },
+]}
+fields={[
+  { name: 'email', label: 'E-mail', type: 'email', required: true },
+  { name: 'nome_completo', label: 'Nome completo', type: 'text', required: true },
+  { name: 'telefone', label: 'Telefone', type: 'text' },
+  { name: 'password', label: 'Senha', type: 'password', helpText: (isEditing) => /* sem alteração */ },
+  // checkbox is_staff REMOVIDO
+  {
+    name: 'perfil',
+    label: 'Perfil',
+    type: 'select',
+    options: [
+      { value: 'ADMIN', label: 'Admin' },
+      { value: 'OPERACIONAL', label: 'Operacional' },
+      { value: 'MARKETING', label: 'Marketing' },
+      { value: 'SUPERADMIN', label: 'Superadmin' },
+    ],
+  },
+]}
+emptyForm={{ email: '', nome_completo: '', telefone: '', password: '', perfil: 'OPERACIONAL' }}  // is_staff removido
+// ...
+onBeforeSubmit={(form, editingId) => {
+  const currentUser = useAuthStore.getState().user
+  const isSelf = editingId && currentUser && String(editingId) === String(currentUser.id)
+  const perderiaAcesso =
+    isSelf &&
+    currentUser.tem_acesso_total &&
+    !currentUser.is_staff &&
+    !['ADMIN', 'SUPERADMIN'].includes(form.perfil)
+  if (perderiaAcesso) {
+    const confirmado = window.confirm(
+      'Você está removendo seu próprio acesso administrativo. Depois de salvar, não poderá mais acessar esta tela. Deseja continuar?',
+    )
+    if (!confirmado) return false
+  }
+  return true
+}}
+```
 
 ---
 
-## 8. Critérios de Aceite (Sentinel)
+## 8. Riscos e Dependências
 
-**Backend:**
-- CA-01: `POST /api/v1/compras/` com fornecedor, conta, 2 itens válidos → `201`; `Compra.valor_total` em banco bate exatamente com a soma dos subtotais dos itens enviados.
-- CA-02: Mesma criação do CA-01 → confirmar em banco: 2 `MovimentoEstoque` criados (`tipo=ENTRADA`), `Produto.quantidade_estoque` de cada produto envolvido incrementado corretamente (com conversão de unidade quando aplicável).
-- CA-03: Mesma criação do CA-01 → `Produto.valor_unitario` de cada produto atualizado para o `valor_unitario_custo` do respectivo item (RF-05).
-- CA-04: Mesma criação do CA-01 → 1 `financeiro.Despesa` criada, `categoria.nome == 'Compra de Mercadoria'`, `valor_bruto == compra.valor_total`, `fornecedor` (texto) == `compra.fornecedor.nome_razao_social`, `status` == `compra.status` enviado no payload.
-- CA-05: Criar Compra com `status=PENDENTE` → Despesa criada com `status=PENDENTE`, `pagamento=None`, **nenhum** `LivroCaixa` criado (confirmar ausência via query `LivroCaixa.objects.filter(origem='DESPESA', origem_id=despesa.id)`).
-- CA-06: Criar Compra com `status=PAGO` → Despesa criada com `status=PAGO`, `pagamento=data_emissao`, e **1** `LivroCaixa` criado automaticamente pelo signal já existente (`despesa_para_livro_caixa`), valor batendo com `valor_liquido` da Despesa.
-- CA-07: `PATCH /api/v1/compras/{id}/` com `{status: 'PAGO'}` numa Compra `PENDENTE` → `200`; Despesa vinculada atualizada para `PAGO`; `LivroCaixa` criado nesse momento (não antes).
-- CA-08: `PATCH` tentando mudar `fornecedor`, `conta` ou enviar `itens` → esses campos são ignorados (não alteram o registro em banco); resposta `200` reflete só `status`/`observacoes` alterados.
-- CA-09: `PATCH` com `status=CANCELADO` → `400` (RN-06, transição não permitida via PATCH).
-- CA-10: `POST /api/v1/compras/{id}/cancelar/` numa Compra `PAGO` (com `LivroCaixa` já criado) → `200`; `Compra.status='CANCELADO'`; estoque de cada produto revertido (movimento `AJUSTE` negativo confirmado em banco); `Despesa.estornado=True`; novo `LivroCaixa` de estorno criado em par com o original (mesmo padrão de `estornar_despesa`, `saldo_atual` da conta recalculado corretamente).
-- CA-11: `POST .../cancelar/` numa Compra `PENDENTE` (sem `LivroCaixa`) → `200`; estoque revertido; `Despesa.is_active=False`; **nenhum** `LivroCaixa` de estorno criado (nunca existiu o original).
-- CA-12: `POST .../cancelar/` numa Compra já `CANCELADO` → `400`.
-- CA-13: `POST /api/v1/compras/` com item cuja `unidade` não tem `ConversaoUnidade` cadastrada para o produto → `400` em `itens[i].unidade`; **nenhuma** Compra, Despesa ou MovimentoEstoque persistido (rollback completo da transação).
-- CA-14: `POST /api/v1/compras/` sem nenhum item (`itens: []`) → `400` (RN-02).
-- CA-15: `POST /api/v1/compras/` com `quantidade` ou `valor_unitario_custo` ≤ 0 em algum item → `400`.
-- CA-16: Endpoint `/api/v1/compras/` retorna `401` sem autenticação e `403` para usuário autenticado sem perfil ADMIN (RN-08).
-- CA-17: `DespesaViewSet.estornar_despesa` (endpoint já existente, Manutenção anterior) continua funcionando **sem nenhuma regressão** após a extração para `financeiro/services.py::estornar_despesa()` — mesmo teste que já cobre esse endpoint hoje passando sem alteração de asserts.
-- CA-18: `showmigrations` sem pendências pós-deploy; migration `0002_categoria_compra_mercadoria` idempotente (rodar `migrate` duas vezes não duplica a Categoria).
-- CA-19: Suíte completa do backend passando, 0 falhas, incluindo os testes novos de `compras/tests.py` e os já existentes de `produtos`/`financeiro` sem regressão.
-
-**Frontend:**
-- CA-20: Criar compra pelo modal, com 2+ itens buscados via campo de produto → aparece na listagem com valor total correto, sem reload manual.
-- CA-21: Trocar unidade de um item no carrinho para uma sem conversão cadastrada e confirmar → erro exibido inline na linha certa, compra não é criada, carrinho preservado (usuário não perde o que já preencheu).
-- CA-22: Cancelar uma compra da listagem → prompt de motivo, badge muda para "Cancelado", linha não permite mais a ação Cancelar.
-- CA-23: `npm run build` limpo, 0 erros.
+```
+- RISCO: se algum ambiente (dev/homolog) não tiver nenhum usuario com
+  is_staff=True AND is_superuser=True, a migration 0004 não promove
+  ninguem a SUPERADMIN — nesse caso nenhuma conta consegue setar
+  perfil=SUPERADMIN depois (RN-02 bloqueia todo mundo). Forge deve
+  confirmar, apos aplicar a migration em cada ambiente, que existe pelo
+  menos 1 conta SUPERADMIN (query manual: User.objects.filter(perfil=
+  'SUPERADMIN').exists()) — se nao existir, promover manualmente 1 conta
+  via shell antes de considerar o deploy concluido.
+- RISCO: `editoresdesucessos@gmail.com` pode não existir em bancos de
+  teste/CI/homolog — a migration trata isso com `.first()` + `if`, não
+  deve quebrar `migrate` nesses ambientes (RN-06).
+- DEPENDÊNCIA: `UserSerializer` é consumida também por `UserProfileView`
+  (`GET/PATCH /api/v1/accounts/me/`) — adicionar `tem_acesso_total` não
+  quebra `PATCH` porque o campo é `read_only`, mas Sentinel deve
+  confirmar que o payload de `PATCH /me/` continua aceitando os mesmos
+  campos de antes.
+- DEPENDÊNCIA: `accounts/tests.py::UserViewSetTest` já teem casos
+  `test_list_por_nao_staff_403` / `test_create_por_nao_staff_403_zero_registros`
+  / `test_destroy_por_nao_staff_403` — nomes de teste ficam desatualizados
+  semanticamente (a checagem real agora é `tem_acesso_total`, não mais
+  só `is_staff`), mas o comportamento esperado (403) não muda — Forge
+  pode manter os nomes ou renomeá-los, não é bloqueante.
+```
 
 ---
 
-## 9. Observações para o Planner/Sentinel
+## Critérios de Aceite (para o Sentinel)
 
-- Esta especificação cobre **apenas a Fase 2** (módulo Compras). Fase 1 (`MovimentoEstoque` genérico) já está em produção e não é alterada — só reaproveitada via import direto (`produtos.services.fator_para_base`, `produtos.models.MovimentoEstoque`).
-- Ponto de atenção principal para o Forge: a extração de `estornar_despesa()` para `financeiro/services.py` (seção 6.3) **toca um endpoint já em produção** (`DespesaViewSet.estornar_despesa`) — rodar a suíte de testes de `financeiro` inteira antes e depois da extração para garantir 0 regressão de comportamento observável (mesmo status code, mesmo payload de resposta, mesmo efeito em `LivroCaixa`).
-- `compras` depende de `fornecedores`, `produtos` e `financeiro` — nenhum desses três apps deve precisar importar `compras` de volta (evitar dependência circular). Confirmar com `grep -rn "import compras\|from compras" backend/{fornecedores,produtos,financeiro}/` retornando vazio antes de considerar a Fase 2 concluída.
-- `Categoria.objects.filter(nome='Compra de Mercadoria', ...).first()` no signal (RF-07) pode retornar `None` se a migration de seed (RF-09) não tiver rodado ainda em algum ambiente — nesse caso a Despesa é criada com `categoria=None`, sem erro, mas sem categorização (`limit_choices_to` do campo é só validação de formulário, não bloqueia `create()` direto via ORM). Documentar isso no teste do signal para não ser surpresa depois.
+```
+CA-01 - PerfilUsuario.SUPERADMIN existe e aparece nas choices do campo
+        perfil do model User
+CA-02 - User(is_staff=False, perfil='OPERACIONAL').tem_acesso_total é False
+CA-03 - User(is_staff=False, perfil='ADMIN').tem_acesso_total é True
+CA-04 - User(is_staff=False, perfil='SUPERADMIN').tem_acesso_total é True
+CA-05 - User(is_staff=True, perfil='OPERACIONAL').tem_acesso_total é True
+        (retrocompatibilidade RN-01)
+CA-06 - Endpoints protegidos por IsAdmin (financeiro, pdv, rh, compras,
+        accounts/usuarios) continuam retornando 403 para usuario com
+        tem_acesso_total=False e 200/201 para tem_acesso_total=True,
+        via perfil OU via is_staff (testar as duas formas)
+CA-07 - GET /api/v1/pdv/sessoes/ por operador comum (tem_acesso_total=
+        False) retorna só as sessoes do proprio operador; por usuario
+        com tem_acesso_total=True retorna todas
+CA-08 - POST em ColaboradorViewSet com "criar acesso" por usuario sem
+        tem_acesso_total retorna PermissionDenied; com tem_acesso_total
+        (via perfil=ADMIN sem is_staff) funciona
+CA-09 - UserAdminSerializer não expõe mais o campo is_staff em nenhuma
+        resposta (GET/POST/PATCH em /api/v1/accounts/usuarios/); expõe
+        tem_acesso_total (read-only, calculado)
+CA-10 - UserSerializer (/api/v1/accounts/me/) expõe tem_acesso_total
+        calculado corretamente para o usuário logado
+CA-11 - POST/PATCH em /api/v1/accounts/usuarios/ tentando setar
+        perfil=SUPERADMIN por um solicitante com perfil != SUPERADMIN
+        retorna 400 com mensagem no campo perfil; nenhum registro é
+        alterado no banco
+CA-12 - POST/PATCH em /api/v1/accounts/usuarios/ tentando setar
+        perfil=SUPERADMIN por um solicitante com perfil=SUPERADMIN
+        funciona normalmente (200/201)
+CA-13 - PATCH ou DELETE em /api/v1/accounts/usuarios/{id}/ onde o
+        {id} é uma conta perfil=SUPERADMIN, feito por um solicitante
+        com perfil != SUPERADMIN (mesmo com tem_acesso_total=True via
+        ADMIN), retorna 403; nenhuma alteração persiste
+CA-14 - PATCH ou DELETE na mesma conta SUPERADMIN feito por outro
+        SUPERADMIN (ou pela própria conta) funciona normalmente
+CA-15 - Leitura (GET list e GET detail) de contas SUPERADMIN por um
+        ADMIN comum continua funcionando (RN-04 — só escrita é bloqueada)
+CA-16 - Migration 0004 aplicada: toda conta com is_staff=True AND
+        is_superuser=True antes da migration está com perfil=SUPERADMIN
+        depois
+CA-17 - Migration 0004 aplicada em base com editoresdesucessos@gmail.com
+        presente: essa conta fica com perfil=ADMIN e is_staff=False
+        após a migration
+CA-18 - Migration 0004 aplicada em base SEM editoresdesucessos@gmail.com
+        (ex.: ambiente de teste do Sentinel): migrate não falha, nenhum
+        erro/exception
+CA-19 - Frontend: Sidebar mostra itens staffOnly/marketingOnly
+        corretamente para usuário perfil=ADMIN sem is_staff, perfil=
+        SUPERADMIN sem is_staff, e perfil=OPERACIONAL com is_staff=True
+CA-20 - Frontend: rotas /compras e /usuarios (StaffRoute) e /marketing
+        (MarketingRoute) redirecionam corretamente para os mesmos 3
+        perfis de teste do CA-19
+CA-21 - Frontend: HistoricoVendas e RelatorioSessoesCaixa liberam as
+        ações/telas restritas a admin usando tem_acesso_total (mesmos
+        3 perfis de teste)
+CA-22 - Frontend: tela Usuarios sem checkbox "Administrador"; dropdown
+        Perfil com 4 opções (Admin, Operacional, Marketing, Superadmin);
+        coluna "Acesso total" refletindo o valor real vindo da API
+CA-23 - Frontend: editar o próprio usuário mudando perfil de ADMIN para
+        OPERACIONAL (usuário sem is_staff) dispara o aviso de
+        autobloqueio; mudar de ADMIN para MARKETING mantendo is_staff=
+        True (se aplicável) ou editar QUALQUER outro campo sem mexer no
+        perfil NÃO dispara o aviso indevidamente (fecha a regressão do
+        gap identificado no diagnóstico)
+CA-24 - npm run build limpo (0 erros) após as mudanças no frontend
+CA-25 - Testes Django cobrindo RF-01 a RF-13 e RN-01 a RN-06 (mínimo:
+        um teste por CA acima que envolva backend)
+```
+
+---
+
+## Passagem de bastão
+
+```
+✅ Solicitação classificada — UidCore (OS #7)
+   MANUTENCAO_ID: 60
+   tipo: melhoria_ux (hardening de RBAC — perfil SUPERADMIN + tem_acesso_total)
+   descricao_tecnica: introduz PerfilUsuario.SUPERADMIN, unifica toda
+     checagem de negócio de admin em User.tem_acesso_total (is_staff OR
+     perfil in ADMIN/SUPERADMIN), remove is_staff do serializer de
+     edição de usuários, bloqueia promoção/edição de contas SUPERADMIN
+     por não-SUPERADMIN, centraliza a mesma checagem no frontend
+     (authStore) e corrige 2 gaps encontrados no diagnóstico (coluna
+     "Admin" da listagem e aviso de autobloqueio em Usuarios.jsx que
+     quebrariam silenciosamente com a remoção do checkbox is_staff)
+   caminho_afetado: backend/accounts/{models,serializers,views}.py,
+     backend/common/permissions.py, backend/pdv/views.py (linha 74),
+     backend/rh/views.py (linha 61), migrations 0003/0004 de accounts,
+     frontend/src/stores/authStore.js, frontend/src/components/layout/
+     Sidebar.jsx, frontend/src/routes/index.jsx, frontend/src/pages/
+     Usuarios.jsx, frontend/src/pages/pdv/{HistoricoVendas,
+     RelatorioSessoesCaixa}.jsx
+   requer_aprovacao_comercial: false
+➡️  Planner: rotear para Forge (backend, itens 1-6 e 9) + Loom
+    (frontend, itens 7-8, incluindo os 2 gaps RF-11/RF-12/RN-05) em
+    paralelo. Sentinel valida os 25 critérios de aceite acima — atenção
+    especial a CA-16/CA-17/CA-18 (migration de dado idempotente e
+    segura em base sem a conta específica) antes do Pilot.
+```
