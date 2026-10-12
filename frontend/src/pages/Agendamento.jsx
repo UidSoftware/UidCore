@@ -84,16 +84,31 @@ export default function Agendamento() {
           titleField="nome"
           columns={[
             { key: 'nome', label: 'Nome' },
+            { key: 'profissional_nome', label: 'Profissional' },
             { key: 'cor', label: 'Cor' },
             { key: 'ativo', label: 'Ativa', boolean: true },
           ]}
           fields={[
             { name: 'nome', label: 'Nome', type: 'text' },
+            {
+              name: 'profissional',
+              label: 'Profissional responsável',
+              type: 'select-remote',
+              endpoint: 'accounts/usuarios',
+              labelField: 'nome_completo',
+              // Backend (accounts.UserViewSet) ainda nao filtra por
+              // querystring — manda o param mesmo assim (inofensivo, e
+              // fica pronto pro dia que o Forge adicionar filterset_fields)
+              // e filtra no cliente pelo campo 'perfil' que a API ja
+              // retorna hoje (UserAdminSerializer) — Manutencao 63 [NUCLEO 2/5].
+              params: { perfil: 'PROFISSIONAL' },
+              filterOptions: (u) => u.perfil === 'PROFISSIONAL',
+            },
             { name: 'cor', label: 'Cor (hex)', type: 'text', placeholder: '#3B82F6' },
             { name: 'descricao', label: 'Descrição', type: 'textarea' },
             { name: 'ativo', label: 'Ativa', type: 'checkbox' },
           ]}
-          emptyForm={{ nome: '', cor: '#3B82F6', descricao: '', ativo: true }}
+          emptyForm={{ nome: '', profissional: '', cor: '#3B82F6', descricao: '', ativo: true }}
         />
       )}
 

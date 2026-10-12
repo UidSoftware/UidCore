@@ -90,8 +90,13 @@ export default function ResourceCrud({
     const remoteFields = fields.filter((f) => f.type === 'select-remote')
     remoteFields.forEach(async (f) => {
       try {
-        const response = await api.get(`/${f.endpoint}/`, { params: { page_size: 200 } })
-        setRemoteOptions((prev) => ({ ...prev, [f.name]: response.data.results }))
+        // f.params (opcional): query params extras mandados pro endpoint
+        // (ex.: ?perfil=PROFISSIONAL). f.filterOptions (opcional): filtro
+        // client-side aplicado depois da resposta, pro caso do endpoint
+        // nao suportar o filtro via query param (Manutencao 63).
+        const response = await api.get(`/${f.endpoint}/`, { params: { page_size: 200, ...f.params } })
+        const results = f.filterOptions ? response.data.results.filter(f.filterOptions) : response.data.results
+        setRemoteOptions((prev) => ({ ...prev, [f.name]: results }))
       } catch {
         setRemoteOptions((prev) => ({ ...prev, [f.name]: [] }))
       }
