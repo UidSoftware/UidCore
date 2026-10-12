@@ -8,6 +8,7 @@ import Input from '../components/ui/Input.jsx'
 import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
+import AuditFooter from '../components/ui/AuditFooter.jsx'
 
 const PAGE_SIZE = 20
 const TABS = [
@@ -661,6 +662,7 @@ function ReceitasTab({ showToast, contasOptions }) {
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
               <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>
@@ -865,6 +867,7 @@ function DespesasTab({ showToast, contasOptions }) {
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500" />
             </div>
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
               <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>
@@ -1046,6 +1049,7 @@ function ContasTab({ showToast }) {
               <Input label="Número" name="numero" value={form.numero} onChange={handleChange} />
             </div>
             <Input label="Saldo Inicial (R$)" name="saldo_inicial" type="number" step="0.01" value={form.saldo_inicial} onChange={handleChange} />
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
               <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>

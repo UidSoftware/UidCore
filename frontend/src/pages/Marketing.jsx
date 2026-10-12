@@ -9,6 +9,7 @@ import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
 import Loading from '../components/ui/Loading.jsx'
+import AuditFooter from '../components/ui/AuditFooter.jsx'
 
 const PAGE_SIZE = 12
 
@@ -258,6 +259,7 @@ function CampanhasTab({ showToast }) {
             {erroData && <p className="text-xs text-red-600 dark:text-red-400 -mt-2">{erroData}</p>}
             <Input label="Orçamento (R$)" name="orcamento" type="number" step="0.01" min="0" value={form.orcamento} onChange={handleChange} />
             <Select label="Status" name="status" options={STATUS_CAMPANHA_OPTIONS} value={form.status} onChange={handleChange} required />
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
               <Button type="submit" loading={saving}>Salvar</Button>
@@ -614,6 +616,7 @@ function LeadsTab({ showToast }) {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
               />
             </div>
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
               <Button type="submit" loading={saving}>Salvar</Button>

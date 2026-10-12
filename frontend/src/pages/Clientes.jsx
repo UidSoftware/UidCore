@@ -8,6 +8,7 @@ import Input from '../components/ui/Input.jsx'
 import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
+import AuditFooter from '../components/ui/AuditFooter.jsx'
 
 const PAGE_SIZE = 10
 
@@ -691,6 +692,8 @@ export default function Clientes() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500 transition-colors duration-150"
               />
             </div>
+
+            {editingId && <AuditFooter item={clientes.find((c) => c.id === editingId)} />}
 
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>

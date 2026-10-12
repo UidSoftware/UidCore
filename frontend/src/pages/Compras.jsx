@@ -8,6 +8,7 @@ import Input from '../components/ui/Input.jsx'
 import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
+import AuditFooter from '../components/ui/AuditFooter.jsx'
 
 const PAGE_SIZE = 10
 
@@ -699,6 +700,8 @@ export default function Compras() {
               Despesa vinculada: #{detalheItem.despesa} — ver em Financeiro
             </p>
           )}
+
+          <AuditFooter item={detalheItem} />
         </Modal>
       )}
     </div>

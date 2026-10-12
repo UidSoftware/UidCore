@@ -11,6 +11,7 @@ import Input from '../components/ui/Input.jsx'
 import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
+import AuditFooter from '../components/ui/AuditFooter.jsx'
 
 const PAGE_SIZE = 20
 
@@ -660,6 +661,7 @@ function PadroesTab({ showToast }) {
                 <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">Aplicável apenas para Tipo = Entrada</p>
               )}
             </div>
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
               <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>

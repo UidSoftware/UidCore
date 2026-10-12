@@ -8,6 +8,7 @@ import Input from './Input.jsx'
 import Select from './Select.jsx'
 import Modal from './Modal.jsx'
 import Pagination from './Pagination.jsx'
+import AuditFooter from './AuditFooter.jsx'
 
 const PAGE_SIZE = 10
 
@@ -434,6 +435,7 @@ export default function ResourceCrud({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {visibleFields.map((f) => renderField(f))}
             </div>
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>
                 Cancelar

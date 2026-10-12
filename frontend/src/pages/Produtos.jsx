@@ -8,6 +8,7 @@ import Input from '../components/ui/Input.jsx'
 import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
+import AuditFooter from '../components/ui/AuditFooter.jsx'
 
 const PAGE_SIZE = 10
 
@@ -1158,6 +1159,8 @@ export default function Produtos() {
               />
             </div>
 
+            {editingId && <AuditFooter item={produtos.find((p) => p.id === editingId)} />}
+
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeModal}>
                 Cancelar
@@ -1280,6 +1283,8 @@ export default function Produtos() {
                 </div>
               )}
             </div>
+
+            {editingComboId && <AuditFooter item={combos.find((c) => c.id === editingComboId)} />}
 
             <div className="flex justify-end gap-3 pt-2">
               <Button type="button" variant="secondary" onClick={closeComboModal}>
