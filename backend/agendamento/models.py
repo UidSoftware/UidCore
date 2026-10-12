@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import models
 
 from common.models import BaseModel
@@ -41,10 +40,6 @@ class Compromisso(BaseModel):
         max_length=10, choices=StatusCompromisso.choices, default='AGENDADO',
     )
     observacoes = models.TextField(blank=True)
-    criado_por  = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'age_compromisso'

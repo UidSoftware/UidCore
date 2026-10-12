@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
+
 from .models import Campanha, Lead, StatusLead
 
 
-class CampanhaSerializer(serializers.ModelSerializer):
+class CampanhaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     canal_display = serializers.CharField(source='get_canal_display', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
@@ -13,12 +15,12 @@ class CampanhaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'nome', 'canal', 'canal_display', 'data_inicio', 'data_fim',
             'orcamento', 'status', 'status_display', 'is_active',
-            'created_at', 'updated_at',
+            'created_at', 'updated_at', 'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['created_at', 'updated_at']
 
 
-class LeadSerializer(serializers.ModelSerializer):
+class LeadSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     campanha_nome = serializers.CharField(source='campanha.nome', read_only=True, default=None)
@@ -33,6 +35,7 @@ class LeadSerializer(serializers.ModelSerializer):
             'observacoes', 'status', 'status_display',
             'cliente_convertido', 'cliente_convertido_nome',
             'is_active', 'created_at', 'updated_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['cliente_convertido', 'created_at', 'updated_at']
 

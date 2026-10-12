@@ -9,6 +9,7 @@ from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
 from clientes.models import Cliente
+from common.mixins import AuditMixin
 from common.permissions import IsAdmin, IsMarketing
 from vendas.models import Pedido
 
@@ -16,7 +17,7 @@ from .models import Campanha, Lead, StatusLead
 from .serializers import CampanhaSerializer, LeadSerializer
 
 
-class CampanhaViewSet(viewsets.ModelViewSet):
+class CampanhaViewSet(AuditMixin, viewsets.ModelViewSet):
     serializer_class = CampanhaSerializer
     permission_classes = [IsAdmin | IsMarketing]
     filter_backends = [DjangoFilterBackend, SearchFilter]
@@ -25,12 +26,6 @@ class CampanhaViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return Campanha.objects.filter(is_active=True)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get'], url_path='roi')
     def roi(self, request, pk=None):
@@ -70,7 +65,7 @@ class CampanhaViewSet(viewsets.ModelViewSet):
         })
 
 
-class LeadViewSet(viewsets.ModelViewSet):
+class LeadViewSet(AuditMixin, viewsets.ModelViewSet):
     serializer_class = LeadSerializer
     permission_classes = [IsAdmin | IsMarketing]
     filter_backends = [DjangoFilterBackend, SearchFilter]
@@ -81,12 +76,6 @@ class LeadViewSet(viewsets.ModelViewSet):
         # RN07 — lead antigo continua visivel mesmo se a campanha for
         # arquivada depois (queryset nao filtra por campanha.is_active).
         return Lead.objects.filter(is_active=True)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'], url_path='converter')
     def converter(self, request, pk=None):

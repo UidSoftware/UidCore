@@ -1,6 +1,5 @@
 from decimal import Decimal
 
-from django.conf import settings
 from django.db import models
 
 from common.models import BaseModel
@@ -129,10 +128,6 @@ class MovimentoEstoque(BaseModel):
         help_text='Funciona como "motivo" do movimento — obrigatório '
                    'para todo tipo exceto ENTRADA/ENTRADA_INICIAL (RN-02).',
     )
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'prd_movimento_estoque'
@@ -173,10 +168,6 @@ class MovimentoEstoque(BaseModel):
 class Combo(BaseModel):
     nome = models.CharField('nome', max_length=200)
     descricao = models.TextField('descrição', blank=True, default='')
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='combos_criados',
-    )
 
     class Meta:
         db_table = 'prd_combo'
@@ -192,11 +183,12 @@ class Combo(BaseModel):
         return self.nome
 
 
-class ItemCombo(models.Model):
-    # Sem BaseModel proposital: item filho de Combo, ciclo de vida
-    # atrelado 1:1 ao pai (delete-and-recreate no update — RN-04);
-    # não precisa de is_active/soft delete próprio, mesma decisão da
-    # origem (SystemD ItemCombo também não herda soft delete próprio).
+class ItemCombo(BaseModel):
+    # Herda BaseModel (Manutencao 62 — auditoria) apenas por consistencia
+    # de schema: item filho de Combo, ciclo de vida atrelado 1:1 ao pai
+    # (delete-and-recreate no update — RN-04). Sem ViewSet/acao propria —
+    # created_by/updated_by ficam null (nao preenchidos automaticamente,
+    # fora de escopo desta manutencao).
     combo = models.ForeignKey(Combo, on_delete=models.CASCADE, related_name='itens')
     produto = models.ForeignKey(Produto, on_delete=models.PROTECT, related_name='combo_itens')
     quantidade = models.DecimalField('quantidade', max_digits=12, decimal_places=3, default=1)

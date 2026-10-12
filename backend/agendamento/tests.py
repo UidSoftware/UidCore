@@ -100,5 +100,39 @@ class AgendaAPITest(APITestCase):
 
         resp = self.client.delete(f'/api/v1/agendamento/agendas/{agenda_id}/')
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
-        agenda = Agenda.objects.get(pk=agenda_id)
+        # Manutencao 62: manager padrao (objects) filtra deleted_at — usar
+        # all_objects pra confirmar soft delete (registro continua no banco).
+        agenda = Agenda.all_objects.get(pk=agenda_id)
         self.assertFalse(agenda.is_active)
+        self.assertIsNotNone(agenda.deleted_at)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_agenda(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/agendamento/agendas/', {'nome': 'Agenda Auditoria'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        agenda_id = resp.data['id']
+        agenda = Agenda.objects.get(pk=agenda_id)
+        self.assertEqual(agenda.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/agendamento/agendas/{agenda_id}/', {'cor': '#00FF00'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        agenda.refresh_from_db()
+        self.assertEqual(agenda.updated_by, user_b)
+        self.assertEqual(agenda.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/agendamento/agendas/{agenda_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        agenda = Agenda.all_objects.get(pk=agenda_id)
+        self.assertEqual(agenda.deleted_by, user_c)
+        self.assertIsNotNone(agenda.deleted_at)
+        self.assertFalse(Agenda.objects.filter(pk=agenda_id).exists())

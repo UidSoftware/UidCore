@@ -20,10 +20,6 @@ class Conta(BaseModel):
     agencia = models.CharField(max_length=20, blank=True)
     numero = models.CharField(max_length=30, blank=True)
     saldo_inicial = models.DecimalField(max_digits=12, decimal_places=2, default=0)
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'fin_conta'
@@ -48,10 +44,6 @@ class Aporte(BaseModel):
     data = models.DateField(null=True, blank=True)
     responsavel = models.CharField(max_length=150, blank=True)
     observacoes = models.TextField(blank=True)
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'fin_aporte'
@@ -118,10 +110,6 @@ class Receita(BaseModel):
     estornado = models.BooleanField(default=False)
     data_estorno = models.DateField(null=True, blank=True)
     motivo_estorno = models.TextField(blank=True)
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'fin_receita'
@@ -161,10 +149,6 @@ class EstornoReceita(BaseModel):
     item_venda = models.ForeignKey(
         'pdv.ItemVenda', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='estornos',
-    )
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
     )
 
     class Meta:
@@ -228,10 +212,6 @@ class Despesa(BaseModel):
     estornado = models.BooleanField(default=False)
     data_estorno = models.DateField(null=True, blank=True)
     motivo_estorno = models.TextField(blank=True)
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'fin_despesa'
@@ -270,7 +250,7 @@ class LivroCaixa(models.Model):
     saldo_anterior = models.DecimalField(max_digits=12, decimal_places=2)
     saldo_atual = models.DecimalField(max_digits=12, decimal_places=2)
     criado_em = models.DateTimeField(auto_now_add=True)
-    criado_por = models.ForeignKey(
+    created_by = models.ForeignKey(  # era criado_por (Manutencao 62 — consistencia de nomenclatura)
         settings.AUTH_USER_MODEL, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='+',
     )
@@ -307,10 +287,6 @@ class ConciliacaoExtrato(BaseModel):
     total_banco   = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     total_sistema = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     divergencias  = models.IntegerField(default=0)
-    criado_por    = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'fin_conciliacao_extrato'
@@ -362,10 +338,6 @@ class PadraoSeguroConciliacao(BaseModel):
         choices=NaturezaPadraoConciliacao.choices,
         default='APORTE',
         help_text='Apenas para tipo=ENTRADA: APORTE vai para PL; RECEITA_FINANCEIRA entra no DRE.',
-    )
-    criado_por       = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
     )
 
     class Meta:

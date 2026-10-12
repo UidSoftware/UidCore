@@ -8,6 +8,8 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
+
 from .models import (
     ItemVenda,
     MovimentoCaixa,
@@ -22,7 +24,7 @@ from .models import (
 # MovimentoCaixa
 # ---------------------------------------------------------------------------
 
-class MovimentoCaixaSerializer(serializers.ModelSerializer):
+class MovimentoCaixaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     tipo_label = serializers.CharField(source='get_tipo_display', read_only=True)
     operador_nome = serializers.CharField(source='operador.nome_completo', read_only=True)
@@ -32,6 +34,7 @@ class MovimentoCaixaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sessao', 'tipo', 'tipo_label', 'valor', 'motivo',
             'operador', 'operador_nome', 'data_hora', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['data_hora', 'created_at']
 
@@ -40,7 +43,7 @@ class MovimentoCaixaSerializer(serializers.ModelSerializer):
 # SessaoCaixa
 # ---------------------------------------------------------------------------
 
-class SessaoCaixaSerializer(serializers.ModelSerializer):
+class SessaoCaixaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
@@ -56,6 +59,7 @@ class SessaoCaixaSerializer(serializers.ModelSerializer):
             'valor_fechamento_informado', 'valor_fechamento_calculado',
             'diferenca', 'status', 'status_label', 'observacoes',
             'movimentos', 'resumo', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = [
             'data_abertura', 'data_fechamento',
@@ -92,7 +96,7 @@ class MovimentoSerializer(serializers.Serializer):
 # ItemVenda
 # ---------------------------------------------------------------------------
 
-class ItemVendaSerializer(serializers.ModelSerializer):
+class ItemVendaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     produto_nome = serializers.CharField(source='produto.nome', read_only=True)
     produto_codigo_barras = serializers.CharField(source='produto.codigo_barras', read_only=True)
@@ -103,6 +107,7 @@ class ItemVendaSerializer(serializers.ModelSerializer):
             'id', 'venda', 'produto', 'produto_nome', 'produto_codigo_barras',
             'quantidade', 'unidade', 'valor_unitario', 'desconto_item',
             'valor_total', 'quantidade_estornada', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['valor_unitario', 'valor_total', 'quantidade_estornada', 'created_at']
 
@@ -129,7 +134,7 @@ class DevolverItemSerializer(serializers.Serializer):
 # PagamentoVenda
 # ---------------------------------------------------------------------------
 
-class PagamentoVendaSerializer(serializers.ModelSerializer):
+class PagamentoVendaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     metodo_nome = serializers.CharField(source='metodo.get_nome_display', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
@@ -139,6 +144,7 @@ class PagamentoVendaSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'venda', 'metodo', 'metodo_nome', 'valor',
             'conta', 'conta_nome', 'receita', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['receita', 'created_at']
 
@@ -175,7 +181,7 @@ class CancelarVendaSerializer(serializers.Serializer):
 # Venda
 # ---------------------------------------------------------------------------
 
-class VendaSerializer(serializers.ModelSerializer):
+class VendaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
     cliente_nome = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
@@ -195,6 +201,7 @@ class VendaSerializer(serializers.ModelSerializer):
             'data_hora', 'cancelada_em', 'motivo_cancelamento',
             'itens', 'pagamentos',
             'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = [
             'numero', 'valor_total', 'subtotal', 'data_hora',
@@ -206,7 +213,7 @@ class VendaSerializer(serializers.ModelSerializer):
 # RecebivelCartao
 # ---------------------------------------------------------------------------
 
-class RecebivelCartaoSerializer(serializers.ModelSerializer):
+class RecebivelCartaoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
 
@@ -218,6 +225,7 @@ class RecebivelCartaoSerializer(serializers.ModelSerializer):
             'data_prevista_liquidacao', 'data_liquidacao',
             'status', 'status_label',
             'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = [
             'valor_liquido_previsto', 'data_liquidacao',

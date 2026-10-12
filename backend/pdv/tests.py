@@ -885,3 +885,57 @@ class SessaoCaixaGetQuerysetTemAcessoTotalTest(TestCase):
             set(qs.values_list('operador_id', flat=True)),
             {self.operador_comum.id, self.admin_via_perfil.id},
         )
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at
+    nos dois recursos de topo do PDV (SessaoCaixa so cria — RF-01/02 nao
+    expoe PATCH/DELETE; Venda cobre create/update/destroy completo)."""
+
+    def setUp(self):
+        self.conta_a = _criar_conta('Caixa Auditoria A')
+        self.conta_b = _criar_conta('Caixa Auditoria B')
+        self.cliente = _criar_cliente('Cliente Auditoria PDV')
+
+    def test_criar_sessao_grava_created_by(self):
+        user_a = _criar_usuario(email='a62pdv@teste.com')
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/pdv/sessoes/', {
+            'conta': self.conta_a.id, 'valor_abertura': '50.00',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        sessao = SessaoCaixa.objects.get(pk=resp.data['id'])
+        self.assertEqual(sessao.created_by, user_a)
+
+    def test_ciclo_completo_auditoria_venda(self):
+        user_a = _criar_usuario(email='b62pdv@teste.com')
+        user_b = _criar_usuario(email='c62pdv@teste.com')
+        user_c = _criar_usuario(email='d62pdv@teste.com')
+
+        # user_a precisa de sessao ABERTA propria pra abrir uma Venda
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/pdv/sessoes/', {
+            'conta': self.conta_b.id, 'valor_abertura': '0',
+        })
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        resp = self.client.post('/api/v1/pdv/vendas/', {})
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        venda_id = resp.data['id']
+        venda = Venda.objects.get(pk=venda_id)
+        self.assertEqual(venda.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/pdv/vendas/{venda_id}/', {'cliente': self.cliente.id})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        venda.refresh_from_db()
+        self.assertEqual(venda.updated_by, user_b)
+        self.assertEqual(venda.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/pdv/vendas/{venda_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        venda = Venda.all_objects.get(pk=venda_id)
+        self.assertEqual(venda.deleted_by, user_c)
+        self.assertIsNotNone(venda.deleted_at)
+        self.assertFalse(Venda.objects.filter(pk=venda_id).exists())

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from .validators import validar_documento
 
@@ -13,10 +14,31 @@ UF_CHOICES = [
 ]
 
 
+class BaseModelManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(deleted_at__isnull=True)
+
+
 class BaseModel(models.Model):
     created_at = models.DateTimeField('criado em', auto_now_add=True)
     updated_at = models.DateTimeField('atualizado em', auto_now=True)
     is_active = models.BooleanField('ativo', default=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name='criado por',
+        null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name='atualizado por',
+        null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name='excluído por',
+        null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
+    )
+    deleted_at = models.DateTimeField('excluído em', null=True, blank=True)
+
+    objects = BaseModelManager()
+    all_objects = models.Manager()
 
     class Meta:
         abstract = True

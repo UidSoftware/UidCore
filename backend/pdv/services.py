@@ -128,7 +128,7 @@ def _criar_receita_a_vista(venda, pagamento, usuario):
         conta=pagamento.conta,
         status='RECEBIDO',
         recebimento=date.today(),
-        criado_por=usuario,
+        created_by=usuario,
     )
 
 
@@ -156,7 +156,7 @@ def _criar_receita_cartao(venda, pagamento, dados, usuario):
         conta=pagamento.conta,
         status='PENDENTE',
         vencimento=data_prevista,
-        criado_por=usuario,
+        created_by=usuario,
     )
     RecebivelCartao.objects.create(
         pagamento=pagamento,
@@ -165,7 +165,7 @@ def _criar_receita_cartao(venda, pagamento, dados, usuario):
         valor_bruto=valor_bruto,
         valor_liquido_previsto=receita.valor_liquido,
         data_prevista_liquidacao=data_prevista,
-        criado_por=usuario,
+        created_by=usuario,
     )
     return receita
 
@@ -216,6 +216,7 @@ def abrir_sessao(conta_id, valor_abertura, usuario):
             operador=usuario,
             valor_abertura=valor_abertura or Decimal('0'),
             status=StatusSessaoCaixa.ABERTA,
+            created_by=usuario,
         )
 
     return sessao

@@ -31,7 +31,7 @@ def _reconstruir_cadeia(conta):
     LivroCaixa.objects.bulk_update(lancamentos, ['saldo_anterior', 'saldo_atual'])
 
 
-def _gerar_lancamento(conta, tipo, origem, origem_id, descricao, valor, data, criado_por=None):
+def _gerar_lancamento(conta, tipo, origem, origem_id, descricao, valor, data, created_by=None):
     with transaction.atomic():
         with connection.cursor() as cursor:
             cursor.execute('SELECT pg_advisory_xact_lock(%s)', [conta.id])
@@ -63,7 +63,7 @@ def _gerar_lancamento(conta, tipo, origem, origem_id, descricao, valor, data, cr
             data=data,
             saldo_anterior=saldo_anterior,
             saldo_atual=saldo_atual,
-            criado_por=criado_por,
+            created_by=created_by,
         )
 
         _reconstruir_cadeia(conta)
@@ -81,7 +81,7 @@ def aporte_para_livro_caixa(sender, instance, created, **kwargs):
         descricao=f'Aporte: {instance.descricao}',
         valor=instance.valor,
         data=instance.data,
-        criado_por=instance.criado_por,
+        created_by=instance.created_by,
     )
 
 
@@ -97,7 +97,7 @@ def receita_para_livro_caixa(sender, instance, **kwargs):
         descricao=instance.descricao,
         valor=instance.valor_liquido,
         data=instance.recebimento,
-        criado_por=instance.criado_por,
+        created_by=instance.created_by,
     )
 
 
@@ -113,5 +113,5 @@ def despesa_para_livro_caixa(sender, instance, **kwargs):
         descricao=instance.descricao,
         valor=instance.valor_liquido,
         data=instance.pagamento,
-        criado_por=instance.criado_por,
+        created_by=instance.created_by,
     )

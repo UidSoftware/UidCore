@@ -88,3 +88,34 @@ class AcionistaFornecedorAPITest(APITestCase):
         self.assertIn('cpf', resp.data)
         self.assertIn('cnpj', resp.data)
         self.assertIn('acionistas', resp.data)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_fornecedor(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/fornecedores/', {'nome_razao_social': 'Fornecedor Auditoria'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        forn_id = resp.data['id']
+        forn = Fornecedor.objects.get(pk=forn_id)
+        self.assertEqual(forn.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/fornecedores/{forn_id}/', {'website': 'https://exemplo.com'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        forn.refresh_from_db()
+        self.assertEqual(forn.updated_by, user_b)
+        self.assertEqual(forn.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/fornecedores/{forn_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        forn = Fornecedor.all_objects.get(pk=forn_id)
+        self.assertEqual(forn.deleted_by, user_c)
+        self.assertIsNotNone(forn.deleted_at)
+        self.assertFalse(Fornecedor.objects.filter(pk=forn_id).exists())

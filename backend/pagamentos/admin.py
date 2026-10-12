@@ -1,16 +1,18 @@
 from django.contrib import admin
 
+from common.admin import AuditModelAdmin
+
 from .models import Cobranca, MetodoPagamento, Parcela
 
 
 @admin.register(MetodoPagamento)
-class MetodoPagamentoAdmin(admin.ModelAdmin):
+class MetodoPagamentoAdmin(AuditModelAdmin):
     list_display = ['nome', 'is_active']
     list_filter = ['is_active']
 
 
 @admin.register(Cobranca)
-class CobrancaAdmin(admin.ModelAdmin):
+class CobrancaAdmin(AuditModelAdmin):
     list_display = ['descricao', 'cliente', 'valor', 'vencimento', 'status', 'is_active']
     list_filter = ['status', 'is_active']
     search_fields = ['descricao']
@@ -18,6 +20,6 @@ class CobrancaAdmin(admin.ModelAdmin):
 
 
 @admin.register(Parcela)
-class ParcelaAdmin(admin.ModelAdmin):
+class ParcelaAdmin(AuditModelAdmin):
     list_display = ['cobranca', 'numero', 'valor', 'vencimento', 'status']
     list_filter = ['status', 'is_active']

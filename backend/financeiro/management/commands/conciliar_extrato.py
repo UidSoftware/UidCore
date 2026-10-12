@@ -77,7 +77,7 @@ class Command(BaseCommand):
             transacoes_banco=transacoes_banco,
             periodo=periodo,
             arquivo_nome=Path(arquivo).name,
-            criado_por=None,
+            created_by=None,
             auto=auto,
             log=self.stdout.write,
         )

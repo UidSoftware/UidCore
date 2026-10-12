@@ -71,3 +71,40 @@ class AcessoPortalClienteAPITest(APITestCase):
         self.client.force_authenticate(user=None)
         resp = self.client.get('/api/v1/portal/acessos/')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_acesso_portal(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+        cliente = _make_cliente()
+        usuario_portal = User.objects.create_user(
+            email='portal62@teste.com', password='senha123', nome_completo='Usuario Portal 62',
+        )
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/portal/acessos/', {
+            'usuario': usuario_portal.id, 'cliente': cliente.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        acesso_id = resp.data['id']
+        acesso = AcessoPortalCliente.objects.get(pk=acesso_id)
+        self.assertEqual(acesso.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/portal/acessos/{acesso_id}/', {'ultimo_acesso': '2026-10-12T10:00:00Z'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        acesso.refresh_from_db()
+        self.assertEqual(acesso.updated_by, user_b)
+        self.assertEqual(acesso.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/portal/acessos/{acesso_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        acesso = AcessoPortalCliente.all_objects.get(pk=acesso_id)
+        self.assertEqual(acesso.deleted_by, user_c)
+        self.assertIsNotNone(acesso.deleted_at)
+        self.assertFalse(AcessoPortalCliente.objects.filter(pk=acesso_id).exists())

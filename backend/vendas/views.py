@@ -5,11 +5,13 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
+from common.mixins import AuditMixin
+
 from .models import ItemOrcamento, ItemPedido, Orcamento, Pedido
 from .serializers import ItemOrcamentoSerializer, ItemPedidoSerializer, OrcamentoSerializer, PedidoSerializer
 
 
-class OrcamentoViewSet(ModelViewSet):
+class OrcamentoViewSet(AuditMixin, ModelViewSet):
     serializer_class = OrcamentoSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'cliente']
@@ -23,15 +25,6 @@ class OrcamentoViewSet(ModelViewSet):
             .prefetch_related('itens__produto')
             .order_by('-created_at')
         )
-
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get', 'post'], url_path='itens')
     def itens(self, request, pk=None):
@@ -61,7 +54,7 @@ class OrcamentoViewSet(ModelViewSet):
         return Response(serializer.data)
 
 
-class PedidoViewSet(ModelViewSet):
+class PedidoViewSet(AuditMixin, ModelViewSet):
     serializer_class = PedidoSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'cliente']
@@ -75,15 +68,6 @@ class PedidoViewSet(ModelViewSet):
             .prefetch_related('itens__produto')
             .order_by('-created_at')
         )
-
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get', 'post'], url_path='itens')
     def itens(self, request, pk=None):
@@ -113,14 +97,8 @@ class PedidoViewSet(ModelViewSet):
         return Response(serializer.data)
 
 
-class ItemPedidoViewSet(ModelViewSet):
+class ItemPedidoViewSet(AuditMixin, ModelViewSet):
     queryset = ItemPedido.objects.filter(is_active=True).select_related('pedido').order_by('id')
     serializer_class = ItemPedidoSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['pedido']
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)

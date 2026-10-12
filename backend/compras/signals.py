@@ -42,7 +42,7 @@ def compra_sincroniza_despesa(sender, instance, created, **kwargs):
             vencimento=instance.data_emissao,
             pagamento=instance.data_emissao if instance.status == 'PAGO' else None,
             observacoes=instance.observacoes,
-            criado_por=instance.criado_por,
+            created_by=instance.created_by,
         )
         # update() de queryset nao dispara post_save de novo (evita loop) —
         # mesmo truque ja usado em ProdutoSerializer.create() da Fase 1.

@@ -21,6 +21,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 
+from common.mixins import AuditMixin
 from common.permissions import IsAdmin
 
 from produtos.models import Produto, UnidadeBase
@@ -54,7 +55,7 @@ from .services import (
 # SessaoCaixaViewSet
 # ---------------------------------------------------------------------------
 
-class SessaoCaixaViewSet(ModelViewSet):
+class SessaoCaixaViewSet(AuditMixin, ModelViewSet):
     """
     Gerencia sessões de caixa.
 
@@ -122,6 +123,7 @@ class SessaoCaixaViewSet(ModelViewSet):
             valor=d['valor'],
             motivo=d['motivo'],
             operador=request.user,
+            created_by=request.user,
         )
         return Response(
             MovimentoCaixaSerializer(mov).data,
@@ -144,18 +146,12 @@ class SessaoCaixaViewSet(ModelViewSet):
         )
         return Response(SessaoCaixaSerializer(sessao).data)
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
 
 # ---------------------------------------------------------------------------
 # VendaViewSet
 # ---------------------------------------------------------------------------
 
-class VendaViewSet(ModelViewSet):
+class VendaViewSet(AuditMixin, ModelViewSet):
     """
     Gerencia vendas do PDV.
 
@@ -225,6 +221,7 @@ class VendaViewSet(ModelViewSet):
             sessao_caixa=sessao,
             operador=request.user,
             cliente_id=cliente_id,
+            created_by=request.user,
         )
         return Response(
             VendaSerializer(venda).data,
@@ -404,9 +401,3 @@ class VendaViewSet(ModelViewSet):
             usuario=request.user,
         )
         return Response(ItemVendaSerializer(item).data)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)

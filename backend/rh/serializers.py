@@ -1,18 +1,20 @@
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
+
 from .models import Cargo, Colaborador, FolhaPagamento, RegistroFerias
 
 
-class CargoSerializer(serializers.ModelSerializer):
+class CargoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
 
     class Meta:
         model = Cargo
-        fields = ['id', 'nome', 'descricao', 'salario_base', 'is_active', 'created_at']
+        fields = ['id', 'nome', 'descricao', 'salario_base', 'is_active', 'created_at', 'created_by_nome', 'updated_by_nome']
         read_only_fields = ['id', 'created_at']
 
 
-class ColaboradorSerializer(serializers.ModelSerializer):
+class ColaboradorSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id           = serializers.IntegerField(source='pk', read_only=True)
     cargo_nome   = serializers.CharField(source='cargo.nome', read_only=True)
     regime_label = serializers.CharField(source='get_regime_display', read_only=True)
@@ -25,7 +27,7 @@ class ColaboradorSerializer(serializers.ModelSerializer):
             'id', 'nome', 'cpf', 'email', 'cargo', 'cargo_nome',
             'data_admissao', 'data_demissao', 'salario_atual',
             'regime', 'regime_label', 'observacoes', 'is_active', 'created_at',
-            'tem_acesso', 'usuario_email',
+            'tem_acesso', 'usuario_email', 'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['id', 'cargo_nome', 'regime_label', 'created_at', 'tem_acesso', 'usuario_email']
 
@@ -33,7 +35,7 @@ class ColaboradorSerializer(serializers.ModelSerializer):
         return obj.usuario_id is not None
 
 
-class FolhaPagamentoSerializer(serializers.ModelSerializer):
+class FolhaPagamentoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id               = serializers.IntegerField(source='pk', read_only=True)
     colaborador_nome = serializers.CharField(source='colaborador.nome', read_only=True)
     status_label     = serializers.CharField(source='get_status_display', read_only=True)
@@ -44,11 +46,12 @@ class FolhaPagamentoSerializer(serializers.ModelSerializer):
             'id', 'colaborador', 'colaborador_nome', 'mes_referencia',
             'salario_bruto', 'descontos', 'salario_liquido',
             'status', 'status_label', 'observacoes', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['id', 'colaborador_nome', 'salario_liquido', 'status_label', 'created_at']
 
 
-class RegistroFeriasSerializer(serializers.ModelSerializer):
+class RegistroFeriasSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id               = serializers.IntegerField(source='pk', read_only=True)
     colaborador_nome = serializers.CharField(source='colaborador.nome', read_only=True)
     status_label     = serializers.CharField(source='get_status_display', read_only=True)
@@ -58,5 +61,6 @@ class RegistroFeriasSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'colaborador', 'colaborador_nome', 'data_inicio', 'data_fim',
             'dias', 'status', 'status_label', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['id', 'colaborador_nome', 'dias', 'status_label', 'created_at']

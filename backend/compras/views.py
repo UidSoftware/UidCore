@@ -8,6 +8,7 @@ from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
+from common.mixins import AuditMixin
 from common.permissions import IsAdmin
 from produtos.models import MovimentoEstoque, TipoMovimento
 
@@ -15,7 +16,7 @@ from .models import Compra, StatusCompra
 from .serializers import CompraSerializer, CompraStatusUpdateSerializer
 
 
-class CompraViewSet(ModelViewSet):
+class CompraViewSet(AuditMixin, ModelViewSet):
     queryset = (
         Compra.objects.filter(is_active=True)
         .select_related('fornecedor', 'conta', 'despesa')
@@ -34,13 +35,6 @@ class CompraViewSet(ModelViewSet):
         if self.request.method == 'PATCH':
             return CompraStatusUpdateSerializer
         return CompraSerializer
-
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
 
     def update(self, request, *args, **kwargs):
         # PATCH parcial apenas (RF-08) — nunca PUT completo (http_method_names

@@ -3,6 +3,8 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
+
 from .models import (
     Combo,
     ConversaoUnidade,
@@ -16,7 +18,7 @@ from .models import (
 from .services import validar_cadeia
 
 
-class ConversaoUnidadeSerializer(serializers.ModelSerializer):
+class ConversaoUnidadeSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     unidade_display = serializers.CharField(source='get_unidade_display', read_only=True)
     converte_para_display = serializers.SerializerMethodField()
@@ -27,6 +29,7 @@ class ConversaoUnidadeSerializer(serializers.ModelSerializer):
             'id', 'unidade', 'unidade_display',
             'converte_para', 'converte_para_display',
             'quantidade_por_base', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['created_at']
 
@@ -65,7 +68,7 @@ class ConversaoUnidadeSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class MovimentoEstoqueSerializer(serializers.ModelSerializer):
+class MovimentoEstoqueSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     unidade_display = serializers.CharField(source='get_unidade_display', read_only=True)
     tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
@@ -77,7 +80,7 @@ class MovimentoEstoqueSerializer(serializers.ModelSerializer):
             'id', 'tipo', 'tipo_display', 'efeito',
             'quantidade', 'unidade', 'unidade_display',
             'quantidade_base', 'nota_fiscal', 'observacoes',
-            'is_active', 'created_at',
+            'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['quantidade_base', 'created_at']
 
@@ -113,7 +116,7 @@ class MovimentoEstoqueSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class ProdutoSerializer(serializers.ModelSerializer):
+class ProdutoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     unidade_base_display = serializers.CharField(source='get_unidade_base_display', read_only=True)
     conversoes = serializers.SerializerMethodField()
@@ -139,6 +142,7 @@ class ProdutoSerializer(serializers.ModelSerializer):
             'unidade_base', 'unidade_base_display',
             'valor_unitario', 'preco_venda',
             'observacoes', 'is_active', 'created_at', 'updated_at',
+            'created_by_nome', 'updated_by_nome',
             'conversoes', 'estoque_inicial', 'nota_fiscal_inicial',
         ]
         read_only_fields = ['quantidade_estoque', 'created_at', 'updated_at']
@@ -182,19 +186,18 @@ class ItemComboSerializer(serializers.ModelSerializer):
         fields = ['id', 'produto', 'produto_nome', 'quantidade', 'valor_unitario', 'subtotal']
 
 
-class ComboSerializer(serializers.ModelSerializer):
+class ComboSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     itens = ItemComboSerializer(many=True)
     valor_total = serializers.DecimalField(max_digits=14, decimal_places=2, read_only=True)
-    criado_por_nome = serializers.CharField(source='criado_por.nome_completo', read_only=True, default='')
 
     class Meta:
         model = Combo
         fields = [
             'id', 'nome', 'descricao', 'itens', 'valor_total', 'is_active',
-            'criado_por', 'criado_por_nome', 'created_at', 'updated_at',
+            'created_by_nome', 'updated_by_nome', 'created_at', 'updated_at',
         ]
-        read_only_fields = ['is_active', 'criado_por', 'created_at', 'updated_at']
+        read_only_fields = ['is_active', 'created_at', 'updated_at']
 
     def validate_itens(self, value):
         if not value:
@@ -215,6 +218,8 @@ class ComboSerializer(serializers.ModelSerializer):
         itens_data = validated_data.pop('itens', None)
         instance.nome = validated_data.get('nome', instance.nome)
         instance.descricao = validated_data.get('descricao', instance.descricao)
+        if 'updated_by' in validated_data:
+            instance.updated_by = validated_data['updated_by']
         instance.save()
         if itens_data is not None:
             instance.itens.all().delete()

@@ -1,11 +1,10 @@
 from django.db import transaction
-from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import SearchFilter, OrderingFilter
-from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
+from common.mixins import AuditMixin
 from common.permissions import IsAdmin
 
 from .models import Cargo, Colaborador, FolhaPagamento, RegistroFerias
@@ -15,21 +14,15 @@ from .serializers import (
 )
 
 
-class CargoViewSet(ModelViewSet):
+class CargoViewSet(AuditMixin, ModelViewSet):
     queryset = Cargo.objects.filter(is_active=True).order_by('nome')
     serializer_class = CargoSerializer
     permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [SearchFilter]
     search_fields = ['nome']
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-class ColaboradorViewSet(ModelViewSet):
+class ColaboradorViewSet(AuditMixin, ModelViewSet):
     queryset = Colaborador.objects.filter(is_active=True).select_related('cargo', 'usuario').order_by('nome')
     serializer_class = ColaboradorSerializer
     permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
@@ -37,12 +30,6 @@ class ColaboradorViewSet(ModelViewSet):
     filterset_fields = ['cargo', 'regime']
     search_fields = ['nome', 'cpf', 'email']
     ordering_fields = ['nome', 'data_admissao']
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _validar_criar_usuario(self, email_fallback):
         """
@@ -131,14 +118,14 @@ class ColaboradorViewSet(ModelViewSet):
         criar_usuario = str(self.request.data.get('criar_usuario', '')).lower() in ('1', 'true', 'on')
 
         if not criar_usuario:
-            serializer.save()
+            serializer.save(created_by=self.request.user)
             return
 
         email_fallback = serializer.validated_data.get('email') or ''
         email, senha = self._validar_criar_usuario(email_fallback)
 
         with transaction.atomic():
-            colaborador = serializer.save()
+            colaborador = serializer.save(created_by=self.request.user)
             self._criar_usuario_para_colaborador(colaborador, email, senha)
 
     def perform_update(self, serializer):
@@ -161,7 +148,7 @@ class ColaboradorViewSet(ModelViewSet):
         o payload validado trouxerem um novo.
         """
         with transaction.atomic():
-            colaborador = serializer.save()
+            colaborador = serializer.save(updated_by=self.request.user)
 
             criar_usuario = str(self.request.data.get('criar_usuario', '')).lower() in ('1', 'true', 'on')
             if not criar_usuario:
@@ -178,7 +165,7 @@ class ColaboradorViewSet(ModelViewSet):
             self._criar_usuario_para_colaborador(colaborador, email, senha)
 
 
-class FolhaPagamentoViewSet(ModelViewSet):
+class FolhaPagamentoViewSet(AuditMixin, ModelViewSet):
     queryset = (
         FolhaPagamento.objects.filter(is_active=True)
         .select_related('colaborador')
@@ -190,14 +177,8 @@ class FolhaPagamentoViewSet(ModelViewSet):
     filterset_fields = ['colaborador', 'status']
     ordering_fields = ['mes_referencia', 'salario_liquido']
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-class RegistroFeriasViewSet(ModelViewSet):
+class RegistroFeriasViewSet(AuditMixin, ModelViewSet):
     queryset = (
         RegistroFerias.objects.filter(is_active=True)
         .select_related('colaborador')
@@ -207,9 +188,3 @@ class RegistroFeriasViewSet(ModelViewSet):
     permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['colaborador', 'status']
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)

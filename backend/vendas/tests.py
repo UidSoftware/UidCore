@@ -266,3 +266,68 @@ class ItensPedidoInlineAPITest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertIn('itens', resp.data)
         self.assertEqual(len(resp.data['itens']), 1)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def setUp(self):
+        self.cliente = _make_cliente()
+
+    def test_ciclo_completo_auditoria_orcamento(self):
+        user_a = _make_user(email='a62orc@teste.com')
+        user_b = _make_user(email='b62orc@teste.com')
+        user_c = _make_user(email='c62orc@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/vendas/orcamentos/', {
+            'cliente': self.cliente.id, 'descricao': 'Auditoria', 'valor_total': '100.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        orc_id = resp.data['id']
+        orc = Orcamento.objects.get(pk=orc_id)
+        self.assertEqual(orc.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/vendas/orcamentos/{orc_id}/', {'descricao': 'Editado'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        orc.refresh_from_db()
+        self.assertEqual(orc.updated_by, user_b)
+        self.assertEqual(orc.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/vendas/orcamentos/{orc_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        orc = Orcamento.all_objects.get(pk=orc_id)
+        self.assertEqual(orc.deleted_by, user_c)
+        self.assertIsNotNone(orc.deleted_at)
+        self.assertFalse(Orcamento.objects.filter(pk=orc_id).exists())
+
+    def test_ciclo_completo_auditoria_pedido(self):
+        user_a = _make_user(email='a62ped@teste.com')
+        user_b = _make_user(email='b62ped@teste.com')
+        user_c = _make_user(email='c62ped@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/vendas/pedidos/', {
+            'cliente': self.cliente.id, 'data_pedido': '2026-07-20', 'valor_total': '200.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        ped_id = resp.data['id']
+        ped = Pedido.objects.get(pk=ped_id)
+        self.assertEqual(ped.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/vendas/pedidos/{ped_id}/', {'data_pedido': '2026-07-21'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ped.refresh_from_db()
+        self.assertEqual(ped.updated_by, user_b)
+        self.assertEqual(ped.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/vendas/pedidos/{ped_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        ped = Pedido.all_objects.get(pk=ped_id)
+        self.assertEqual(ped.deleted_by, user_c)
+        self.assertIsNotNone(ped.deleted_at)
+        self.assertFalse(Pedido.objects.filter(pk=ped_id).exists())

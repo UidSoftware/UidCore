@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.db import models
 
 from common.models import BaseModel
@@ -52,10 +51,6 @@ class Cobranca(BaseModel):
     data_pagamento = models.DateField(null=True, blank=True)
     comprovante    = models.FileField(upload_to='comprovantes/', blank=True)
     observacoes    = models.TextField(blank=True)
-    criado_por     = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'pag_cobranca'

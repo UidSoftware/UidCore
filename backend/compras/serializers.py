@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
 from produtos.services import fator_para_base
 
 from .models import Compra, ItemCompra
@@ -38,7 +39,7 @@ class ItemCompraSerializer(serializers.ModelSerializer):
         return data
 
 
-class CompraSerializer(serializers.ModelSerializer):
+class CompraSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     itens = ItemCompraSerializer(many=True)
     fornecedor_nome = serializers.CharField(source='fornecedor.nome_razao_social', read_only=True)
@@ -51,6 +52,7 @@ class CompraSerializer(serializers.ModelSerializer):
             'numero_nota_fiscal', 'data_emissao', 'forma_pagamento', 'status',
             'valor_total', 'observacoes', 'itens', 'despesa',
             'is_active', 'created_at', 'updated_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['valor_total', 'despesa', 'is_active', 'created_at', 'updated_at']
 

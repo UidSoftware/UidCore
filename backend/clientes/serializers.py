@@ -1,5 +1,6 @@
 import re
 from rest_framework import serializers
+from common.serializers import AuditFieldsMixin
 from .models import AcionistaCliente, Cliente, HistoricoCliente
 
 
@@ -21,7 +22,7 @@ class AcionistaClienteSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
-class ClienteSerializer(serializers.ModelSerializer):
+class ClienteSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     historico = HistoricoClienteSerializer(many=True, read_only=True)
     acionistas = AcionistaClienteSerializer(many=True, read_only=True)
@@ -37,6 +38,7 @@ class ClienteSerializer(serializers.ModelSerializer):
             'segmento', 'segmento_display', 'data_nascimento',
             'origem', 'limite_credito', 'observacoes',
             'is_active', 'created_at', 'updated_at',
+            'created_by_nome', 'updated_by_nome',
             'historico', 'acionistas',
         ]
         read_only_fields = ['created_at', 'updated_at']

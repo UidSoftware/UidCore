@@ -12,6 +12,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
+from common.mixins import AuditMixin
 from common.permissions import IsAdmin
 
 from .signals import _reconstruir_cadeia
@@ -33,21 +34,15 @@ class ReadCreateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Ge
     pass
 
 
-class CategoriaViewSet(ModelViewSet):
+class CategoriaViewSet(AuditMixin, ModelViewSet):
     queryset = Categoria.objects.filter(is_active=True).order_by('nome')
     serializer_class = CategoriaSerializer
     permission_classes = [IsAdmin]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['tipo']
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-class ContaViewSet(ModelViewSet):
+class ContaViewSet(AuditMixin, ModelViewSet):
     queryset = Conta.objects.filter(is_active=True).order_by('nome')
     serializer_class = ContaSerializer
     # RN08 (Manutencao #54, fix pos-Sentinel): Financeiro/RH/PDV exigem
@@ -59,15 +54,6 @@ class ContaViewSet(ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['tipo']
     search_fields = ['nome']
-
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['post'], url_path='transferir')
     def transferir(self, request, pk=None):
@@ -118,7 +104,7 @@ class ContaViewSet(ModelViewSet):
                 data=data,
                 saldo_anterior=saldo_ant_origem,
                 saldo_atual=saldo_ant_origem - valor,
-                criado_por=request.user,
+                created_by=request.user,
             )
             _reconstruir_cadeia(conta_origem)
 
@@ -132,14 +118,14 @@ class ContaViewSet(ModelViewSet):
                 data=data,
                 saldo_anterior=saldo_ant_destino,
                 saldo_atual=saldo_ant_destino + valor,
-                criado_por=request.user,
+                created_by=request.user,
             )
             _reconstruir_cadeia(conta_destino)
 
         return Response({'ok': True, 'mensagem': f'Transferência de R$ {valor} realizada.'})
 
 
-class AporteViewSet(ModelViewSet):
+class AporteViewSet(AuditMixin, ModelViewSet):
     queryset = Aporte.objects.filter(is_active=True).select_related('conta').order_by('-data')
     serializer_class = AporteSerializer
     permission_classes = [IsAdmin]
@@ -147,17 +133,8 @@ class AporteViewSet(ModelViewSet):
     filterset_fields = ['tipo', 'conta']
     ordering_fields = ['data', 'valor']
 
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class ReceitaViewSet(ModelViewSet):
+class ReceitaViewSet(AuditMixin, ModelViewSet):
     queryset = (
         Receita.objects.filter(is_active=True)
         .select_related('cliente', 'conta', 'categoria')
@@ -169,15 +146,6 @@ class ReceitaViewSet(ModelViewSet):
     filterset_fields = ['tipo', 'status', 'cliente', 'conta']
     search_fields = ['descricao']
     ordering_fields = ['vencimento', 'valor_liquido', 'status']
-
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['patch'], url_path='receber')
     def marcar_recebido(self, request, pk=None):
@@ -218,7 +186,7 @@ class ReceitaViewSet(ModelViewSet):
         return Response(EstornoReceitaSerializer(estorno).data, status=201)
 
 
-class DespesaViewSet(ModelViewSet):
+class DespesaViewSet(AuditMixin, ModelViewSet):
     queryset = (
         Despesa.objects.filter(is_active=True)
         .select_related('conta', 'categoria')
@@ -230,15 +198,6 @@ class DespesaViewSet(ModelViewSet):
     filterset_fields = ['tipo', 'status', 'conta', 'estornado']
     search_fields = ['descricao', 'fornecedor']
     ordering_fields = ['vencimento', 'valor_liquido', 'status']
-
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['patch'], url_path='pagar')
     def marcar_pago(self, request, pk=None):
@@ -306,7 +265,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
     ordering_fields = ['data', 'valor']
 
     def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
+        serializer.save(created_by=self.request.user)
 
     @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
     def estornar(self, request, pk=None):
@@ -330,7 +289,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
                 data=date.today(),
                 saldo_anterior=Decimal('0'),
                 saldo_atual=Decimal('0'),
-                criado_por=request.user,
+                created_by=request.user,
                 estorno_de=lancamento,
                 estornado=True,
             )
@@ -801,7 +760,7 @@ class ConciliacaoViewSet(ReadOnlyModelViewSet):
             transacoes_banco=transacoes_banco,
             periodo=periodo,
             arquivo_nome=arquivo.name,
-            criado_por=request.user,
+            created_by=request.user,
             auto=auto,
         )
 
@@ -838,11 +797,7 @@ class ConciliacaoViewSet(ReadOnlyModelViewSet):
         return Response({'ok': True, 'divergencias_restantes': divergencias})
 
 
-class PadraoSeguroConciliacaoViewSet(ModelViewSet):
+class PadraoSeguroConciliacaoViewSet(AuditMixin, ModelViewSet):
     queryset = PadraoSeguroConciliacao.objects.filter(is_active=True)
     serializer_class = PadraoSeguroConciliacaoSerializer
     permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
-
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])

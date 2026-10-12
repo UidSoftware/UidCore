@@ -350,12 +350,6 @@ class RecebivelCartao(BaseModel):
         choices=StatusRecebivelCartao.choices,
         default=StatusRecebivelCartao.PREVISTO,
     )
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='+',
-    )
 
     class Meta:
         db_table = 'pdv_recebivel_cartao'

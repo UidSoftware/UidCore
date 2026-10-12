@@ -736,7 +736,7 @@ class ComboAPITest(APITestCase):
         self.assertEqual(len(resp.data['itens']), 2)
         self.assertEqual(Decimal(str(resp.data['valor_total'])), Decimal('20.00'))
         combo = Combo.objects.get(pk=resp.data['id'])
-        self.assertEqual(combo.criado_por, self.user)
+        self.assertEqual(combo.created_by, self.user)
 
     def test_listar_combos_ativos(self):
         combo = Combo.objects.create(nome='Combo Ativo')
@@ -805,3 +805,38 @@ class ComboAPITest(APITestCase):
         self.client.force_authenticate(user=None)
         resp = self.client.get('/api/v1/produtos/combos/')
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_combo(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+        produto = _make_produto(nome='Produto Combo 62')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/produtos/combos/', {
+            'nome': 'Combo Auditoria', 'descricao': 'teste',
+            'itens': [{'produto': produto.id, 'quantidade': '1', 'valor_unitario': '10.00'}],
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        combo_id = resp.data['id']
+        combo = Combo.objects.get(pk=combo_id)
+        self.assertEqual(combo.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/produtos/combos/{combo_id}/', {'descricao': 'editado'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        combo.refresh_from_db()
+        self.assertEqual(combo.updated_by, user_b)
+        self.assertEqual(combo.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/produtos/combos/{combo_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        combo = Combo.all_objects.get(pk=combo_id)
+        self.assertEqual(combo.deleted_by, user_c)
+        self.assertIsNotNone(combo.deleted_at)
+        self.assertFalse(Combo.objects.filter(pk=combo_id).exists())

@@ -464,8 +464,11 @@ class PadraoSeguroConciliacaoAPITest(APITestCase):
         resp = self.client.delete(f'{url}{padrao_id}/')
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
 
-        padrao = PadraoSeguroConciliacao.objects.get(pk=padrao_id)
+        # Manutencao 62: manager padrao (objects) filtra deleted_at — usar
+        # all_objects pra confirmar soft delete (registro continua no banco).
+        padrao = PadraoSeguroConciliacao.all_objects.get(pk=padrao_id)
         self.assertFalse(padrao.is_active)  # soft delete via is_active (herda BaseModel)
+        self.assertIsNotNone(padrao.deleted_at)
 
         # Apos "destroy" o padrao nao aparece mais na listagem (queryset filtra is_active=True)
         resp = self.client.get(url)
@@ -1088,3 +1091,34 @@ class BalancoReferenciaMesFuturoTest(TestCase):
             balanco['equacao_ok'],
             'equacao_ok deve ser True — Ativo = Passivo + PL sem a despesa futura',
         )
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_categoria(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/financeiro/categorias/', {'nome': 'Auditoria', 'tipo': 'SAIDA'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        categoria_id = resp.data['id']
+        categoria = Categoria.objects.get(pk=categoria_id)
+        self.assertEqual(categoria.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/financeiro/categorias/{categoria_id}/', {'nome': 'Auditoria Editada'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        categoria.refresh_from_db()
+        self.assertEqual(categoria.updated_by, user_b)
+        self.assertEqual(categoria.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/financeiro/categorias/{categoria_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        categoria = Categoria.all_objects.get(pk=categoria_id)
+        self.assertEqual(categoria.deleted_by, user_c)
+        self.assertIsNotNone(categoria.deleted_at)
+        self.assertFalse(Categoria.objects.filter(pk=categoria_id).exists())

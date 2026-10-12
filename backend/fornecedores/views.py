@@ -1,11 +1,15 @@
+from django.utils import timezone
 from rest_framework import viewsets, status, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+
+from common.mixins import AuditMixin
+
 from .models import AcionistaFornecedor, Fornecedor
 from .serializers import AcionistaFornecedorSerializer, FornecedorSerializer
 
 
-class FornecedorViewSet(viewsets.ModelViewSet):
+class FornecedorViewSet(AuditMixin, viewsets.ModelViewSet):
     serializer_class = FornecedorSerializer
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['nome_razao_social', 'documento', 'email', 'contato_nome']
@@ -14,12 +18,6 @@ class FornecedorViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return Fornecedor.objects.filter(is_active=True).prefetch_related('acionistas')
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=['get', 'post'], url_path='acionistas')
     def acionistas(self, request, pk=None):
@@ -40,8 +38,10 @@ class FornecedorViewSet(viewsets.ModelViewSet):
         except AcionistaFornecedor.DoesNotExist:
             return Response({'detail': 'Acionista não encontrado.'}, status=status.HTTP_404_NOT_FOUND)
         if request.method == 'DELETE':
+            acionista.deleted_at = timezone.now()
+            acionista.deleted_by = request.user
             acionista.is_active = False
-            acionista.save(update_fields=['is_active', 'updated_at'])
+            acionista.save(update_fields=['deleted_at', 'deleted_by', 'is_active', 'updated_at'])
             return Response(status=status.HTTP_204_NO_CONTENT)
         serializer = AcionistaFornecedorSerializer(acionista, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)

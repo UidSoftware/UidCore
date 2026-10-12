@@ -428,3 +428,53 @@ class EstornarDespesaRegressaoTest(APITestCase):
             {'motivo': ''}, format='json',
         )
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — created_by (create)/updated_by (PATCH status). Compra
+    nao tem DELETE exposto (RN-05, imutavel exceto status) — sem ciclo de
+    destroy aqui."""
+
+    def setUp(self):
+        self.fornecedor = _make_fornecedor()
+        self.conta = _make_conta()
+        _make_categoria_compra()
+        self.produto = _make_produto()
+
+    def _payload(self, status_inicial='PENDENTE'):
+        return {
+            'fornecedor': self.fornecedor.id,
+            'conta': self.conta.id,
+            'numero_nota_fiscal': 'NF-AUD-001',
+            'data_emissao': '2026-09-01',
+            'forma_pagamento': 'PIX',
+            'status': status_inicial,
+            'observacoes': '',
+            'itens': [
+                {
+                    'produto': self.produto.id,
+                    'quantidade': '1',
+                    'unidade': 'UN',
+                    'valor_unitario_custo': '10.00',
+                },
+            ],
+        }
+
+    def test_create_grava_created_by_e_patch_status_grava_updated_by(self):
+        user_a = _make_user(email='a62compras@teste.com')
+        user_b = _make_user(email='b62compras@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/compras/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        compra_id = resp.data['id']
+        compra = Compra.objects.get(pk=compra_id)
+        self.assertEqual(compra.created_by, user_a)
+        self.assertIsNone(compra.updated_by)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/compras/{compra_id}/', {'status': 'PAGO'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        compra.refresh_from_db()
+        self.assertEqual(compra.updated_by, user_b)
+        self.assertEqual(compra.created_by, user_a)

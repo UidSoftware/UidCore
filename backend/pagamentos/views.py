@@ -1,26 +1,20 @@
-from rest_framework import status
 from rest_framework.filters import SearchFilter, OrderingFilter
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
-from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
+
+from common.mixins import AuditMixin
 
 from .models import Cobranca, MetodoPagamento, Parcela
 from .serializers import CobrancaSerializer, MetodoPagamentoSerializer, ParcelaSerializer
 
 
-class MetodoPagamentoViewSet(ModelViewSet):
+class MetodoPagamentoViewSet(AuditMixin, ModelViewSet):
     queryset = MetodoPagamento.objects.filter(is_active=True).order_by('nome')
     serializer_class = MetodoPagamentoSerializer
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
-
-class CobrancaViewSet(ModelViewSet):
+class CobrancaViewSet(AuditMixin, ModelViewSet):
     queryset = (
         Cobranca.objects.filter(is_active=True)
         .select_related('cliente', 'metodo')
@@ -33,24 +27,9 @@ class CobrancaViewSet(ModelViewSet):
     search_fields = ['descricao']
     ordering_fields = ['vencimento', 'valor']
 
-    def perform_create(self, serializer):
-        serializer.save(criado_por=self.request.user)
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
-
-
-class ParcelaViewSet(ModelViewSet):
+class ParcelaViewSet(AuditMixin, ModelViewSet):
     queryset = Parcela.objects.filter(is_active=True).select_related('cobranca').order_by('numero')
     serializer_class = ParcelaSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['cobranca', 'status']
-
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
-        instance.is_active = False
-        instance.save(update_fields=['is_active', 'updated_at'])
-        return Response(status=status.HTTP_204_NO_CONTENT)

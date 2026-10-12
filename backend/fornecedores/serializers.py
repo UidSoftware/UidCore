@@ -1,5 +1,6 @@
 import re
 from rest_framework import serializers
+from common.serializers import AuditFieldsMixin
 from .models import AcionistaFornecedor, Fornecedor
 
 
@@ -12,7 +13,7 @@ class AcionistaFornecedorSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at']
 
 
-class FornecedorSerializer(serializers.ModelSerializer):
+class FornecedorSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     acionistas = AcionistaFornecedorSerializer(many=True, read_only=True)
     categoria_display = serializers.CharField(source='get_categoria_display', read_only=True)
@@ -28,6 +29,7 @@ class FornecedorSerializer(serializers.ModelSerializer):
             'contato_nome', 'contato_telefone', 'website',
             'inscricao_estadual', 'observacoes',
             'is_active', 'created_at', 'updated_at',
+            'created_by_nome', 'updated_by_nome',
             'acionistas',
         ]
         read_only_fields = ['created_at', 'updated_at']

@@ -117,7 +117,7 @@ def calcular_totais(transacoes_banco, lancamentos_sistema):
     return total_banco, total_sistema
 
 
-def criar_conciliacao(conta, transacoes_banco, periodo, arquivo_nome, criado_por=None, auto=False, log=None):
+def criar_conciliacao(conta, transacoes_banco, periodo, arquivo_nome, created_by=None, auto=False, log=None):
     """Fluxo completo: matching (Camada 1) + persistencia + auto-processamento (Camadas 2/3).
 
     Usado pelo endpoint ConciliacaoViewSet.upload (financeiro/views.py) e pelo
@@ -128,7 +128,7 @@ def criar_conciliacao(conta, transacoes_banco, periodo, arquivo_nome, criado_por
         transacoes_banco: lista de dicts vinda de um parser (financeiro/parsers.py).
         periodo: date do primeiro dia do mes de referencia.
         arquivo_nome: nome do arquivo (sem path completo -- RN-D03).
-        criado_por: usuario que disparou a conciliacao (opcional).
+        created_by: usuario que disparou a conciliacao (opcional).
         auto: se True, executa auto_processar (Camadas 2 e 3) apos persistir.
         log: callable(str) para relatorio (ex: self.stdout.write); default no-op.
 
@@ -156,7 +156,7 @@ def criar_conciliacao(conta, transacoes_banco, periodo, arquivo_nome, criado_por
             total_banco=total_banco,
             total_sistema=total_sistema,
             divergencias=len(faltando_sistema) + len(faltando_banco),
-            criado_por=criado_por,
+            created_by=created_by,
         )
 
         for item in itens:

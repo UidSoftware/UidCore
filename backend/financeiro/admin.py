@@ -1,24 +1,26 @@
 from django.contrib import admin
 
+from common.admin import AuditModelAdmin
+
 from .models import Aporte, Categoria, Conta, Despesa, LivroCaixa, Receita
 
 
 @admin.register(Conta)
-class ContaAdmin(admin.ModelAdmin):
+class ContaAdmin(AuditModelAdmin):
     list_display = ['nome', 'tipo', 'banco', 'saldo_inicial', 'is_active']
     list_filter = ['tipo', 'is_active']
     search_fields = ['nome', 'banco']
 
 
 @admin.register(Categoria)
-class CategoriaAdmin(admin.ModelAdmin):
+class CategoriaAdmin(AuditModelAdmin):
     list_display = ['nome', 'tipo', 'is_active']
     list_filter = ['tipo', 'is_active']
     search_fields = ['nome']
 
 
 @admin.register(Aporte)
-class AporteAdmin(admin.ModelAdmin):
+class AporteAdmin(AuditModelAdmin):
     list_display = ['descricao', 'tipo', 'valor', 'conta', 'data', 'is_active']
     list_filter = ['tipo', 'conta', 'is_active']
     search_fields = ['descricao', 'responsavel']
@@ -26,7 +28,7 @@ class AporteAdmin(admin.ModelAdmin):
 
 
 @admin.register(Receita)
-class ReceitaAdmin(admin.ModelAdmin):
+class ReceitaAdmin(AuditModelAdmin):
     list_display = ['descricao', 'tipo', 'valor_liquido', 'status', 'vencimento', 'conta']
     list_filter = ['tipo', 'status', 'conta', 'is_active']
     search_fields = ['descricao']
@@ -34,7 +36,7 @@ class ReceitaAdmin(admin.ModelAdmin):
 
 
 @admin.register(Despesa)
-class DespesaAdmin(admin.ModelAdmin):
+class DespesaAdmin(AuditModelAdmin):
     list_display = ['descricao', 'tipo', 'valor_liquido', 'status', 'vencimento', 'conta', 'estornado']
     list_filter = ['tipo', 'status', 'conta', 'estornado', 'is_active']
     search_fields = ['descricao', 'fornecedor']
@@ -43,6 +45,9 @@ class DespesaAdmin(admin.ModelAdmin):
 
 @admin.register(LivroCaixa)
 class LivroCaixaAdmin(admin.ModelAdmin):
+    # Nao herda AuditModelAdmin: LivroCaixa NAO herda common.models.BaseModel
+    # (razao imutavel, sem is_active/deleted_at/all_objects) — ver 2.5 da
+    # Especificacao Hotfix Manutencao 62.
     list_display = ['descricao', 'tipo', 'origem', 'valor', 'data', 'conta', 'saldo_atual', 'estornado']
     list_filter = ['tipo', 'origem', 'conta', 'estornado']
     search_fields = ['descricao']
@@ -52,7 +57,7 @@ from .models import ConciliacaoExtrato, ItemConciliacao, PadraoSeguroConciliacao
 
 
 @admin.register(ConciliacaoExtrato)
-class ConciliacaoExtratoAdmin(admin.ModelAdmin):
+class ConciliacaoExtratoAdmin(AuditModelAdmin):
     list_display = ['conta', 'periodo', 'status', 'total_banco', 'total_sistema', 'divergencias', 'processado_em']
     list_filter = ['status', 'conta']
     date_hierarchy = 'periodo'
@@ -60,14 +65,14 @@ class ConciliacaoExtratoAdmin(admin.ModelAdmin):
 
 
 @admin.register(ItemConciliacao)
-class ItemConciliacaoAdmin(admin.ModelAdmin):
+class ItemConciliacaoAdmin(AuditModelAdmin):
     list_display = ['conciliacao', 'data_banco', 'descricao_banco', 'valor', 'tipo', 'status', 'confirmado']
     list_filter = ['status', 'tipo', 'confirmado']
     search_fields = ['descricao_banco']
 
 
 @admin.register(PadraoSeguroConciliacao)
-class PadraoSeguroConciliacaoAdmin(admin.ModelAdmin):
+class PadraoSeguroConciliacaoAdmin(AuditModelAdmin):
     list_display = ['descricao_padrao', 'tipo', 'natureza', 'is_active', 'created_at']
     list_filter = ['tipo', 'natureza', 'is_active']
     search_fields = ['descricao_padrao']

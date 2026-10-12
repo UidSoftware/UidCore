@@ -77,7 +77,7 @@ def estornar_receita(receita, valor, motivo, data_estorno=None, item_venda=None,
             motivo=motivo,
             data_estorno=data_estorno,
             item_venda=item_venda,
-            criado_por=usuario,
+            created_by=usuario,
         )
 
         # Lançamento de SAIDA no LivroCaixa (o dinheiro sai de volta — ADR-007)
@@ -99,7 +99,7 @@ def estornar_receita(receita, valor, motivo, data_estorno=None, item_venda=None,
             data=data_estorno,
             saldo_anterior=Decimal('0'),
             saldo_atual=Decimal('0'),
-            criado_por=usuario,
+            created_by=usuario,
             estorno_de=lancamento_original if esgota_saldo else None,
             estornado=True,
         )
@@ -167,7 +167,7 @@ def estornar_despesa(despesa, motivo, data_estorno=None, usuario=None):
             data=data_estorno,
             saldo_anterior=Decimal('0'),
             saldo_atual=Decimal('0'),
-            criado_por=usuario,
+            created_by=usuario,
             estorno_de=lancamento_original,
             estornado=True,
         )

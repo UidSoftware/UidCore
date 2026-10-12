@@ -33,14 +33,22 @@ class UserViewSet(ModelViewSet):
 
     def perform_update(self, serializer):
         self._bloquear_edicao_superadmin(serializer.instance)
-        serializer.save()
+        serializer.save(updated_by=self.request.user)
 
-    def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()
+    def perform_destroy(self, instance):
+        # Manutencao 62 (RF-07): accounts.User NAO herda common.models.
+        # BaseModel (RN-07 — AbstractBaseUser, sem deleted_at/deleted_by) —
+        # por isso NAO usa common.mixins.AuditMixin aqui (seu
+        # perform_destroy grava deleted_at/deleted_by, campos inexistentes
+        # em User, o que levantaria ValueError no instance.save(update_
+        # fields=[...])). Mantem o soft delete simples (is_active=False)
+        # que ja existia, preservando a checagem _bloquear_edicao_
+        # superadmin antes de qualquer persistencia. destroy() generico do
+        # ModelViewSet (DRF) ja chama self.perform_destroy(instance)
+        # internamente, dispensando o override proprio de destroy().
         self._bloquear_edicao_superadmin(instance)
         instance.is_active = False
         instance.save(update_fields=['is_active'])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class RegisterView(generics.CreateAPIView):

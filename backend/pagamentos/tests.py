@@ -112,8 +112,11 @@ class MetodoPagamentoAPITest(APITestCase):
 
         resp = self.client.delete(f'/api/v1/pagamentos/metodos/{metodo_id}/')
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
-        metodo = MetodoPagamento.objects.get(pk=metodo_id)
+        # Manutencao 62: manager padrao (objects) filtra deleted_at — usar
+        # all_objects pra confirmar soft delete (registro continua no banco).
+        metodo = MetodoPagamento.all_objects.get(pk=metodo_id)
         self.assertFalse(metodo.is_active)
+        self.assertIsNotNone(metodo.deleted_at)
 
 
 class ParcelaAPITest(APITestCase):
@@ -131,3 +134,34 @@ class ParcelaAPITest(APITestCase):
             'cobranca': self.cobranca.id, 'numero': 1, 'valor': '150.00', 'vencimento': '2026-08-10',
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_metodo_pagamento(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/pagamentos/metodos/', {'nome': 'PIX'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        metodo_id = resp.data['id']
+        metodo = MetodoPagamento.objects.get(pk=metodo_id)
+        self.assertEqual(metodo.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/pagamentos/metodos/{metodo_id}/', {'nome': 'BOLETO'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        metodo.refresh_from_db()
+        self.assertEqual(metodo.updated_by, user_b)
+        self.assertEqual(metodo.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/pagamentos/metodos/{metodo_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        metodo = MetodoPagamento.all_objects.get(pk=metodo_id)
+        self.assertEqual(metodo.deleted_by, user_c)
+        self.assertIsNotNone(metodo.deleted_at)
+        self.assertFalse(MetodoPagamento.objects.filter(pk=metodo_id).exists())

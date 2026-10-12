@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
+
 from .models import ItemOrcamento, ItemPedido, Orcamento, Pedido
 
 
-class ItemOrcamentoSerializer(serializers.ModelSerializer):
+class ItemOrcamentoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     produto_nome = serializers.CharField(source='produto.nome', read_only=True, allow_null=True)
 
@@ -12,12 +14,12 @@ class ItemOrcamentoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'produto', 'produto_nome', 'descricao',
             'quantidade', 'valor_unitario', 'valor_total',
-            'is_active', 'created_at',
+            'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['valor_total', 'created_at']
 
 
-class OrcamentoSerializer(serializers.ModelSerializer):
+class OrcamentoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id           = serializers.IntegerField(source='pk', read_only=True)
     cliente_nome = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
     status_label = serializers.CharField(source='get_status_display', read_only=True)
@@ -29,12 +31,13 @@ class OrcamentoSerializer(serializers.ModelSerializer):
             'id', 'numero', 'cliente', 'cliente_nome', 'descricao',
             'valor_total', 'status', 'status_label', 'validade',
             'observacoes', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
             'itens',
         ]
         read_only_fields = ['id', 'numero', 'cliente_nome', 'status_label', 'created_at']
 
 
-class ItemPedidoSerializer(serializers.ModelSerializer):
+class ItemPedidoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     produto_nome = serializers.CharField(source='produto.nome', read_only=True, allow_null=True)
 
@@ -43,12 +46,12 @@ class ItemPedidoSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'pedido', 'produto', 'produto_nome', 'descricao',
             'quantidade', 'valor_unitario', 'valor_total',
-            'is_active', 'created_at',
+            'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['id', 'valor_total', 'created_at']
 
 
-class PedidoSerializer(serializers.ModelSerializer):
+class PedidoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id               = serializers.IntegerField(source='pk', read_only=True)
     cliente_nome     = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
     status_label     = serializers.CharField(source='get_status_display', read_only=True)
@@ -63,6 +66,7 @@ class PedidoSerializer(serializers.ModelSerializer):
             'id', 'numero', 'cliente', 'cliente_nome', 'orcamento', 'orcamento_numero',
             'status', 'status_label', 'valor_total', 'data_pedido',
             'data_entrega_prevista', 'observacoes', 'is_active', 'created_at',
+            'created_by_nome', 'updated_by_nome',
             'itens',
         ]
         read_only_fields = [

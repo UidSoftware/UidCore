@@ -15,7 +15,6 @@ Reaproveita 100% do mecanismo ja em producao:
 """
 from decimal import Decimal
 
-from django.conf import settings
 from django.db import models
 
 from common.models import BaseModel
@@ -65,10 +64,6 @@ class Compra(BaseModel):
         Despesa, null=True, blank=True,
         on_delete=models.SET_NULL, related_name='compra',
     )
-    criado_por = models.ForeignKey(
-        settings.AUTH_USER_MODEL, null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='+',
-    )
 
     class Meta:
         db_table = 'cmp_compra'
@@ -80,10 +75,12 @@ class Compra(BaseModel):
         return f'Compra #{self.pk} — {self.fornecedor.nome_razao_social} — R$ {self.valor_total}'
 
 
-class ItemCompra(models.Model):
-    # Sem BaseModel proposital: item filho de Compra, ciclo de vida
-    # atrelado ao pai, imutavel apos criacao (RN-05) — mesmo racional de
-    # ItemCombo (Manutencao 53).
+class ItemCompra(BaseModel):
+    # Herda BaseModel (Manutencao 62 — auditoria) apenas por consistencia
+    # de schema: item filho de Compra, ciclo de vida atrelado ao pai,
+    # imutavel apos criacao (RN-05) — mesmo racional de ItemCombo
+    # (Manutencao 53). Sem ViewSet/acao propria — created_by/updated_by
+    # ficam null (nao preenchidos automaticamente, fora de escopo).
     compra = models.ForeignKey(Compra, on_delete=models.CASCADE, related_name='itens')
     produto = models.ForeignKey(Produto, on_delete=models.PROTECT, related_name='compra_itens')
     quantidade = models.DecimalField('quantidade', max_digits=12, decimal_places=3)

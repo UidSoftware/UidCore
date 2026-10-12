@@ -97,5 +97,41 @@ class TipoDocumentoAPITest(APITestCase):
 
         resp = self.client.delete(f'/api/v1/administrativo/tipos/{tipo_id}/')
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
-        tipo = TipoDocumento.objects.get(pk=tipo_id)
+        # Manutencao 62: manager padrao (objects) filtra deleted_at — usar
+        # all_objects pra confirmar soft delete (registro continua no banco).
+        tipo = TipoDocumento.all_objects.get(pk=tipo_id)
         self.assertFalse(tipo.is_active)
+        self.assertIsNotNone(tipo.deleted_at)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_documento(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/administrativo/tipos/', {'nome': 'Boleto'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        tipo_id = resp.data['id']
+        tipo = TipoDocumento.objects.get(pk=tipo_id)
+        self.assertEqual(tipo.created_by, user_a)
+        self.assertIsNone(tipo.updated_by)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/administrativo/tipos/{tipo_id}/', {'nome': 'Boleto Bancario'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tipo.refresh_from_db()
+        self.assertEqual(tipo.created_by, user_a)
+        self.assertEqual(tipo.updated_by, user_b)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/administrativo/tipos/{tipo_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        tipo = TipoDocumento.all_objects.get(pk=tipo_id)
+        self.assertFalse(tipo.is_active)
+        self.assertEqual(tipo.deleted_by, user_c)
+        self.assertIsNotNone(tipo.deleted_at)
+        self.assertFalse(TipoDocumento.objects.filter(pk=tipo_id).exists())

@@ -129,3 +129,34 @@ class AcionistaClienteAPITest(APITestCase):
         self.assertIn('cpf', resp.data)
         self.assertIn('cnpj', resp.data)
         self.assertIn('acionistas', resp.data)
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_cliente(self):
+        user_a = _make_user(email='a62@teste.com')
+        user_b = _make_user(email='b62@teste.com')
+        user_c = _make_user(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Cliente Auditoria'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        cliente_id = resp.data['id']
+        cliente = Cliente.objects.get(pk=cliente_id)
+        self.assertEqual(cliente.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/clientes/{cliente_id}/', {'telefone': '11999998888'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        cliente.refresh_from_db()
+        self.assertEqual(cliente.updated_by, user_b)
+        self.assertEqual(cliente.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/clientes/{cliente_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        cliente = Cliente.all_objects.get(pk=cliente_id)
+        self.assertEqual(cliente.deleted_by, user_c)
+        self.assertIsNotNone(cliente.deleted_at)
+        self.assertFalse(Cliente.objects.filter(pk=cliente_id).exists())

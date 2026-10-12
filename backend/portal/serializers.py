@@ -1,9 +1,11 @@
 from rest_framework import serializers
 
+from common.serializers import AuditFieldsMixin
+
 from .models import AcessoPortalCliente
 
 
-class AcessoPortalClienteSerializer(serializers.ModelSerializer):
+class AcessoPortalClienteSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id            = serializers.IntegerField(source='pk', read_only=True)
     usuario_email = serializers.EmailField(source='usuario.email', read_only=True)
     cliente_nome  = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
@@ -13,5 +15,6 @@ class AcessoPortalClienteSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'usuario', 'usuario_email', 'cliente', 'cliente_nome',
             'is_active', 'ultimo_acesso', 'created_at',
+            'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['usuario_email', 'cliente_nome', 'ultimo_acesso', 'created_at']

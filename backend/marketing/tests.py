@@ -113,7 +113,12 @@ class CampanhaAPITest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
         campanha.refresh_from_db()
         self.assertFalse(campanha.is_active)
-        self.assertTrue(Campanha.objects.filter(pk=campanha.pk).exists())
+        self.assertIsNotNone(campanha.deleted_at)
+        # Manutencao 62: manager padrao (objects) filtra deleted_at — a
+        # permanencia no banco (soft delete, nunca .delete() fisico) se
+        # confirma via all_objects.
+        self.assertFalse(Campanha.objects.filter(pk=campanha.pk).exists())
+        self.assertTrue(Campanha.all_objects.filter(pk=campanha.pk).exists())
 
 
 class LeadAPITest(APITestCase):
@@ -342,3 +347,37 @@ class PerfilExposicaoTest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         alvo.refresh_from_db()
         self.assertEqual(alvo.perfil, 'MARKETING')
+
+
+class AuditoriaManutencao62APITest(APITestCase):
+    """Manutencao 62 — ciclo completo created_by/updated_by/deleted_by/deleted_at."""
+
+    def test_ciclo_completo_auditoria_campanha(self):
+        user_a = _make_admin(email='a62@teste.com')
+        user_b = _make_admin(email='b62@teste.com')
+        user_c = _make_admin(email='c62@teste.com')
+
+        self.client.force_authenticate(user_a)
+        resp = self.client.post('/api/v1/marketing/campanhas/', {
+            'nome': 'Campanha Auditoria', 'canal': 'ads',
+            'data_inicio': '2026-10-01', 'orcamento': '1000.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+        campanha_id = resp.data['id']
+        campanha = Campanha.objects.get(pk=campanha_id)
+        self.assertEqual(campanha.created_by, user_a)
+
+        self.client.force_authenticate(user_b)
+        resp = self.client.patch(f'/api/v1/marketing/campanhas/{campanha_id}/', {'orcamento': '1500.00'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        campanha.refresh_from_db()
+        self.assertEqual(campanha.updated_by, user_b)
+        self.assertEqual(campanha.created_by, user_a)
+
+        self.client.force_authenticate(user_c)
+        resp = self.client.delete(f'/api/v1/marketing/campanhas/{campanha_id}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        campanha = Campanha.all_objects.get(pk=campanha_id)
+        self.assertEqual(campanha.deleted_by, user_c)
+        self.assertIsNotNone(campanha.deleted_at)
+        self.assertFalse(Campanha.objects.filter(pk=campanha_id).exists())
