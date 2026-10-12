@@ -16,6 +16,7 @@ const navItems = [
   { to: '/pagamentos', label: 'Pagamentos', icon: '💳' },
   { to: '/financeiro', label: 'Financeiro', icon: '💰', requer: 'financeiro' },
   { to: '/conciliacao', label: 'Conciliação', icon: '🔄', requer: 'financeiro' },
+  { to: '/assinaturas', label: 'Assinaturas', icon: '🔁', requer: 'financeiro' },
   { to: '/administrativo', label: 'Administrativo', icon: '📁' },
   { to: '/rh', label: 'RH', icon: '👔', requer: 'staff' },
   { to: '/usuarios', label: 'Usuários', icon: '👤', requer: 'staff' },

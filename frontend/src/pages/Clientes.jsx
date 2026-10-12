@@ -54,6 +54,116 @@ const maskCNPJ = (v) => {
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`
 }
 
+// Badges da aba Assinaturas (RF-11, Manutencao #64) — duplicados localmente,
+// nao compartilhados com Assinaturas.jsx (mesma convencao do projeto: cada
+// pagina duplica seu proprio Badge). Dois mapas distintos de propósito —
+// status de Assinatura (ATIVA/PAUSADA/ENCERRADA) e status de Receita
+// (PENDENTE/RECEBIDO/CANCELADO/ATRASADO) nunca compartilham o mesmo objeto
+// de cores, mesmo tendo a mesma aparência visual.
+const STATUS_ASSINATURA_BADGES = {
+  ATIVA: 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  PAUSADA: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
+  ENCERRADA: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
+}
+
+const STATUS_RECEITA_BADGES = {
+  PENDENTE: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
+  RECEBIDO: 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300',
+  CANCELADO: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
+  ATRASADO: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+}
+
+function BadgeAssinatura({ status }) {
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_ASSINATURA_BADGES[status] || STATUS_ASSINATURA_BADGES.ENCERRADA}`}>
+      {status}
+    </span>
+  )
+}
+
+function BadgeReceita({ status }) {
+  return (
+    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_RECEITA_BADGES[status] || STATUS_RECEITA_BADGES.PENDENTE}`}>
+      {status}
+    </span>
+  )
+}
+
+const BRL = (v) =>
+  Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+
+// Mesma logica de split de string ja usada em formatData de Compras.jsx —
+// evita shift de fuso-horario de `new Date(d)` para DateField "aaaa-mm-dd".
+function formatMesAno(d) {
+  if (!d) return '—'
+  const [ano, mes] = d.split('-')
+  return `${MESES_ABREV[Number(mes) - 1]}/${ano}`
+}
+
+// Aba "Assinaturas" na ficha do Cliente (RF-11) — somente leitura. Lista as
+// assinaturas do cliente + cobrancas (Receita) ja geradas por elas. Nenhum
+// botao de acao aqui — mutacao continua centralizada em Assinaturas.jsx.
+function AbaAssinaturasCliente({ clienteId }) {
+  const [assinaturas, setAssinaturas] = useState([])
+  const [cobrancas, setCobrancas] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let ativo = true
+    setLoading(true)
+    Promise.all([
+      api.get('/assinaturas/assinaturas/', { params: { cliente: clienteId, page_size: 100 } }).catch(() => ({ data: { results: [] } })),
+      api.get('/financeiro/receitas/', { params: { cliente: clienteId, page_size: 100 } }).catch(() => ({ data: { results: [] } })),
+    ]).then(([rAssinaturas, rReceitas]) => {
+      if (!ativo) return
+      setAssinaturas(rAssinaturas.data.results || rAssinaturas.data || [])
+      const todasReceitas = rReceitas.data.results || rReceitas.data || []
+      // Somente cobrancas geradas por assinatura (assinatura != null) —
+      // receitas manuais do cliente nao entram aqui.
+      setCobrancas(todasReceitas.filter((r) => r.assinatura))
+    }).finally(() => { if (ativo) setLoading(false) })
+    return () => { ativo = false }
+  }, [clienteId])
+
+  if (loading) {
+    return <div className="text-center py-8 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
+  }
+
+  return (
+    <div>
+      {assinaturas.length === 0 ? (
+        <p className="text-sm text-gray-400 dark:text-slate-500 text-center py-4">Nenhuma assinatura para este cliente.</p>
+      ) : (
+        assinaturas.map((a) => (
+          <div key={a.id} className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-navy-700 last:border-0">
+            <div>
+              <p className="text-sm font-medium text-gray-800 dark:text-slate-200">{a.plano_nome}</p>
+              <p className="text-xs text-gray-400 dark:text-slate-500">
+                {BRL(a.valor)} · vence dia {a.dia_vencimento}
+              </p>
+            </div>
+            <BadgeAssinatura status={a.status} />
+          </div>
+        ))
+      )}
+
+      <h4 className="text-xs font-semibold uppercase text-gray-400 dark:text-slate-500 mt-4 mb-2">Cobranças geradas</h4>
+      {cobrancas.length === 0 ? (
+        <p className="text-sm text-gray-400 dark:text-slate-500 text-center py-2">Nenhuma cobrança gerada ainda.</p>
+      ) : (
+        cobrancas.map((r) => (
+          <div key={r.id} className="flex items-center justify-between py-1.5 border-b border-gray-100 dark:border-navy-700 last:border-0">
+            <span className="text-sm text-gray-700 dark:text-slate-300">{formatMesAno(r.referencia_mes)} · {BRL(r.valor_bruto)}</span>
+            <BadgeReceita status={r.status} />
+          </div>
+        ))
+      )}
+    </div>
+  )
+}
+
 const EMPTY_ACIONISTA = { nome: '', email: '', cpf: '', telefone: '', whatsapp: '', principal: false }
 
 const EMPTY_FORM = {
@@ -89,6 +199,7 @@ export default function Clientes() {
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
   const [acionistas, setAcionistas] = useState([])
+  const [abaFicha, setAbaFicha] = useState('dados')
 
   const showToast = (msg, type = 'success') => {
     setToast({ msg, type })
@@ -119,6 +230,7 @@ export default function Clientes() {
     setForm(EMPTY_FORM)
     setAcionistas([])
     setEditingId(null)
+    setAbaFicha('dados')
     setModalOpen(true)
   }
 
@@ -145,6 +257,7 @@ export default function Clientes() {
     })
     setEditingId(cliente.id)
     setAcionistas([])
+    setAbaFicha('dados')
     setModalOpen(true)
     // Carregar acionistas em paralelo
     try {
@@ -160,6 +273,7 @@ export default function Clientes() {
     setEditingId(null)
     setForm(EMPTY_FORM)
     setAcionistas([])
+    setAbaFicha('dados')
   }
 
   const handleChange = (e) => {
@@ -413,6 +527,36 @@ export default function Clientes() {
           onClose={closeModal}
           maxW="max-w-2xl"
         >
+          {editingId && (
+            <div className="flex gap-1 border-b border-gray-200 dark:border-navy-600 mb-4 -mt-1">
+              <button
+                type="button"
+                onClick={() => setAbaFicha('dados')}
+                className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  abaFicha === 'dados'
+                    ? 'border-violet-500 text-violet-600 dark:text-violet-400'
+                    : 'border-transparent text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
+                }`}
+              >
+                Dados
+              </button>
+              <button
+                type="button"
+                onClick={() => setAbaFicha('assinaturas')}
+                className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                  abaFicha === 'assinaturas'
+                    ? 'border-violet-500 text-violet-600 dark:text-violet-400'
+                    : 'border-transparent text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
+                }`}
+              >
+                Assinaturas
+              </button>
+            </div>
+          )}
+
+          {editingId && abaFicha === 'assinaturas' ? (
+            <AbaAssinaturasCliente clienteId={editingId} />
+          ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Segmented control PF/PJ */}
             <div>
@@ -704,6 +848,7 @@ export default function Clientes() {
               </Button>
             </div>
           </form>
+          )}
         </Modal>
       )}
     </div>

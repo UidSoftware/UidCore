@@ -21,6 +21,7 @@ import Agendamento from '../pages/Agendamento.jsx'
 import Portal from '../pages/Portal.jsx'
 import Produtos from '../pages/Produtos.jsx'
 import Compras from '../pages/Compras.jsx'
+import Assinaturas from '../pages/Assinaturas.jsx'
 import Marketing from '../pages/Marketing.jsx'
 import AberturaCaixa from '../pages/pdv/AberturaCaixa.jsx'
 import FrenteDeCaixa from '../pages/pdv/FrenteDeCaixa.jsx'
@@ -93,6 +94,14 @@ export default function AppRoutes() {
           element={
             <FinanceiroRoute>
               <Conciliacao />
+            </FinanceiroRoute>
+          }
+        />
+        <Route
+          path="/assinaturas"
+          element={
+            <FinanceiroRoute>
+              <Assinaturas />
             </FinanceiroRoute>
           }
         />
