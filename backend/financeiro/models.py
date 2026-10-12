@@ -110,10 +110,27 @@ class Receita(BaseModel):
     estornado = models.BooleanField(default=False)
     data_estorno = models.DateField(null=True, blank=True)
     motivo_estorno = models.TextField(blank=True)
+    # Manutencao #64 [NUCLEO 3/5] — FK nullable (nao tabela de vinculo
+    # separada, RF-07) para a Receita gerada automaticamente por
+    # assinaturas.services.gerar_cobrancas_mes. SET_NULL porque Receita
+    # continua existindo mesmo se a Assinatura for soft-deletada; a
+    # UniqueConstraint abaixo e a 2a camada de defesa de idempotencia
+    # (a 1a e o get_or_create no service).
+    assinatura = models.ForeignKey(
+        'assinaturas.Assinatura', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='cobrancas',
+    )
 
     class Meta:
         db_table = 'fin_receita'
         ordering = ['vencimento']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['assinatura', 'referencia_mes'],
+                condition=models.Q(assinatura__isnull=False),
+                name='uniq_assinatura_referencia_mes',
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         self.valor_liquido = self.valor_bruto - (self.desconto or Decimal('0'))

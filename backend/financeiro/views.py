@@ -143,7 +143,7 @@ class ReceitaViewSet(AuditMixin, ModelViewSet):
     serializer_class = ReceitaSerializer
     permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['tipo', 'status', 'cliente', 'conta']
+    filterset_fields = ['tipo', 'status', 'cliente', 'conta', 'assinatura']
     search_fields = ['descricao']
     ordering_fields = ['vencimento', 'valor_liquido', 'status']
 

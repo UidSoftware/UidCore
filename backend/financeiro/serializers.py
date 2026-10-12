@@ -63,10 +63,15 @@ class ReceitaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
             'valor_bruto', 'desconto', 'valor_liquido',
             'conta', 'conta_nome',
             'vencimento', 'recebimento', 'status',
-            'referencia_mes', 'observacoes', 'is_active', 'created_at',
+            'referencia_mes', 'assinatura', 'observacoes', 'is_active', 'created_at',
             'created_by_nome', 'updated_by_nome',
         ]
-        read_only_fields = ['valor_liquido', 'created_at']
+        # 'assinatura' e read_only aqui (Manutencao #64 [NUCLEO 3/5]) --
+        # o vinculo so e criado por assinaturas.services.gerar_cobrancas_mes
+        # (via Receita.objects.get_or_create, direto no ORM, nao pelo
+        # serializer). Exposto so para leitura (ex: aba Assinaturas na
+        # ficha do Cliente, RF-11).
+        read_only_fields = ['valor_liquido', 'created_at', 'assinatura']
 
     def validate(self, data):
         bruto = data.get('valor_bruto', getattr(self.instance, 'valor_bruto', Decimal('0')))

@@ -24,4 +24,5 @@ urlpatterns = [
     path('api/v1/pdv/', include('pdv.urls')),
     path('api/v1/marketing/', include('marketing.urls')),
     path('api/v1/compras/', include('compras.urls')),
+    path('api/v1/assinaturas/', include('assinaturas.urls')),
 ] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
