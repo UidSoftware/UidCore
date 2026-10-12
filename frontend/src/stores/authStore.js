@@ -51,5 +51,12 @@ const useAuthStore = create(
 )
 
 export const selectTemAcessoTotal = (state) => Boolean(state.user?.tem_acesso_total)
+export const selectPerfil = (state) => state.user?.perfil ?? null
+export const selectPodeAcessarMarketing = (state) =>
+  selectTemAcessoTotal(state) || state.user?.perfil === 'MARKETING'
+export const selectPodeAcessarFinanceiro = (state) =>
+  selectTemAcessoTotal(state) || state.user?.perfil === 'FINANCEIRO'
+export const selectPodeAcessarProfissional = (state) =>
+  selectTemAcessoTotal(state) || state.user?.perfil === 'PROFISSIONAL'
 
 export default useAuthStore

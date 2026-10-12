@@ -6,6 +6,8 @@ import useAuthStore from '../stores/authStore.js'
 const PERFIL_OPTIONS = [
   { value: 'ADMIN', label: 'Admin' },
   { value: 'OPERACIONAL', label: 'Operacional' },
+  { value: 'FINANCEIRO', label: 'Financeiro' },
+  { value: 'PROFISSIONAL', label: 'Profissional' },
   { value: 'MARKETING', label: 'Marketing' },
   { value: 'SUPERADMIN', label: '👑 Superadmin' },
 ]
@@ -38,7 +40,14 @@ export default function Usuarios() {
             key: 'perfil',
             label: 'Perfil',
             badge: true,
-            badgeColorMap: { SUPERADMIN: 'gold', ADMIN: 'violet', OPERACIONAL: 'neutral', MARKETING: 'neutral' },
+            badgeColorMap: {
+              SUPERADMIN: 'gold',
+              ADMIN: 'violet',
+              OPERACIONAL: 'neutral',
+              FINANCEIRO: 'violet',
+              PROFISSIONAL: 'neutral',
+              MARKETING: 'neutral',
+            },
           },
           { key: 'tem_acesso_total', label: 'Acesso total', boolean: true },
           { key: 'is_active', label: 'Ativo', boolean: true },
@@ -62,6 +71,11 @@ export default function Usuarios() {
             label: 'Perfil',
             type: 'select',
             options: perfilOptions,
+            helpText:
+              'Admin/Superadmin: acesso total. Operacional: uso geral do sistema. '
+              + 'Financeiro: financeiro, pagamentos, compras e fornecedores — sem '
+              + 'Usuários/RH/Marketing. Profissional: agenda própria e clientes em '
+              + 'leitura — sem financeiro/compras/RH/PDV. Marketing: campanhas e leads.',
           },
         ]}
         emptyForm={{ email: '', nome_completo: '', telefone: '', password: '', perfil: 'OPERACIONAL' }}

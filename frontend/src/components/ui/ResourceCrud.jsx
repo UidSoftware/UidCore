@@ -291,7 +291,16 @@ export default function ResourceCrud({
       )
     }
     if (f.type === 'select') {
-      return <Select {...commonProps} options={f.options} />
+      return (
+        <div key={f.name} className={f.colSpan2 ? 'sm:col-span-2' : undefined}>
+          <Select {...commonProps} key={undefined} options={f.options} />
+          {f.helpText && (
+            <p className="text-xs text-gray-400 mt-1 dark:text-slate-500">
+              {typeof f.helpText === 'function' ? f.helpText(!!editingId) : f.helpText}
+            </p>
+          )}
+        </div>
+      )
     }
     if (f.type === 'select-remote') {
       const opts = [

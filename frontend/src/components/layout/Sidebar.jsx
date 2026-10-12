@@ -1,32 +1,38 @@
 import { NavLink } from 'react-router-dom'
-import useAuthStore, { selectTemAcessoTotal } from '../../stores/authStore.js'
+import useAuthStore, {
+  selectTemAcessoTotal,
+  selectPodeAcessarMarketing,
+  selectPodeAcessarFinanceiro,
+} from '../../stores/authStore.js'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '📊' },
   { to: '/clientes', label: 'Clientes', icon: '👥' },
   { to: '/fornecedores', label: 'Fornecedores', icon: '🏭' },
-  { to: '/compras', label: 'Compras', icon: '🧾', staffOnly: true },
+  { to: '/compras', label: 'Compras', icon: '🧾', requer: 'financeiro' },
   { to: '/vendas', label: 'Vendas', icon: '🛒' },
   { to: '/produtos', label: 'Produtos', icon: '📦' },
-  { to: '/marketing', label: 'Marketing', icon: '📣', marketingOnly: true },
+  { to: '/marketing', label: 'Marketing', icon: '📣', requer: 'marketing' },
   { to: '/pagamentos', label: 'Pagamentos', icon: '💳' },
-  { to: '/financeiro', label: 'Financeiro', icon: '💰' },
-  { to: '/conciliacao', label: 'Conciliação', icon: '🔄' },
+  { to: '/financeiro', label: 'Financeiro', icon: '💰', requer: 'financeiro' },
+  { to: '/conciliacao', label: 'Conciliação', icon: '🔄', requer: 'financeiro' },
   { to: '/administrativo', label: 'Administrativo', icon: '📁' },
-  { to: '/rh', label: 'RH', icon: '👔' },
-  { to: '/usuarios', label: 'Usuários', icon: '👤', staffOnly: true },
+  { to: '/rh', label: 'RH', icon: '👔', requer: 'staff' },
+  { to: '/usuarios', label: 'Usuários', icon: '👤', requer: 'staff' },
   { to: '/agendamento', label: 'Agendamento', icon: '📅' },
   { to: '/portal', label: 'Portal do Cliente', icon: '🌐' },
 ]
 
 export default function Sidebar({ collapsed, onToggle }) {
   const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
-  const perfil = useAuthStore((s) => s.user?.perfil)
-  const visibleItems = navItems.filter(
-    (item) =>
-      (!item.staffOnly || temAcessoTotal) &&
-      (!item.marketingOnly || temAcessoTotal || perfil === 'MARKETING'),
-  )
+  const podeMarketing = useAuthStore(selectPodeAcessarMarketing)
+  const podeFinanceiro = useAuthStore(selectPodeAcessarFinanceiro)
+  const visibleItems = navItems.filter((item) => {
+    if (item.requer === 'staff') return temAcessoTotal
+    if (item.requer === 'marketing') return podeMarketing
+    if (item.requer === 'financeiro') return podeFinanceiro
+    return true
+  })
 
   return (
     <aside

@@ -1,5 +1,9 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
-import useAuthStore, { selectTemAcessoTotal } from '../stores/authStore.js'
+import useAuthStore, {
+  selectTemAcessoTotal,
+  selectPodeAcessarMarketing,
+  selectPodeAcessarFinanceiro,
+} from '../stores/authStore.js'
 import AppLayout from '../components/layout/AppLayout.jsx'
 import Login from '../pages/Login.jsx'
 import DefinirSenha from '../pages/DefinirSenha.jsx'
@@ -37,9 +41,14 @@ function StaffRoute({ children }) {
 }
 
 function MarketingRoute({ children }) {
-  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
-  const perfil = useAuthStore((s) => s.user?.perfil)
-  if (!temAcessoTotal && perfil !== 'MARKETING') return <Navigate to="/dashboard" replace />
+  const podeAcessar = useAuthStore(selectPodeAcessarMarketing)
+  if (!podeAcessar) return <Navigate to="/dashboard" replace />
+  return children
+}
+
+function FinanceiroRoute({ children }) {
+  const podeAcessar = useAuthStore(selectPodeAcessarFinanceiro)
+  if (!podeAcessar) return <Navigate to="/dashboard" replace />
   return children
 }
 
@@ -65,16 +74,37 @@ export default function AppRoutes() {
         <Route
           path="/compras"
           element={
-            <StaffRoute>
+            <FinanceiroRoute>
               <Compras />
-            </StaffRoute>
+            </FinanceiroRoute>
           }
         />
         <Route path="/pagamentos" element={<Pagamentos />} />
-        <Route path="/financeiro" element={<Financeiro />} />
-        <Route path="/conciliacao" element={<Conciliacao />} />
+        <Route
+          path="/financeiro"
+          element={
+            <FinanceiroRoute>
+              <Financeiro />
+            </FinanceiroRoute>
+          }
+        />
+        <Route
+          path="/conciliacao"
+          element={
+            <FinanceiroRoute>
+              <Conciliacao />
+            </FinanceiroRoute>
+          }
+        />
         <Route path="/administrativo" element={<Administrativo />} />
-        <Route path="/rh" element={<Rh />} />
+        <Route
+          path="/rh"
+          element={
+            <StaffRoute>
+              <Rh />
+            </StaffRoute>
+          }
+        />
         <Route
           path="/usuarios"
           element={
