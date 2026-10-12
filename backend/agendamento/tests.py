@@ -218,6 +218,40 @@ class CompromissoEscopoProfissionalAPITest(APITestCase):
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
         self.assertEqual(len(resp.data['results']), 2)
 
+    def test_profissional_vinculado_via_api_real_ca05(self):
+        """CA-05 via API real (nao ORM) -- cobre o gap em que
+        AgendaSerializer descartava 'profissional' silenciosamente no
+        POST/PATCH (Manutencao 63, correcao pos-Sentinel): cria a Agenda
+        pela API com profissional=<id>, confirma profissional_id gravado
+        no banco e confirma que o escopo de Compromisso via
+        agenda__profissional funciona de ponta a ponta pela API."""
+        self.client.force_authenticate(self.recepcionista)
+        resp = self.client.post('/api/v1/agendamento/agendas/', {
+            'nome': 'Agenda do A via API', 'profissional': self.profissional_a.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        agenda_id = resp.data['id']
+        self.assertEqual(resp.data['profissional'], self.profissional_a.id)
+
+        agenda = Agenda.objects.get(pk=agenda_id)
+        self.assertEqual(agenda.profissional_id, self.profissional_a.id)
+
+        resp = self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': agenda_id, 'titulo': 'Consulta via agenda criada por API',
+            'inicio': '2026-07-20T10:00:00Z', 'fim': '2026-07-20T11:00:00Z',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        self.client.force_authenticate(self.profissional_a)
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 1)
+
+        self.client.force_authenticate(self.profissional_b)
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 0)
+
     def test_operacional_sem_filtro_de_escopo_ca11(self):
         """RN-07/CA-11 — regra de escopo e so para PROFISSIONAL puro;
         OPERACIONAL continua vendo tudo sem filtro, sem regressao."""

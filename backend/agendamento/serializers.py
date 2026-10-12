@@ -7,10 +7,16 @@ from .models import Agenda, Compromisso
 
 class AgendaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
+    profissional_nome = serializers.CharField(
+        source='profissional.nome_completo', read_only=True, allow_null=True,
+    )
 
     class Meta:
         model = Agenda
-        fields = ['id', 'nome', 'descricao', 'cor', 'is_active', 'created_at', 'created_by_nome', 'updated_by_nome']
+        fields = [
+            'id', 'nome', 'descricao', 'cor', 'profissional', 'profissional_nome',
+            'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
+        ]
         read_only_fields = ['id', 'created_at']
 
 
