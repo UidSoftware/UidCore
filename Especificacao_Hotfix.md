@@ -1,461 +1,424 @@
-# Especificação Hotfix — Manutenção #63
+# Especificação Hotfix — Manutenção #64 [NUCLEO 3/5]
+## Assinaturas: mensalidade recorrente com contrato ativo
 
 **Sistema:** UidCore (OS #7)
-**Pacote:** [NUCLEO 2/5] — melhoria de núcleo vinda da análise do NosFluir (Studio Fluir, papéis Administrador/Professor/Financeiro/Recepcionista via Grupos Django). Fase única, independente das outras do pacote [NUCLEO] (não depende da #62 nem bloqueia #64/#65).
-**Módulo:** `accounts` (novos valores de `PerfilUsuario`) + `common/permissions.py` (novas permission classes) + `financeiro`, `compras`, `agendamento`, `clientes` (views/permissions) + frontend (`authStore`, `Sidebar`, `routes`, `Usuarios.jsx`)
-**Tipo:** `feature_grande` — toca RBAC de núcleo (`PerfilUsuario`), não é tela isolada
-**Requer aprovação comercial:** não — hardening interno de RBAC, sem novo módulo cobrável
-**Analista:** leitura de código confirmada em `backend/accounts/models.py`, `backend/accounts/serializers.py`, `backend/accounts/views.py`, `backend/common/permissions.py`, `backend/common/mixins.py`, `backend/common/models.py`, `backend/financeiro/views.py` (todas as 804 linhas), `backend/financeiro/urls.py`, `backend/compras/views.py`, `backend/fornecedores/views.py`, `backend/pagamentos/views.py`, `backend/clientes/views.py`, `backend/rh/views.py`, `backend/pdv/views.py`, `backend/marketing/views.py`, `backend/agendamento/views.py`, `backend/agendamento/models.py`, `backend/agendamento/serializers.py`, `backend/agendamento/urls.py`, `backend/core/urls.py`, `backend/core/settings.py` (`DEFAULT_PERMISSION_CLASSES`), migrations de `accounts`/`agendamento`/`pagamentos`/`compras`/`fornecedores`/`clientes`, `frontend/src/stores/authStore.js`, `frontend/src/components/layout/Sidebar.jsx`, `frontend/src/routes/index.jsx`, `frontend/src/pages/Usuarios.jsx`, `frontend/src/pages/Dashboard.jsx`, `frontend/src/pages/Financeiro.jsx` (grep de todas as chamadas a `/financeiro/*`), `frontend/src/components/ui/Select.jsx`/`ResourceCrud.jsx`.
+**Data:** 2026-10-12
+**Autor:** Analista (modo manutenção)
+**Origem:** melhoria de núcleo migrada da análise do NosFluir (PlanosPagamentos +
+AlunoPlano + comando `gerar_mensalidades`) — fase única do pacote [NUCLEO] (3/5),
+independente das fases #62, #63 e das que ainda virão.
 
 ---
 
-## 1. Diagnóstico confirmado (leitura de código)
+## 1. Contexto
 
-### 1.1 Estado atual do RBAC (Manutenção #60 — intacto, não refazer)
+### AS-IS (como é hoje)
+A recorrência de cobrança no UidCore não existe como conceito próprio. O
+padrão atual (`Despesa.recorrente` + `frequencia` + `quantidade`, usado no
+módulo financeiro) gera **N parcelas de uma vez no `perform_create`** — um
+"estouro" fixo de lançamentos futuros, sem ciclo de vida posterior. Não há
+noção de "cliente tem um contrato ativo que gera cobrança todo mês até ser
+encerrado". Resultado: qualquer negócio de mensalidade (academia, escola,
+clínica, contabilidade, SaaS) não tem como modelar assinatura de verdade —
+só pacotes fechados de parcelas.
 
-```python
-# backend/accounts/models.py
-class PerfilUsuario(models.TextChoices):
-    ADMIN = 'ADMIN', 'Admin'
-    OPERACIONAL = 'OPERACIONAL', 'Operacional'
-    MARKETING = 'MARKETING', 'Marketing'
-    SUPERADMIN = 'SUPERADMIN', 'Superadmin'
-```
-`User.perfil` é `CharField(max_length=12, ...)` — `'PROFISSIONAL'` tem exatamente 12 caracteres, cabe sem alterar `max_length`.
+### Lição real que vira requisito obrigatório
+No NosFluir (Studio Fluir), o cron de geração de mensalidades **continuou
+gerando cobranças 2 meses depois do contrato do aluno ter sido encerrado**
+(27/08 e 27/09/2026) porque a rotina de geração não consultava fim/status
+do contrato antes de criar a cobrança do mês. Isso vira **requisito
+obrigatório e testável** nesta especificação (RN-03 e RN-04 abaixo) — não é
+nice-to-have, é a causa raiz documentada que esta fase existe para fechar
+de vez no núcleo.
 
-`User.tem_acesso_total` (propriedade, única fonte de "acesso total"): `is_staff or perfil in (ADMIN, SUPERADMIN)`. **Não será alterada** — `FINANCEIRO`/`PROFISSIONAL` nunca entram nela.
-
-`common/permissions.py` hoje:
-```python
-class IsAdmin(BasePermission):
-    def has_permission(self, request, view):
-        return bool(request.user and request.user.is_authenticated and request.user.tem_acesso_total)
-
-class IsOwner(BasePermission):
-    def has_object_permission(self, request, view, obj):
-        return obj == request.user
-
-class IsMarketing(BasePermission):
-    def has_permission(self, request, view):
-        u = request.user
-        return bool(u and u.is_authenticated and (u.perfil == 'MARKETING' or u.tem_acesso_total))
-```
-`IsMarketing` é o padrão a clonar — grant-style, `perfil == X OR tem_acesso_total`, composável com `|` (confirmado em uso real: `marketing/views.py` → `permission_classes = [IsAdmin | IsMarketing]`).
-
-### 1.2 Mapa de permissão por ViewSet/view hoje (antes desta manutenção)
-
-| App | View | `permission_classes` hoje | Fonte |
-|---|---|---|---|
-| financeiro | `CategoriaViewSet`, `ContaViewSet`, `AporteViewSet`, `ReceitaViewSet`, `DespesaViewSet`, `LivroCaixaViewSet`, `ConciliacaoViewSet`, `PadraoSeguroConciliacaoViewSet` | `[IsAdmin]` | views.py L40,53,131,144,196,262,699,803 |
-| financeiro | `ReceitaViewSet.estornar` (`@action`), `DespesaViewSet.estornar_despesa` (`@action`), `LivroCaixaViewSet.estornar` (`@action`) | **`permission_classes=[IsAdmin]` declarado no próprio `@action`** — sobrescreve o da classe | views.py L165, L221 (via nome `estornar_despesa`), L270 |
-| financeiro | `fluxo_caixa`, `dre`, `dashboard_financeiro`, `balanco_patrimonial`, `fluxo_projetado`, `indicadores_cfo`, `inferir_categoria` (`@api_view`) | nenhum decorator `@permission_classes` → cai no `DEFAULT_PERMISSION_CLASSES` global = `IsAuthenticated` puro | views.py L336-468, `settings.py` L118-120 |
-| compras | `CompraViewSet` | `[IsAdmin]` | compras/views.py L25 |
-| pagamentos | `MetodoPagamentoViewSet`, `CobrancaViewSet`, `ParcelaViewSet` | nenhum `permission_classes` → `IsAuthenticated` puro (qualquer perfil autenticado já acessa) | pagamentos/views.py |
-| fornecedores | `FornecedorViewSet` | nenhum `permission_classes` → `IsAuthenticated` puro | fornecedores/views.py |
-| clientes | `ClienteViewSet` | nenhum `permission_classes` → `IsAuthenticated` puro (qualquer perfil autenticado, CRUD completo) | clientes/views.py |
-| agendamento | `AgendaViewSet`, `CompromissoViewSet` | nenhum `permission_classes` → `IsAuthenticated` puro, sem filtro de queryset | agendamento/views.py |
-| rh | `CargoViewSet`, `ColaboradorViewSet`, `FolhaPagamentoViewSet`, `RegistroFeriasViewSet` | `[IsAdmin]` | rh/views.py |
-| accounts | `UserViewSet` | `[IsAdmin]` | accounts/views.py L21 |
-| pdv | `SessaoCaixaViewSet`, `VendaViewSet` | `[IsAdmin]` | pdv/views.py |
-
-**Nenhum ViewSet tocado nesta manutenção sobrescreve `get_permissions()`** (confirmado por leitura linha a linha de `financeiro/views.py`, `compras/views.py`, `pagamentos/views.py`, `fornecedores/views.py`, `clientes/views.py`, `agendamento/views.py`, `accounts/views.py`, `rh/views.py`). O aviso do pedido sobre "`get_permissions()` vence o `permission_classes` do `@action`" **não se aplica por esse mecanismo aqui** — mas existe a **mesma categoria de armadilha por outro caminho**: 3 `@action` em `financeiro/views.py` declaram `permission_classes=[IsAdmin]` **direto no decorator**, o que também vence o `permission_classes` da classe. Ver seção 2.4 — se só a classe for trocada para `IsAdmin | IsFinanceiro` e esses 3 `@action` forem esquecidos, `FINANCEIRO` ganha CRUD completo em Receita/Despesa/LivroCaixa mas recebe 403 especificamente em "estornar" (regressão parcial, bug real do mesmo tipo já visto na #60).
-
-### 1.3 `dashboard_financeiro` é a tela HOME — não pode ser restringida
-
-`frontend/src/pages/Dashboard.jsx` chama `GET /api/v1/financeiro/dashboard/` **incondicionalmente no `useEffect` de qualquer usuário logado** (é a rota `index`/`/dashboard`, destino padrão pós-login para todo perfil). Hoje esse endpoint é `IsAuthenticated` puro — `OPERACIONAL`/`MARKETING` já o acessam normalmente. Se fosse restringido a `IsAdmin | IsFinanceiro`, `OPERACIONAL`, `MARKETING` e o novo `PROFISSIONAL` passariam a ver a tela inicial quebrada ("Não foi possível carregar o painel") — regressão explicitamente proibida pelo pedido. **Decisão: `dashboard_financeiro` e `inferir_categoria` (utilitário de sugestão de texto, sem dado financeiro sensível, não listado no escopo) permanecem abertos (`IsAuthenticated`, sem mudança).** Os "403 em `/financeiro/*`" do critério de aceite se referem aos **recursos do módulo** citados no pedido — contas, receitas, despesas, livro-caixa, dre, balanço, fluxo, indicadores, conciliação — todos confirmados (grep em `frontend/src/pages/Financeiro.jsx`) como consumidos **somente** dentro da própria tela Financeiro, nunca pela Dashboard. Zero risco de regressão ao restringi-los.
-
-### 1.4 `pagamentos` e `fornecedores`: por que **não** ganham `IsFinanceiro`
-
-O pedido lista "pagamentos, compras e fornecedores" como acesso do `FINANCEIRO`, e pede para mapear esses apps. Mapeados — conclusão: **nenhuma mudança de permissão neles**, pelo motivo abaixo (documentado aqui para a próxima pessoa não reabrir a dúvida):
-
-- Hoje ambos são `IsAuthenticated` puro, ou seja, `OPERACIONAL` e `MARKETING` **já** têm acesso de produção a eles (Sidebar sem `staffOnly`/flag nenhuma nos itens Pagamentos e Fornecedores).
-- `FINANCEIRO` é um perfil autenticado → **já** satisfaz `IsAuthenticated` → já tem o acesso que o pedido pede, sem precisar de classe nova.
-- Restringir para `IsAdmin | IsFinanceiro` bloquearia `OPERACIONAL`/`MARKETING`, que é regressão explicitamente proibida pelo critério de aceite ("OPERACIONAL e MARKETING sem regressão").
-- `compras` é diferente: já era `IsAdmin` puro (`OPERACIONAL` **já não tinha** acesso — Sidebar já marca `staffOnly: true`). Abrir para `FINANCEIRO` aqui é estritamente aditivo, sem risco de regressão. Por isso só `compras` ganha `IsFinanceiro` entre os três.
-
-### 1.5 `agendamento`/`clientes` não têm hoje nenhum conceito de "profissional responsável"
-
-`Compromisso`/`Agenda` herdam `common.models.BaseModel`, que desde a Manutenção #62 já tem `created_by` (FK para `accounts.User`, `related_name='+'`, preenchido automaticamente pelo `AuditMixin.perform_create`). **Isso já basta para "próprios compromissos"** — não precisa de campo novo. Mas não existe nenhum campo que modele "agendas a que o profissional está vinculado" (ex.: agenda da Dra. Ana, mantida por uma recepcionista em nome dela) — precisa de campo novo em `Agenda` (seção 2.2).
-
-`Cliente` (`clientes/views.py`) é `IsAuthenticated` puro, CRUD completo para qualquer perfil autenticado — inclusive o `PROFISSIONAL` novo teria, por padrão, permissão de editar/excluir cliente. O pedido pede leitura para `PROFISSIONAL`; **decisão: restringir só a escrita, só para o perfil `PROFISSIONAL` puro — todos os demais perfis mantêm exatamente o comportamento de hoje** (seção 2.4).
+### TO-BE (como será)
+Novo app `assinaturas` com dois models (`Plano`, `Assinatura`) + uma rotina
+de geração de cobranças (serviço + management command) que:
+- só gera cobrança para assinatura `ATIVA` dentro da janela
+  `data_inicio..data_fim`;
+- nunca gera para `ENCERRADA` ou `PAUSADA`, nem olhando pra trás nem pra
+  frente da data de encerramento;
+- é idempotente (rodar o mesmo mês 2x não duplica);
+- respeita periodicidade (mensal roda todo mês; trimestral/semestral/anual
+  só nos meses de competência a partir de `data_inicio`);
+- nunca escreve no `LivroCaixa` diretamente — cria `financeiro.Receita`
+  `PENDENTE`, e o signal existente da Receita cuida do caixa quando ela for
+  de fato recebida (ADR já em vigor no módulo financeiro, visto em
+  `financeiro/services.py` e `financeiro/signals.py`).
 
 ---
 
-## 2. Especificação Backend
+## 2. Requisitos Funcionais
 
-### 2.1 `accounts/models.py` — `PerfilUsuario`
+### Backend — app `assinaturas`
 
-```python
-class PerfilUsuario(models.TextChoices):
-    ADMIN = 'ADMIN', 'Admin'
-    OPERACIONAL = 'OPERACIONAL', 'Operacional'
-    MARKETING = 'MARKETING', 'Marketing'
-    SUPERADMIN = 'SUPERADMIN', 'Superadmin'
-    FINANCEIRO = 'FINANCEIRO', 'Financeiro'          # RF-01 (novo)
-    PROFISSIONAL = 'PROFISSIONAL', 'Profissional'    # RF-01 (novo)
+**RF-01** — Novo app Django `assinaturas`, registrado em `INSTALLED_APPS`
+(`core/settings.py`) e montado em `core/urls.py` sob
+`path('api/v1/assinaturas/', include('assinaturas.urls'))` — mesmo padrão
+dos apps `compras`/`marketing` (últimos dois a entrar no núcleo).
+
+**RF-02** — Model `Plano(BaseModel)`:
 ```
-`User.tem_acesso_total` **não muda uma linha** (RN-01 — travas da #60 intactas: só `SUPERADMIN` concede/edita `SUPERADMIN`; `FINANCEIRO`/`PROFISSIONAL` não entram em `tem_acesso_total` sob nenhuma condição).
-
-**Migration:** `backend/accounts/migrations/0005_alter_user_perfil_financeiro_profissional.py` — `AlterField` em `perfil` com o novo `choices` (mesmo padrão de `0003_alter_user_perfil.py` da Manutenção #60). Não precisa de `RunPython` (ninguém é promovido automaticamente — perfil novo é opt-in via tela Usuários).
-
-### 2.2 `agendamento/models.py` — vínculo profissional↔agenda (RF-05)
-
-```python
-class Agenda(BaseModel):
-    nome        = models.CharField(max_length=100, blank=True)
-    descricao   = models.TextField(blank=True)
-    cor         = models.CharField(max_length=7, default='#3B82F6')
-    profissional = models.ForeignKey(            # novo (RF-05)
-        settings.AUTH_USER_MODEL, verbose_name='profissional responsável',
-        null=True, blank=True, on_delete=models.SET_NULL, related_name='agendas_vinculadas',
-    )
+nome            CharField(150)
+descricao       TextField(blank=True)
+valor           DecimalField(max_digits=12, decimal_places=2)
+periodicidade   CharField(choices=Periodicidade: MENSAL/TRIMESTRAL/SEMESTRAL/ANUAL)
+categoria       FK financeiro.Categoria (on_delete=PROTECT, limit_choices_to tipo=ENTRADA, is_active=True)
+ativo           BooleanField(default=True)   # visível/selecionável em nova Assinatura
 ```
-**Decisão de projeto (Analista):** "agendas a que está vinculado" é modelado como **1 profissional responsável por agenda** (`Agenda.profissional`, nullable — agendas sem dono explícito continuam existindo, ex. "Agenda Geral" da recepção). Não é M2M — o pedido descreve o caso genérico (professor, terapeuta, esteticista, técnico) como "a agenda da pessoa", não "a agenda compartilhada por um time"; M2M ficaria fora do escopo mínimo necessário para o critério de aceite e seria over-engineering para a Fase única desta manutenção. Se um nicho futuro precisar de agenda com múltiplos profissionais, isso é "perfil específico de nicho" — explicitamente fora de escopo aqui.
+`ativo` aqui é **campo de negócio distinto de `is_active`** (herdado do
+BaseModel) — um Plano pode ficar `is_active=True` (não soft-deletado) mas
+`ativo=False` (descontinuado para novas vendas, sem afetar assinaturas já
+ativas nele). Precedente já existe no sistema: `Categoria` também separa
+soft delete de significado de negócio.
 
-`related_name='agendas_vinculadas'` (não `'+'`, diferente do padrão de `created_by`/`updated_by`/`deleted_by` do `BaseModel`) **de propósito** — precisamos consultar `user.agendas_vinculadas.all()` ao decidir o que um `PROFISSIONAL` vê.
-
-**Migration:** `backend/agendamento/migrations/0007_agenda_profissional.py` (sequência atual: `0001` a `0006_remove_criado_por.py`).
-
-### 2.3 `common/permissions.py` — novas classes
-
-```python
-from rest_framework.permissions import BasePermission, SAFE_METHODS
-
-
-class IsFinanceiro(BasePermission):
-    def has_permission(self, request, view):
-        u = request.user
-        return bool(u and u.is_authenticated and (u.perfil == 'FINANCEIRO' or u.tem_acesso_total))
-
-
-class IsProfissional(BasePermission):
-    def has_permission(self, request, view):
-        u = request.user
-        return bool(u and u.is_authenticated and (u.perfil == 'PROFISSIONAL' or u.tem_acesso_total))
-
-
-class BloqueiaEscritaDeProfissional(BasePermission):
-    """
-    RF-06 (Manutencao 63) — Cliente em leitura para PROFISSIONAL. Nao e o
-    mesmo padrao de IsFinanceiro/IsProfissional (grant-style) porque aqui a
-    regra e "nega escrita SO para esse perfil, mantem os demais exatamente
-    como estao" -- nao daria pra compor so com | / ~ sobre um grant-style
-    sem tambem bloquear quem tem tem_acesso_total (ADMIN/SUPERADMIN), que
-    IsProfissional.has_permission tambem retorna True para eles. Consulta
-    IsProfissional() diretamente (nao decorativo -- e o "alguem le
-    IsProfissional" exigido pelo item 5 do pedido, com teste proprio).
-    """
-    def has_permission(self, request, view):
-        u = request.user
-        if not (u and u.is_authenticated):
-            return False
-        if request.method in SAFE_METHODS:
-            return True
-        eh_profissional_puro = (
-            IsProfissional().has_permission(request, view)
-            and not u.tem_acesso_total
-            and u.perfil == 'PROFISSIONAL'
-        )
-        return not eh_profissional_puro
+**RF-03** — Model `Assinatura(BaseModel)`:
 ```
-
-Mantém `IsAdmin`/`IsOwner`/`IsMarketing` existentes intactos (RN-02).
-
-### 2.4 Views a alterar — lista exaustiva
-
-#### `financeiro/views.py`
-
-| View | De | Para |
-|---|---|---|
-| `CategoriaViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `ContaViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `AporteViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `ReceitaViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `ReceitaViewSet.estornar` (`@action`) | `permission_classes=[IsAdmin]` no decorator | `permission_classes=[IsAdmin \| IsFinanceiro]` — **não esquecer, é o ponto da seção 1.2** |
-| `DespesaViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `DespesaViewSet.estornar_despesa` (`@action`) | `permission_classes=[IsAdmin]` no decorator | `permission_classes=[IsAdmin \| IsFinanceiro]` |
-| `LivroCaixaViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `LivroCaixaViewSet.estornar` (`@action`) | `permission_classes=[IsAdmin]` no decorator | `permission_classes=[IsAdmin \| IsFinanceiro]` |
-| `LivroCaixaViewSet.totais` (`@action`, sem override) | herda da classe | `IsAdmin \| IsFinanceiro` automaticamente — nenhuma mudança de código |
-| `ConciliacaoViewSet` (+ `upload`, `itens`, `confirmar_item`, sem override em nenhum `@action`) | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `PadraoSeguroConciliacaoViewSet` | `[IsAdmin]` | `[IsAdmin \| IsFinanceiro]` |
-| `fluxo_caixa`, `dre`, `balanco_patrimonial`, `fluxo_projetado`, `indicadores_cfo` (`@api_view`) | sem decorator → `IsAuthenticated` global | **adicionar** `@permission_classes([IsAdmin \| IsFinanceiro])` — fecha gap pré-existente (hoje `MARKETING`/`OPERACIONAL`/`PROFISSIONAL` conseguiriam ver DRE/balanço/indicadores sem nunca ter sido avaliado — nada no histórico do projeto cobre isso) |
-| `dashboard_financeiro`, `inferir_categoria` | sem decorator | **sem mudança** (seção 1.3) |
-
-Import novo em `financeiro/views.py`: `from common.permissions import IsAdmin, IsFinanceiro` e `from rest_framework.decorators import action, api_view, permission_classes` (`permission_classes` do DRF ainda não está importado — só `action`/`api_view`).
-
-#### `compras/views.py`
-
-```python
-from common.permissions import IsAdmin, IsFinanceiro
-...
-class CompraViewSet(AuditMixin, ModelViewSet):
-    ...
-    permission_classes = [IsAdmin | IsFinanceiro]   # era [IsAdmin]
+cliente             FK clientes.Cliente (on_delete=PROTECT)
+plano               FK assinaturas.Plano (on_delete=PROTECT)
+valor               DecimalField(max_digits=12, decimal_places=2)   # copiado do plano no create, editável (desconto negociado)
+dia_vencimento      PositiveSmallIntegerField (validators: MinValueValidator(1), MaxValueValidator(28))
+data_inicio         DateField
+data_fim            DateField(null=True, blank=True)   # null = indeterminado
+status              CharField(choices=StatusAssinatura: ATIVA/PAUSADA/ENCERRADA, default=ATIVA)
+conta               FK financeiro.Conta (on_delete=PROTECT)   # conta de destino das Receitas geradas
+motivo_encerramento TextField(blank=True)
+encerrada_em        DateTimeField(null=True, blank=True)
 ```
-`CompraViewSet.cancelar` (`@action`, sem override de `permission_classes`) herda automaticamente — nenhuma mudança adicional de código, mas **conferir no Sentinel** que o teste cobre `FINANCEIRO` chamando `cancelar` com sucesso (RN-05 do pedido: "self.action" explícito).
+- `dia_vencimento` limitado a 1–28 (RN-02) evita o bug clássico de
+  vencimento dia 30/31 não existir em fevereiro.
+- `valor` não recalcula sozinho se o `Plano.valor` mudar depois — é
+  snapshot editável no momento da criação (igual ao padrão
+  `Receita.valor_bruto`/`Despesa.valor_bruto`, que também não seguem
+  nenhuma tabela de preço "ao vivo").
 
-#### `pagamentos/views.py`, `fornecedores/views.py`
+**RF-04** — Actions no `AssinaturaViewSet`:
+- `POST /api/v1/assinaturas/assinaturas/{id}/encerrar/` — body
+  `{data_fim, motivo}`. Seta `status=ENCERRADA`, `data_fim` (obrigatório,
+  não pode ser anterior a `data_inicio`), `motivo_encerramento`,
+  `encerrada_em=now()`. Idempotente: encerrar uma já `ENCERRADA` retorna
+  400 (RN-07).
+- `POST /api/v1/assinaturas/assinaturas/{id}/pausar/` — seta
+  `status=PAUSADA`. Bloqueado se já `ENCERRADA` (RN-07 — status terminal,
+  sem retorno).
+- `POST /api/v1/assinaturas/assinaturas/{id}/retomar/` — seta
+  `status=ATIVA`. Só permitido a partir de `PAUSADA` (RN-07).
 
-**Sem alteração** — decisão justificada na seção 1.4.
+**RF-05** — Função de serviço `assinaturas/services.py::gerar_cobrancas_mes(mes, dry_run=False)`:
+- `mes`: `date` representando o 1º dia do mês de competência (ex:
+  `date(2026, 11, 1)`).
+- Itera `Assinatura.objects.filter(status='ATIVA')` elegíveis ao mês
+  (RN-03/RN-04/RN-05 abaixo definem elegibilidade).
+- Para cada assinatura elegível, em `transaction.atomic()` própria (RN-06):
+  cria `financeiro.Receita` com `tipo=MENSALIDADE`, `cliente=assinatura.cliente`,
+  `categoria=assinatura.plano.categoria`, `valor_bruto=assinatura.valor`,
+  `conta=assinatura.conta`, `vencimento=date(mes.year, mes.month, assinatura.dia_vencimento)`,
+  `status=PENDENTE`, `referencia_mes=mes`, `descricao` incluindo nome do
+  plano e nº da assinatura.
+- Retorna um resumo: `{criadas: N, puladas_idempotencia: N, puladas_elegibilidade: N, erros: [...]}`.
+- `dry_run=True`: executa toda a lógica de decisão (o que seria criado/
+  pulado) mas não persiste nenhuma `Receita` — nenhuma gravação no banco
+  (RN-08).
 
-#### `agendamento/views.py` (RF-07/RF-08)
-
-```python
-from django.db.models import Q
-from accounts.models import PerfilUsuario
-
-class AgendaViewSet(AuditMixin, ModelViewSet):
-    serializer_class = AgendaSerializer
-    filter_backends = [SearchFilter]
-    search_fields = ['nome']
-    # permission_classes: SEM mudança (continua IsAuthenticated puro) —
-    # restringir quebraria OPERACIONAL/MARKETING, que hoje gerenciam
-    # agendas livremente (sem staffOnly no Sidebar). Regra do PROFISSIONAL
-    # e so de ESCOPO DE DADOS (get_queryset), nao de permissao de entrada.
-
-    def get_queryset(self):
-        qs = Agenda.objects.filter(is_active=True).order_by('nome')
-        u = self.request.user
-        if u.perfil == PerfilUsuario.PROFISSIONAL and not u.tem_acesso_total:
-            qs = qs.filter(Q(profissional=u) | Q(created_by=u))
-        return qs
-
-
-class CompromissoViewSet(AuditMixin, ModelViewSet):
-    serializer_class = CompromissoSerializer
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['agenda', 'status', 'cliente']
-    search_fields = ['titulo', 'descricao']
-    ordering_fields = ['inicio', 'fim']
-    # permission_classes: idem AgendaViewSet — sem mudanca.
-
-    def get_queryset(self):
-        qs = (
-            Compromisso.objects.filter(is_active=True)
-            .select_related('agenda', 'cliente')
-            .order_by('inicio')
-        )
-        u = self.request.user
-        if u.perfil == PerfilUsuario.PROFISSIONAL and not u.tem_acesso_total:
-            qs = qs.filter(Q(created_by=u) | Q(agenda__profissional=u))
-        return qs
+**RF-06** — Management command `gerar_cobrancas_assinaturas`:
 ```
-**RN-03 (Should, não bloqueia o critério de aceite):** esta fase não impede um `PROFISSIONAL` de criar um `Compromisso` em uma `Agenda` de outro profissional (`POST`/`PATCH` não validam `agenda.profissional == request.user`) — o pedido só exige que ele **veja** o escopo certo (critério de aceite: "vê só os próprios compromissos"). Validar o vínculo também na escrita é recomendado para uma fase futura, registrado aqui para não se perder.
-
-#### `clientes/views.py` (RF-06)
-
-```python
-from common.permissions import BloqueiaEscritaDeProfissional
-
-class ClienteViewSet(AuditMixin, viewsets.ModelViewSet):
-    serializer_class = ClienteSerializer
-    permission_classes = [BloqueiaEscritaDeProfissional]   # era implícito (nenhum = IsAuthenticated)
-    ...
+python manage.py gerar_cobrancas_assinaturas [--mes AAAA-MM] [--dry-run]
 ```
-Comportamento: leitura (`GET`) — qualquer autenticado, igual a hoje. Escrita (`POST`/`PATCH`/`PUT`/`DELETE`) — qualquer autenticado **exceto** `PROFISSIONAL` puro (sem `tem_acesso_total`), que recebe 403. `ADMIN`/`OPERACIONAL`/`MARKETING`/`FINANCEIRO`/`SUPERADMIN` mantêm CRUD completo — zero regressão.
+- `--mes` default = mês corrente (`date.today()` truncado para dia 1).
+- Chama `gerar_cobrancas_mes`, imprime o resumo (`self.stdout.write`) no
+  mesmo padrão de `conciliar_extrato.py` (`BaseCommand` + `add_arguments`).
+- Log de erro por assinatura não derruba o comando inteiro (RN-06) — ao
+  final, se houve erro em alguma assinatura, `CommandError` só é levantado
+  se **todas** falharem; erros parciais aparecem no resumo e o exit code
+  continua 0 (cron não deve re-tentar o mês inteiro por causa de 1
+  assinatura com dado inconsistente).
 
-As `@action` (`adicionar_historico`, `acionistas`, `acionista_detalhe`) são todas de escrita ou leitura condicionada ao método HTTP real da requisição — `BloqueiaEscritaDeProfissional` já cobre (`has_permission` olha `request.method`, que para essas actions é `POST`/`GET`/`PATCH`/`DELETE` reais). Confirmar no Sentinel que `PROFISSIONAL` recebe 403 em `POST /clientes/{id}/historico/` e `POST /clientes/{id}/acionistas/` também (são escrita).
+**RF-07** — Idempotência via constraint de unicidade: `unique_together`
+em `Receita` não é viável (model já em produção, mexer lá é risco maior
+que o escopo desta fase) — usar `FK Assinatura` **nullable** direto em
+`financeiro.Receita` (campo novo `assinatura`, `on_delete=SET_NULL`,
+`null=True`, `blank=True`, `related_name='cobrancas'`) + constraint
+`UniqueConstraint(fields=['assinatura', 'referencia_mes'], condition=Q(assinatura__isnull=False), name='uniq_assinatura_referencia_mes')`.
+Isso cobre o critério de aceite "rodar 2x não duplica" via `get_or_create`
+no serviço (lookup por `assinatura` + `referencia_mes`) e via constraint de
+banco como segunda camada de proteção contra race condition.
 
-#### `rh/views.py`, `accounts/views.py` (`UserViewSet`), `pdv/views.py`
+> Alternativa avaliada e descartada: tabela de vínculo separada
+> (`CobrancaAssinatura`) em vez de FK direta em `Receita`. Descartada por
+> exigir 2 queries/joins em todo lugar que hoje já lista Receita (dashboard,
+> relatórios), sem ganho real — FK nullable é aditiva e não quebra nenhum
+> código existente que já lê `Receita` sem saber de `assinaturas`.
 
-**Sem alteração** — já são `[IsAdmin]` puro, `FINANCEIRO`/`PROFISSIONAL` já recebem 403 automaticamente (nem `IsFinanceiro` nem `IsProfissional` entram no OR). Cobrir com teste mesmo sem mudar código (RF-09).
+### Regras de Negócio (elegibilidade de geração — núcleo da lição real)
 
-### 2.5 Testes obrigatórios (RF-09 / item 5 do pedido — "nenhum perfil decorativo")
+**RN-01** — Só gera Receita se `Assinatura.status == 'ATIVA'`.
+`PAUSADA` e `ENCERRADA` **nunca geram**, em nenhuma circunstância — sem
+exceção para "mês de transição" ou "já estava gerado antes de pausar".
 
-Novo arquivo ou extensão dos existentes, nos apps tocados. Nos dois sentidos (permite / bloqueia) para cada perfil novo:
+**RN-02** — Só gera se `data_inicio <= mes` (não gera cobrança para mês
+anterior ao início do contrato).
 
-| App | Caso | Esperado |
-|---|---|---|
-| `common` (novo `test_permissions.py` ou dentro de `accounts/tests.py`) | `IsFinanceiro().has_permission` com `perfil='FINANCEIRO'` | `True` |
-| | `IsFinanceiro().has_permission` com `perfil='OPERACIONAL'`, sem `tem_acesso_total` | `False` |
-| | `IsProfissional().has_permission` com `perfil='PROFISSIONAL'` | `True` |
-| | `IsProfissional().has_permission` com `perfil='OPERACIONAL'` | `False` |
-| | `BloqueiaEscritaDeProfissional` — `PROFISSIONAL` + `GET` | `True` |
-| | `BloqueiaEscritaDeProfissional` — `PROFISSIONAL` + `POST` | `False` |
-| | `BloqueiaEscritaDeProfissional` — `ADMIN` (`tem_acesso_total`) + `POST` | `True` |
-| `financeiro` | usuário `FINANCEIRO` → `GET /api/v1/financeiro/contas/` | 200 |
-| | usuário `FINANCEIRO` → `POST /api/v1/financeiro/receitas/{id}/estornar/` | 200/201 (não 403) |
-| | usuário `OPERACIONAL`/`PROFISSIONAL`/`MARKETING` → `GET /api/v1/financeiro/contas/` | 403 |
-| | usuário `PROFISSIONAL` → `GET /api/v1/financeiro/dre/` | 403 |
-| | usuário `OPERACIONAL` → `GET /api/v1/financeiro/dashboard/` | 200 (sem regressão — não é recurso do módulo, seção 1.3) |
-| `compras` | `FINANCEIRO` → `GET /api/v1/compras/` e `POST .../cancelar/` | 200 |
-| | `OPERACIONAL`/`PROFISSIONAL` → `GET /api/v1/compras/` | 403 (sem regressão — já era assim) |
-| `rh`/`accounts` | `FINANCEIRO` → `GET /api/v1/rh/colaboradores/` | 403 |
-| | `FINANCEIRO` → `GET /api/v1/accounts/usuarios/` | 403 |
-| | `PROFISSIONAL` → `GET /api/v1/rh/colaboradores/`, `GET /api/v1/accounts/usuarios/` | 403 |
-| `agendamento` | `PROFISSIONAL` A cria `Compromisso` (vira `created_by=A`) → `GET /api/v1/agendamento/compromissos/` autenticado como A | retorna o compromisso criado por A |
-| | `PROFISSIONAL` B (nunca criou nada, sem agenda vinculada) → mesma listagem | não retorna o compromisso de A |
-| | `Agenda` com `profissional=A`, `Compromisso` nela criado por outro usuário (ex. recepcionista `OPERACIONAL`) → listagem de A | retorna (via `agenda__profissional=A`) |
-| | `ADMIN`/`tem_acesso_total` → listagem | retorna todos, sem filtro |
-| `clientes` | `PROFISSIONAL` → `GET /api/v1/clientes/` | 200, lista normal |
-| | `PROFISSIONAL` → `POST /api/v1/clientes/` | 403 |
-| | `OPERACIONAL`/`MARKETING`/`FINANCEIRO` → `POST /api/v1/clientes/` | 200/201 (sem regressão) |
-| regressão geral | `OPERACIONAL`/`MARKETING` em todos os endpoints que já acessavam antes (`pagamentos`, `fornecedores`, `vendas`, `produtos`, `agendamento` sem filtro, `clientes` leitura+escrita exceto o caso acima) | mesmo status code de antes desta manutenção |
+**RN-03 (requisito obrigatório vindo da lição do NosFluir)** — Só gera se
+`data_fim IS NULL OR data_fim >= mes`. Esta é a regra que faltava no
+NosFluir e gerou 2 meses de cobrança indevida pós-encerramento — aqui ela
+é parte da *query* de elegibilidade, não um filtro aplicado depois (a
+assinatura `ENCERRADA` com `data_fim` no passado simplesmente não entra no
+`queryset` que o comando itera).
+
+**RN-04** — `RN-01` e `RN-03` são redundantes por design, não
+contraditórias: encerrar uma assinatura seta `status=ENCERRADA` (barra
+RN-01) **e** `data_fim` (barra RN-03) no mesmo `encerrar()`. As duas
+camadas existem porque a lição do NosFluir foi justamente uma rotina que
+dependia de só uma dessas condições e a condição que faltava não foi
+coberta — aqui nenhuma das duas pode ser removida sem quebrar teste.
+
+**RN-05** — Periodicidade não-mensal só gera cobrança no mês de
+competência exato, calculado por diferença de meses inteiros a partir de
+`data_inicio`:
+```
+diferenca_meses = (mes.year - data_inicio.year) * 12 + (mes.month - data_inicio.month)
+intervalo = {MENSAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12}[periodicidade]
+elegivel_por_periodicidade = diferenca_meses >= 0 and diferenca_meses % intervalo == 0
+```
+Ex.: `data_inicio=2026-01-15`, `TRIMESTRAL` → gera em jan/2026, abr/2026,
+jul/2026, out/2026... nunca em fev, mar, mai etc.
+
+**RN-06** — Cada assinatura processada dentro de sua própria
+`transaction.atomic()` — uma assinatura com dado inconsistente (ex: FK de
+conta apagada por engano, categoria inativa) registra erro no resumo e
+**não** impede as demais de serem processadas no mesmo lote. Nunca uma
+`transaction.atomic()` única em volta de todo o laço (isso faria 1 erro
+derrubar o mês inteiro).
+
+**RN-07** — Transições de status válidas: `ATIVA ↔ PAUSADA` (via
+pausar/retomar), `ATIVA → ENCERRADA`, `PAUSADA → ENCERRADA`. **Nunca**
+`ENCERRADA → qualquer coisa` — é estado terminal (criar nova Assinatura
+para o mesmo cliente se precisar reativar, nunca reabrir uma encerrada;
+preserva o histórico e a auditoria de `encerrada_em`/`motivo_encerramento`
+intactos).
+
+**RN-08** — `--dry-run` não grava nenhuma linha no banco — nem `Receita`,
+nem efeito colateral de signal (já garantido transitivamente, já que
+signal de `Receita` só dispara em `post_save` real).
+
+**RN-09** — `Receita` gerada por assinatura nunca grava `LivroCaixa`
+diretamente — ela nasce `status=PENDENTE`; o `LivroCaixa` só é afetado
+quando o fluxo normal de "receber" a Receita rodar (endpoint/ação já
+existente no `ReceitaViewSet`), exatamente como qualquer outra Receita
+manual. Nenhuma lógica nova de caixa nesta fase.
+
+**RN-10** — Payload de criação/edição de `Assinatura` ignora tentativa de
+setar `status=ENCERRADA` diretamente fora da action `encerrar` (campo
+`status` fica fora de `Meta.fields` editáveis no serializer de create/
+update padrão — só a action dedicada movimenta esse campo para
+`ENCERRADA`, preservando `motivo_encerramento`/`encerrada_em` sempre
+preenchidos juntos).
+
+### Frontend
+
+**RF-08** — Novo item no Sidebar: `{ to: '/assinaturas', label: 'Assinaturas', icon: '🔁', requer: 'financeiro' }`,
+seguindo exatamente o padrão de `requer: 'financeiro'` já usado por
+Compras/Financeiro/Conciliação (reusa `selectPodeAcessarFinanceiro` do
+`authStore.js` — nenhuma store nova).
+
+**RF-09** — Rota `/assinaturas` protegida por `FinanceiroRoute` (mesmo
+componente já usado em `/compras`, `/financeiro`, `/conciliacao`) em
+`routes/index.jsx`.
+
+**RF-10** — Tela `Assinaturas.jsx`:
+- Listagem com filtro por `status` (ATIVA/PAUSADA/ENCERRADA) e busca por
+  cliente.
+- Botão "Nova Assinatura" abre modal (padrão `ResourceCrud`/`Modal.jsx` já
+  usado em Clientes/Fornecedores/Produtos) com formulário: cliente
+  (autocomplete, reaproveitar componente de busca já usado em
+  Vendas/PDV), plano (select, ao escolher pré-preenche `valor` do plano —
+  editável), dia de vencimento, data início, data fim (opcional), conta.
+- Cada linha com ações: Editar, Pausar/Retomar (toggle conforme status
+  atual), Encerrar (abre modal pequeno pedindo data + motivo,
+  `window.confirm`-style guard antes de chamar a action — é operação sem
+  volta, RN-07).
+- Badge de status colorido (ATIVA=verde, PAUSADA=amarelo, ENCERRADA=
+  cinza), mesmo padrão visual de badges já usado em Compras (`StatusCompra`)
+  e PDV (`StatusDespesa`/`StatusReceita`).
+
+**RF-11** — Nova aba "Assinaturas" na tela/modal de ficha do Cliente
+(`Clientes.jsx`), listando: assinaturas do cliente (plano, valor, status,
+próximo vencimento) + Receitas já geradas por essas assinaturas
+(`GET /api/v1/financeiro/receitas/?assinatura__cliente=<id>` ou endpoint
+equivalente filtrando por `cliente` — reaproveitar filtro já existente de
+Receita por cliente se houver, senão adicionar `assinatura` a
+`filterset_fields` do `ReceitaViewSet`). Somente leitura nesta aba — ações
+de editar/encerrar/pausar continuam centralizadas na tela `Assinaturas.jsx`
+(evita duplicar lógica de mutação em dois lugares).
+
+**RF-12** — Permissão de UI: `tem_acesso_total` OU `perfil === FINANCEIRO`
+— mesmo gate usado por Compras/Conciliação/Financeiro (`IsAdmin | IsFinanceiro`
+no backend, `selectPodeAcessarFinanceiro` no frontend). Nenhum perfil novo
+criado nesta fase.
+
+### Cron (documentação, sem execução nesta fase)
+
+**RF-13** — Documentar no `CLAUDE.md` do projeto a proposta de cron na VPS:
+```
+0 6 1 * * cd /var/www/uidcore && docker compose -f docker-compose.prod.yml exec -T backend python manage.py gerar_cobrancas_assinaturas >> /var/log/uidcore-assinaturas.log 2>&1
+```
+- Dia 1 de cada mês, 06:00 — gera o mês corrente (sem `--mes`, usa default).
+- `-f docker-compose.prod.yml` **explícito** (regra global de todos os
+  crons Uid — nunca confiar em `docker compose` resolver o compose file
+  certo pelo diretório).
+- `exec -T` (sem TTY) — padrão de cron não-interativo.
+- Instalação do cron em si (`crontab -e` na VPS) é **passo do Pilot no
+  deploy**, não do Forge/Loom — a especificação aqui documenta o comando
+  exato a ser instalado e o motivo do agendamento (dia 1, início do mês de
+  competência, horário de menor uso do sistema).
 
 ---
 
-## 3. Especificação Frontend
+## 3. Requisitos Não Funcionais
 
-### 3.1 `frontend/src/stores/authStore.js` — selectors centrais (RF-10)
+**RNF-01** — Testes cobrindo obrigatoriamente (critério de aceite do
+pedido): cada periodicidade (MENSAL/TRIMESTRAL/SEMESTRAL/ANUAL) gerando no
+mês certo e pulando os errados; idempotência (rodar 2x no mesmo mês =
+1 Receita); `PAUSADA` não gera; `ENCERRADA` não gera mesmo com `data_fim`
+no passado (teste direto da lição do NosFluir — nome do teste deve
+referenciar o bug real, ex:
+`test_assinatura_encerrada_nao_gera_cobranca_mes_seguinte`); `--dry-run`
+não persiste nada; erro em 1 assinatura não derruba o lote (RN-06).
 
-Hoje só existe `selectTemAcessoTotal`. A duplicação que o pedido pede para eliminar: `Sidebar.jsx` calcula `perfil === 'MARKETING'` inline (linha 28) e `routes/index.jsx` recalcula a **mesma** condição inline dentro de `MarketingRoute` (linha ~40) — duas fontes da verdade para a mesma regra. Centralizar:
+**RNF-02** — Soft delete: `Plano` e `Assinatura` herdam `BaseModel` — nunca
+hard delete. "Excluir" um Plano/Assinatura no frontend chama o DELETE
+padrão do DRF, que o `AuditMixin.perform_destroy` já converte em soft
+delete (`deleted_at`/`deleted_by`/`is_active=False`) — nenhum código novo
+de delete necessário além de registrar o ViewSet com `AuditMixin`.
 
-```js
-export const selectTemAcessoTotal = (state) => Boolean(state.user?.tem_acesso_total)
-export const selectPerfil = (state) => state.user?.perfil ?? null
-export const selectPodeAcessarMarketing = (state) =>
-  selectTemAcessoTotal(state) || state.user?.perfil === 'MARKETING'
-export const selectPodeAcessarFinanceiro = (state) =>
-  selectTemAcessoTotal(state) || state.user?.perfil === 'FINANCEIRO'   // novo (RF-10)
-export const selectPodeAcessarProfissional = (state) =>
-  selectTemAcessoTotal(state) || state.user?.perfil === 'PROFISSIONAL' // novo, uso futuro/consistência
+**RNF-03** — `AuditMixin` aplicado em `PlanoViewSet` e
+`AssinaturaViewSet` (padrão de todos os ViewSets desde a Manutenção #62) —
+`created_by`/`updated_by` preenchidos automaticamente.
+
+**RNF-04** — `id = serializers.IntegerField(source='pk', read_only=True)`
+como primeiro campo de `PlanoSerializer` e `AssinaturaSerializer` (regra
+absoluta de toda serializer no projeto).
+
+**RNF-05** — `response.data.results` no frontend (paginação padrão DRF) —
+nunca `.data` direto.
+
+**RNF-06** — Autenticação via JWT existente — nenhuma rota nova sem
+`permission_classes` explícito (`IsAdmin | IsFinanceiro`, mesmo padrão do
+`CompraViewSet`).
+
+**RNF-07** — `makemigrations --check --dry-run` limpo antes do deploy —
+migration da FK nova em `Receita` (`assinatura`) incluída no mesmo PR do
+app `assinaturas` ou em migration separada dentro do app `financeiro`
+(decisão do Forge — ambas as opções são aceitáveis, mas a migration de
+`financeiro` precisa rodar depois da criação do app `assinaturas`, por
+causa da FK cruzada).
+
+**RNF-08** — Build frontend limpo (`npm run build`) sem novos erros/
+warnings de import não usado.
+
+---
+
+## 4. Atores e Perfis
+
+| Ator | Permissão |
+|---|---|
+| ADMIN / SUPERADMIN (`tem_acesso_total`) | Acesso total a Planos e Assinaturas |
+| FINANCEIRO | Acesso total a Planos e Assinaturas (mesmo nível de ADMIN neste módulo) |
+| Demais perfis (OPERACIONAL, MARKETING, PROFISSIONAL) | Sem acesso — item de menu oculto, rota redireciona para `/dashboard` |
+
+---
+
+## 5. Fora do Escopo (explícito no pedido)
+
+- Cobrança automática por gateway (boleto/PIX/cartão) — a Receita gerada
+  fica `PENDENTE`, recebimento continua manual via fluxo já existente de
+  `ReceitaViewSet`.
+- Reajuste anual automático de valor.
+- Pró-rata (assinatura iniciada no meio do mês cobra valor cheio no 1º
+  mês, ou só começa a gerar no mês seguinte conforme RN-02 — comportamento
+  atual já cobre isso sem lógica extra: `data_inicio` no meio do mês X
+  ainda é `<= mes X`, então já gera cheio nesse mês; se o negócio quiser
+  pró-rata de verdade, é fase futura).
+- Notificação ao cliente (WhatsApp/email) de cobrança gerada — mencionado
+  como futuro no CLAUDE.md global (item "Adicionar n8n ao pipeline"), não
+  nesta fase.
+
+---
+
+## 6. Riscos e Dependências
+
+- **Dependência cruzada de app**: `financeiro.Receita` ganha FK para
+  `assinaturas.Assinatura`. Como `assinaturas` é o app novo e `financeiro`
+  já existe, a ordem de migration importa — `assinaturas` precisa ser
+  criado e migrado antes da migration que adiciona o campo em
+  `financeiro.Receita` (ou usar string de referência `'assinaturas.Assinatura'`
+  no FK, que o Django resolve em qualquer ordem de `INSTALLED_APPS` desde
+  que as migrations rodem na ordem certa — Forge deve conferir dependency
+  graph gerado por `makemigrations`).
+- **Risco de regressão em relatórios existentes**: dashboards que somam
+  `Receita` por `tipo=MENSALIDADE` (se já existir uso desse `TipoReceita`
+  em algum fluxo manual anterior) passam a incluir também as geradas por
+  assinatura — comportamento esperado e desejado, mas vale conferir no
+  Sentinel que nenhum teste existente assume `TipoReceita.MENSALIDADE`
+  como "nunca usado automaticamente".
+- **Risco operacional do cron**: só é instalado pelo Pilot após aprovação
+  do Sentinel — até lá, geração de cobrança só acontece via comando manual
+  (`python manage.py gerar_cobrancas_assinaturas`), o que é aceitável para
+  este ciclo (fase 3/5 do pacote [NUCLEO], outras fases ainda virão).
+- **Pendência técnica conhecida** (mesma classe da já documentada na
+  Manutenção #62 sobre `ComboSerializer`): nenhuma identificada nesta fase
+  — modelo novo, sem dívida técnica herdada.
+
+---
+
+## 7. Spec técnica resumida para Forge
+
+```
+backend/assinaturas/
+├── models.py          Plano, Periodicidade, Assinatura, StatusAssinatura
+├── serializers.py      PlanoSerializer, AssinaturaSerializer (id=IntegerField(source='pk'))
+├── views.py             PlanoViewSet, AssinaturaViewSet (AuditMixin, IsAdmin|IsFinanceiro)
+│                         actions: encerrar, pausar, retomar
+├── services.py          gerar_cobrancas_mes(mes, dry_run=False)
+├── urls.py              router DRF: planos, assinaturas
+├── admin.py             AuditModelAdmin (padrão common/admin.py)
+├── migrations/          0001_initial
+└── management/
+    └── commands/
+        └── gerar_cobrancas_assinaturas.py
+
+backend/financeiro/
+└── migrations/          nova migration: Receita.assinatura (FK nullable, SET_NULL)
+                          + UniqueConstraint(assinatura, referencia_mes) condicional
 ```
 
-### 3.2 `Sidebar.jsx`
-
-```js
-const navItems = [
-  { to: '/dashboard', label: 'Dashboard', icon: '📊' },
-  { to: '/clientes', label: 'Clientes', icon: '👥' },
-  { to: '/fornecedores', label: 'Fornecedores', icon: '🏭' },
-  { to: '/compras', label: 'Compras', icon: '🧾', requer: 'financeiro' },   // era staffOnly: true
-  { to: '/vendas', label: 'Vendas', icon: '🛒' },
-  { to: '/produtos', label: 'Produtos', icon: '📦' },
-  { to: '/marketing', label: 'Marketing', icon: '📣', requer: 'marketing' }, // era marketingOnly: true
-  { to: '/pagamentos', label: 'Pagamentos', icon: '💳' },
-  { to: '/financeiro', label: 'Financeiro', icon: '💰', requer: 'financeiro' },   // novo filtro
-  { to: '/conciliacao', label: 'Conciliação', icon: '🔄', requer: 'financeiro' }, // novo filtro
-  { to: '/administrativo', label: 'Administrativo', icon: '📁' },
-  { to: '/rh', label: 'RH', icon: '👔', requer: 'staff' },   // novo filtro — ja era IsAdmin no backend, Sidebar nao escondia
-  { to: '/usuarios', label: 'Usuários', icon: '👤', requer: 'staff' },  // era staffOnly: true
-  { to: '/agendamento', label: 'Agendamento', icon: '📅' },
-  { to: '/portal', label: 'Portal do Cliente', icon: '🌐' },
-]
-
-export default function Sidebar({ collapsed, onToggle }) {
-  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
-  const podeMarketing = useAuthStore(selectPodeAcessarMarketing)
-  const podeFinanceiro = useAuthStore(selectPodeAcessarFinanceiro)
-  const visibleItems = navItems.filter((item) => {
-    if (item.requer === 'staff') return temAcessoTotal
-    if (item.requer === 'marketing') return podeMarketing
-    if (item.requer === 'financeiro') return podeFinanceiro
-    return true
-  })
-  ...
 ```
-**RF-11 (visibilidade de menu, não é checagem de segurança — a segurança real é o backend da seção 2):** `RH` passa a ficar escondido de quem não tem acesso total, mesmo sem nenhum perfil novo logado — é correção de uma inconsistência pré-existente (API já era `IsAdmin` há várias manutenções, o menu nunca escondia), feita agora porque o pedido pede explicitamente que `FINANCEIRO`/`PROFISSIONAL` não vejam RH no menu, e a forma certa de garantir isso é a mesma regra central (`requer: 'staff'`), não uma regra nova e paralela só para os 2 perfis novos. Zero perda de funcionalidade para quem já tinha acesso de verdade (só quem recebia 403 ao clicar deixa de ver o item).
-
-### 3.3 `routes/index.jsx`
-
-Troca `MarketingRoute` (hoje recalcula perfil inline) para usar o selector central, e adiciona `FinanceiroRoute` no mesmo padrão, aplicada em `/financeiro`, `/conciliacao` e `/compras` (RF-12):
-
-```jsx
-import useAuthStore, {
-  selectTemAcessoTotal, selectPodeAcessarMarketing, selectPodeAcessarFinanceiro,
-} from '../stores/authStore.js'
-
-function StaffRoute({ children }) {
-  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
-  if (!temAcessoTotal) return <Navigate to="/dashboard" replace />
-  return children
-}
-
-function MarketingRoute({ children }) {
-  const podeAcessar = useAuthStore(selectPodeAcessarMarketing)   // antes recalculava perfil aqui
-  if (!podeAcessar) return <Navigate to="/dashboard" replace />
-  return children
-}
-
-function FinanceiroRoute({ children }) {           // novo
-  const podeAcessar = useAuthStore(selectPodeAcessarFinanceiro)
-  if (!podeAcessar) return <Navigate to="/dashboard" replace />
-  return children
-}
-```
-E trocar `<StaffRoute><Compras /></StaffRoute>` por `<FinanceiroRoute><Compras /></FinanceiroRoute>`; envolver `/financeiro` e `/conciliacao` (hoje sem guarda nenhuma) com `<FinanceiroRoute>`. `/rh` e `/usuarios` — `/usuarios` continua em `StaffRoute` conforme já estava; `/rh` hoje **não tem guarda de rota nenhuma** (só o Sidebar escondia via a inconsistência da seção 3.2); por simetria com RH agora ficar `requer: 'staff'` no menu, envolver também `/rh` com `<StaffRoute>` para a navegação direta por URL (não só o clique no menu) respeitar a mesma regra — sem isso, um `FINANCEIRO` digitando `/rh` na barra de endereço veria a tela (que erraria todas as chamadas com 403, mas chegaria a renderizar).
-
-### 3.4 `Usuarios.jsx` — combobox com descrição (RF-13)
-
-`Select.jsx` (componente genérico) só renderiza `label` dentro do `<option>` — não tem slot de descrição por item. Duas mudanças, sem precisar alterar o componente genérico:
-
-```js
-const PERFIL_OPTIONS = [
-  { value: 'ADMIN', label: 'Admin' },
-  { value: 'OPERACIONAL', label: 'Operacional' },
-  { value: 'FINANCEIRO', label: 'Financeiro' },        // novo
-  { value: 'PROFISSIONAL', label: 'Profissional' },     // novo
-  { value: 'MARKETING', label: 'Marketing' },
-  { value: 'SUPERADMIN', label: '👑 Superadmin' },
-]
-```
-E no campo `perfil` dentro de `fields={[...]}` do `ResourceCrud`, adicionar `helpText` estático (mesmo padrão já usado no campo `password`, que já aceita string ou função) listando a legenda curta de cada perfil, sempre visível (não só condicionada a `isEditing`):
-```js
-{
-  name: 'perfil',
-  label: 'Perfil',
-  type: 'select',
-  options: perfilOptions,
-  helpText: 'Admin/Superadmin: acesso total. Operacional: uso geral do sistema. '
-    + 'Financeiro: financeiro, pagamentos, compras e fornecedores — sem Usuários/RH/Marketing. '
-    + 'Profissional: agenda própria e clientes em leitura — sem financeiro/compras/RH/PDV. '
-    + 'Marketing: campanhas e leads.',
-},
+frontend/src/
+├── pages/Assinaturas.jsx                novo
+├── pages/Clientes.jsx                   + aba Assinaturas na ficha
+├── components/layout/Sidebar.jsx        + item Assinaturas (requer: financeiro)
+└── routes/index.jsx                     + rota /assinaturas (FinanceiroRoute)
 ```
 
 ---
 
-## 4. Requisitos Funcionais
+## 8. Critério de Aceite (consolidado)
 
-- **RF-01** — `PerfilUsuario` ganha `FINANCEIRO` e `PROFISSIONAL`.
-- **RF-02** — `common/permissions.py` ganha `IsFinanceiro`, `IsProfissional` (padrão `IsMarketing`) e `BloqueiaEscritaDeProfissional`.
-- **RF-03** — Todos os ViewSets/views listados na seção 2.4 (financeiro — classe + 3 `@action` com override próprio + 5 `@api_view`; compras) passam a aceitar `FINANCEIRO` via `IsAdmin | IsFinanceiro`.
-- **RF-04** — `pagamentos`/`fornecedores` permanecem sem alteração de permissão (já abertos; ver seção 1.4).
-- **RF-05** — `Agenda` ganha campo `profissional` (FK nullable a `accounts.User`).
-- **RF-06** — `ClienteViewSet` bloqueia escrita (`POST`/`PUT`/`PATCH`/`DELETE`, incluindo as `@action` de histórico/acionistas) para perfil `PROFISSIONAL` puro; leitura e demais perfis inalterados.
-- **RF-07** — `AgendaViewSet.get_queryset` filtra para `PROFISSIONAL` puro: `profissional=self OR created_by=self`.
-- **RF-08** — `CompromissoViewSet.get_queryset` filtra para `PROFISSIONAL` puro: `created_by=self OR agenda__profissional=self`.
-- **RF-09** — Testes nos dois sentidos (permite/bloqueia) para `FINANCEIRO` e `PROFISSIONAL` em cada app tocado, incluindo os 3 `@action` de estorno e as `@action` de Cliente.
-- **RF-10** — `authStore.js` ganha `selectPerfil`, `selectPodeAcessarFinanceiro`, `selectPodeAcessarProfissional`, e `selectPodeAcessarMarketing` (extraído da expressão hoje duplicada entre `Sidebar` e `routes`).
-- **RF-11** — `Sidebar.jsx` usa os selectors centrais para `Compras`, `Marketing`, `Financeiro`, `Conciliação`, `RH`, `Usuários` (sem expressão de perfil inline em nenhum item).
-- **RF-12** — `routes/index.jsx` usa os mesmos selectors (`FinanceiroRoute` novo; `MarketingRoute` reescrito para consumir o selector em vez de recalcular; `/rh` ganha `StaffRoute`).
-- **RF-13** — Combobox de perfil em `Usuarios.jsx` lista `Financeiro`/`Profissional` com legenda curta visível (via `helpText`).
+- [ ] CA-01: criar `Assinatura` MENSAL → rodar `gerar_cobrancas_assinaturas` → 1 `Receita PENDENTE` com `referencia_mes` correto.
+- [ ] CA-02: rodar o command de novo no mesmo mês → continua existindo exatamente 1 `Receita` para essa assinatura/mês.
+- [ ] CA-03: encerrar a assinatura (`POST .../encerrar/`) → rodar o command do mês seguinte → 0 Receitas novas para essa assinatura.
+- [ ] CA-04: `--dry-run` não grava nenhuma `Receita` no banco.
+- [ ] CA-05: `PAUSADA` não gera cobrança em nenhum mês enquanto permanecer pausada.
+- [ ] CA-06: `TRIMESTRAL`/`SEMESTRAL`/`ANUAL` geram só nos meses de competência corretos a partir de `data_inicio` (testado com pelo menos 2 ciclos de cada).
+- [ ] CA-07: `data_fim` no passado bloqueia geração mesmo que `status` ainda não tenha sido movido para `ENCERRADA` manualmente (defesa em profundidade da RN-03).
+- [ ] CA-08: erro em 1 assinatura (ex: conta inválida) não impede geração das demais no mesmo lote — resumo final reporta o erro.
+- [ ] CA-09: usuário `OPERACIONAL` sem `tem_acesso_total` não vê o menu Assinaturas nem acessa a rota/API.
+- [ ] CA-10: aba Assinaturas na ficha do Cliente lista corretamente as assinaturas e cobranças geradas daquele cliente.
+- [ ] CA-11: 100% dos RFs com teste — nenhum `@skip`/`@xfail`.
 
-## 5. Regras de Negócio
+---
 
-- **RN-01** — `User.tem_acesso_total` não é alterada; `FINANCEIRO`/`PROFISSIONAL` nunca satisfazem `tem_acesso_total`.
-- **RN-02** — Travas da Manutenção #60 (só `SUPERADMIN` concede/edita `SUPERADMIN`) permanecem intactas — `UserAdminSerializer.validate`/`UserViewSet._bloquear_edicao_superadmin` não são tocados.
-- **RN-03 (Should)** — Escrita de `Compromisso` não valida (nesta fase) que `agenda.profissional == request.user` para o perfil `PROFISSIONAL` — só a leitura é escopada. Registrado para fase futura.
-- **RN-04** — `dashboard_financeiro` e `inferir_categoria` permanecem `IsAuthenticated` puro — não são "recursos do módulo financeiro" para fins do critério de aceite, são utilitário/tela universal (seção 1.3).
-- **RN-05** — `pagamentos` e `fornecedores` permanecem sem permission class nova — já satisfazem o pedido via `IsAuthenticated` (seção 1.4). Qualquer restrição futura nesses dois apps é uma manutenção própria, não implícita nesta.
-- **RN-06** — Nenhum valor de `PerfilUsuario` fica sem permission class lendo-o: `FINANCEIRO` → `IsFinanceiro`; `PROFISSIONAL` → `IsProfissional` (direto, com teste unitário) e `BloqueiaEscritaDeProfissional` (uso em produção, com teste de integração).
-
-## 6. Critérios de Aceite (produção)
-
-| # | Cenário | Esperado |
-|---|---|---|
-| CA-01 | `FINANCEIRO` → `GET /api/v1/financeiro/contas/`, `/receitas/`, `/despesas/`, `/livro-caixa/`, `/dre/`, `/balanco/`, `/fluxo-projetado/`, `/indicadores/`, `/conciliacoes/` | 200 em todos |
-| CA-02 | `FINANCEIRO` → `POST /api/v1/financeiro/receitas/{id}/estornar/`, `.../despesas/{id}/estornar/`, `.../livro-caixa/{id}/estornar/` | 200/201 (não 403 — pega o bug do `@action` com `permission_classes` próprio) |
-| CA-03 | `FINANCEIRO` → `GET/POST /api/v1/compras/` | 200/201 |
-| CA-04 | `FINANCEIRO` → `GET /api/v1/accounts/usuarios/`, `GET /api/v1/rh/colaboradores/`, `GET /api/v1/rh/folhas/` | 403 em todos |
-| CA-05 | `PROFISSIONAL` → `GET /api/v1/agendamento/compromissos/` | retorna só os com `created_by=self` ou `agenda__profissional=self` |
-| CA-06 | `PROFISSIONAL` → `GET /api/v1/clientes/` | 200, lista completa (leitura liberada) |
-| CA-07 | `PROFISSIONAL` → `POST /api/v1/clientes/` | 403 |
-| CA-08 | `PROFISSIONAL` → `GET /api/v1/financeiro/contas/`, `/receitas/`, qualquer recurso de `financeiro/*` listado no CA-01 | 403 em todos |
-| CA-09 | `PROFISSIONAL` → `GET /api/v1/compras/`, `/api/v1/rh/colaboradores/`, `/api/v1/accounts/usuarios/`, `/api/v1/pdv/sessoes/` | 403 em todos |
-| CA-10 | `ADMIN`/`SUPERADMIN` (`tem_acesso_total`) | continua com acesso total em tudo acima, sem exceção |
-| CA-11 | `OPERACIONAL` → endpoints que já acessava antes desta manutenção (`pagamentos`, `fornecedores`, `clientes` leitura+escrita, `vendas`, `produtos`, `agendamento` sem filtro de queryset porque não é `PROFISSIONAL`, `/financeiro/dashboard/`) | mesmo status code de antes — 0 regressão |
-| CA-12 | `MARKETING` → `/marketing/*`, `/pagamentos/*`, `/fornecedores/*` | mesmo status code de antes — 0 regressão |
-| CA-13 | Teste unitário de `IsFinanceiro`/`IsProfissional`/`BloqueiaEscritaDeProfissional` isolado (sem HTTP, request mockado) | cobre as 6+ combinações da tabela da seção 2.5 |
-| CA-14 | Frontend: usuário `FINANCEIRO` logado vê no Sidebar `Financeiro`, `Conciliação`, `Compras` (além dos itens comuns); não vê `RH`/`Usuários`/`Marketing` | confirmado por inspeção/teste de Sidebar |
-| CA-15 | Frontend: usuário `PROFISSIONAL` digitando `/rh` ou `/financeiro` direto na URL é redirecionado para `/dashboard` (`StaffRoute`/`FinanceiroRoute`) | confirmado |
-| CA-16 | `makemigrations --check --dry-run` | 0 pendências após `accounts/0005` e `agendamento/0007` |
-
-## 7. Fora de Escopo
-
-- Permissão campo a campo (ex.: `FINANCEIRO` ver receita mas não ver valor de despesa específica).
-- Perfis específicos de nicho (ex.: "Terapeuta" com regras próprias diferentes de "Professor") — `PROFISSIONAL` é deliberadamente genérico.
-- Validar na escrita que `Compromisso.agenda.profissional == request.user` (RN-03, fase futura).
-- M2M de profissionais por agenda (seção 2.2 — decisão de manter 1:N).
-- Restringir `pagamentos`/`fornecedores` a um subconjunto de perfis (seção 1.4/RN-05).
+**Próximo agente:** Planner → rotear para Pipeline (manutenção com fase de
+núcleo) → Forge (backend app `assinaturas` + migration `financeiro`) e Loom
+(frontend `Assinaturas.jsx` + aba na ficha de Cliente), em paralelo →
+Sentinel → Pilot (deploy + documentação do cron no CLAUDE.md do projeto).
