@@ -939,3 +939,27 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(venda.deleted_by, user_c)
         self.assertIsNotNone(venda.deleted_at)
         self.assertFalse(Venda.objects.filter(pk=venda_id).exists())
+
+
+class PermissaoNovosPerfisPDVAPITest(APITestCase):
+    """Manutencao 63 [NUCLEO 2/5] (RF-09) -- PDV permanece IsAdmin puro: nem
+    FINANCEIRO nem PROFISSIONAL entram no OR de IsAdmin, 403 automatico sem
+    mudanca de codigo em pdv/views.py (CA-09)."""
+
+    def test_profissional_sem_acesso_sessoes(self):
+        user = User.objects.create_user(
+            email='profissional-pdv.m63@teste.com', password='senha123',
+            nome_completo='Profissional Teste', perfil='PROFISSIONAL', is_staff=False,
+        )
+        self.client.force_authenticate(user)
+        resp = self.client.get('/api/v1/pdv/sessoes/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_financeiro_sem_acesso_sessoes(self):
+        user = User.objects.create_user(
+            email='financeiro-pdv.m63@teste.com', password='senha123',
+            nome_completo='Financeiro Teste', perfil='FINANCEIRO', is_staff=False,
+        )
+        self.client.force_authenticate(user)
+        resp = self.client.get('/api/v1/pdv/sessoes/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

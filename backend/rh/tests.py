@@ -381,3 +381,34 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(cargo.deleted_by, user_c)
         self.assertIsNotNone(cargo.deleted_at)
         self.assertFalse(Cargo.objects.filter(pk=cargo_id).exists())
+
+
+# --- Manutencao 63 [NUCLEO 2/5] (RF-09) — RH permanece IsAdmin puro ---
+# Cobre CA-09 (parte rh/colaboradores) da Especificacao_Hotfix.md: nem
+# FINANCEIRO nem PROFISSIONAL entram no OR de IsAdmin -- 403 automatico,
+# sem mudanca de codigo em rh/views.py.
+
+def _make_profissional_rh(email='profissional-rh@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Profissional Teste',
+        perfil='PROFISSIONAL', is_staff=False,
+    )
+
+
+def _make_financeiro_rh(email='financeiro-rh@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Financeiro Teste',
+        perfil='FINANCEIRO', is_staff=False,
+    )
+
+
+class PermissaoNovosPerfisRHAPITest(APITestCase):
+    def test_profissional_sem_acesso_colaboradores_ca09(self):
+        self.client.force_authenticate(_make_profissional_rh())
+        resp = self.client.get('/api/v1/rh/colaboradores/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_financeiro_sem_acesso_colaboradores_ca04(self):
+        self.client.force_authenticate(_make_financeiro_rh())
+        resp = self.client.get('/api/v1/rh/colaboradores/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

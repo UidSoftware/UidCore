@@ -160,3 +160,99 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(cliente.deleted_by, user_c)
         self.assertIsNotNone(cliente.deleted_at)
         self.assertFalse(Cliente.objects.filter(pk=cliente_id).exists())
+
+
+# --- Manutencao 63 [NUCLEO 2/5] (RF-06) — BloqueiaEscritaDeProfissional ---
+# Cobre CA-06, CA-07 e CA-11 (parte clientes) da Especificacao_Hotfix.md.
+
+def _make_profissional(email='profissional-cli@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Profissional Teste',
+        perfil='PROFISSIONAL', is_staff=False,
+    )
+
+
+def _make_operacional_cliente(email='operacional-cli@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Operacional Teste', is_staff=False,
+    )
+
+
+def _make_marketing_cliente(email='marketing-cli@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Marketing Teste',
+        perfil='MARKETING', is_staff=False,
+    )
+
+
+def _make_financeiro_cliente(email='financeiro-cli@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Financeiro Teste',
+        perfil='FINANCEIRO', is_staff=False,
+    )
+
+
+class BloqueiaEscritaDeProfissionalAPITest(APITestCase):
+    def setUp(self):
+        self.cliente = _make_cliente_pj('Cliente Bloqueio')
+
+    def test_profissional_le_lista_completa_ca06(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.get('/api/v1/clientes/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertGreaterEqual(len(resp.data['results']), 1)
+
+    def test_profissional_post_bloqueado_ca07(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Novo Cliente'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profissional_patch_bloqueado(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.patch(f'/api/v1/clientes/{self.cliente.id}/', {'telefone': '11988887777'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profissional_delete_bloqueado(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.delete(f'/api/v1/clientes/{self.cliente.id}/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profissional_post_historico_bloqueado(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/historico/',
+            {'descricao': 'Contato realizado'}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profissional_post_acionistas_bloqueado(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/acionistas/',
+            {'nome': 'Socio Teste', 'percentual': '50.00'}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_operacional_post_sem_regressao_ca11(self):
+        self.client.force_authenticate(_make_operacional_cliente())
+        resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Cliente Operacional'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+    def test_marketing_post_sem_regressao_ca11(self):
+        self.client.force_authenticate(_make_marketing_cliente())
+        resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Cliente Marketing'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+    def test_financeiro_post_sem_regressao(self):
+        self.client.force_authenticate(_make_financeiro_cliente())
+        resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Cliente Financeiro'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+    def test_admin_tem_acesso_total_post_permitido_ca10(self):
+        admin = User.objects.create_user(
+            email='admin-cli-m63@teste.com', password='senha123',
+            nome_completo='Admin Teste', is_staff=True,
+        )
+        self.client.force_authenticate(admin)
+        resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Cliente Admin'}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED)

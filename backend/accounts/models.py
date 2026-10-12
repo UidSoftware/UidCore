@@ -8,6 +8,8 @@ class PerfilUsuario(models.TextChoices):
     OPERACIONAL = 'OPERACIONAL', 'Operacional'
     MARKETING = 'MARKETING', 'Marketing'
     SUPERADMIN = 'SUPERADMIN', 'Superadmin'
+    FINANCEIRO = 'FINANCEIRO', 'Financeiro'          # Manutencao 63 (RF-01)
+    PROFISSIONAL = 'PROFISSIONAL', 'Profissional'    # Manutencao 63 (RF-01)
 
 
 class User(AbstractBaseUser, PermissionsMixin):

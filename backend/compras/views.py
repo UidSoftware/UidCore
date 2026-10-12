@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from common.mixins import AuditMixin
-from common.permissions import IsAdmin
+from common.permissions import IsAdmin, IsFinanceiro
 from produtos.models import MovimentoEstoque, TipoMovimento
 
 from .models import Compra, StatusCompra
@@ -22,7 +22,7 @@ class CompraViewSet(AuditMixin, ModelViewSet):
         .select_related('fornecedor', 'conta', 'despesa')
         .prefetch_related('itens__produto')
     )
-    permission_classes = [IsAdmin]  # RN-08 — Compra tem efeito financeiro direto
+    permission_classes = [IsAdmin | IsFinanceiro]  # RN-08 — Compra tem efeito financeiro direto; Manutencao 63 abre para FINANCEIRO
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'fornecedor', 'conta']
     search_fields = ['numero_nota_fiscal', 'fornecedor__nome_razao_social']

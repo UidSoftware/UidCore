@@ -570,3 +570,29 @@ class SeedSuperadminMigrationTest(TestCase):
         User.objects.create_user(email='qualquer.m60mig@teste.com', password='x', nome_completo='Qualquer')
         self._seed_superadmin()
         self._seed_superadmin()  # idempotente -- rodar de novo nao altera nem falha
+
+
+class PermissaoNovosPerfisUsuariosAPITest(TestCase):
+    """Manutencao 63 [NUCLEO 2/5] (RF-09) -- UserViewSet permanece IsAdmin
+    puro: nem FINANCEIRO nem PROFISSIONAL entram no OR de IsAdmin, 403
+    automatico sem mudanca de codigo em accounts/views.py (CA-04/CA-09)."""
+
+    def test_financeiro_sem_acesso_usuarios(self):
+        u = User.objects.create_user(
+            email='financeiro.m63@teste.com', password='x', nome_completo='Financeiro',
+            perfil='FINANCEIRO', is_staff=False,
+        )
+        c = APIClient()
+        c.force_authenticate(u)
+        r = c.get('/api/v1/accounts/usuarios/')
+        self.assertEqual(r.status_code, 403)
+
+    def test_profissional_sem_acesso_usuarios(self):
+        u = User.objects.create_user(
+            email='profissional.m63@teste.com', password='x', nome_completo='Profissional',
+            perfil='PROFISSIONAL', is_staff=False,
+        )
+        c = APIClient()
+        c.force_authenticate(u)
+        r = c.get('/api/v1/accounts/usuarios/')
+        self.assertEqual(r.status_code, 403)

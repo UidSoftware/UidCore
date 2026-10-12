@@ -136,3 +136,121 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(agenda.deleted_by, user_c)
         self.assertIsNotNone(agenda.deleted_at)
         self.assertFalse(Agenda.objects.filter(pk=agenda_id).exists())
+
+
+# --- Manutencao 63 [NUCLEO 2/5] (RF-05/RF-07/RF-08) — escopo PROFISSIONAL ---
+# Cobre CA-05, CA-10, CA-11 (parte agendamento) da Especificacao_Hotfix.md.
+
+def _make_profissional(email):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Profissional Teste',
+        perfil='PROFISSIONAL', is_staff=False,
+    )
+
+
+def _make_operacional_agenda(email='operacional-ag@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Operacional Teste', is_staff=False,
+    )
+
+
+class CompromissoEscopoProfissionalAPITest(APITestCase):
+    def setUp(self):
+        self.profissional_a = _make_profissional('prof-a@teste.com')
+        self.profissional_b = _make_profissional('prof-b@teste.com')
+        self.recepcionista = _make_operacional_agenda()
+        self.agenda_geral = _make_agenda('Agenda Geral')
+        self.agenda_do_a = Agenda.objects.create(nome='Agenda do A', profissional=self.profissional_a)
+
+    def test_profissional_ve_apenas_proprio_compromisso_criado_por_ele_ca05(self):
+        self.client.force_authenticate(self.profissional_a)
+        resp = self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda_geral.id, 'titulo': 'Consulta A',
+            'inicio': '2026-07-20T10:00:00Z', 'fim': '2026-07-20T11:00:00Z',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 1)
+
+    def test_profissional_b_nao_ve_compromisso_de_outro_ca05(self):
+        self.client.force_authenticate(self.profissional_a)
+        self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda_geral.id, 'titulo': 'Consulta A',
+            'inicio': '2026-07-20T10:00:00Z', 'fim': '2026-07-20T11:00:00Z',
+        }, format='json')
+
+        self.client.force_authenticate(self.profissional_b)
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 0)
+
+    def test_profissional_ve_compromisso_criado_por_outro_na_sua_agenda_vinculada_ca05(self):
+        # Recepcionista (OPERACIONAL) cria compromisso na agenda do profissional A
+        self.client.force_authenticate(self.recepcionista)
+        resp = self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda_do_a.id, 'titulo': 'Consulta agendada pela recepcao',
+            'inicio': '2026-07-20T10:00:00Z', 'fim': '2026-07-20T11:00:00Z',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+        self.client.force_authenticate(self.profissional_a)
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 1)
+
+    def test_admin_ve_todos_sem_filtro_ca10(self):
+        self.client.force_authenticate(self.profissional_a)
+        self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda_geral.id, 'titulo': 'Consulta A',
+            'inicio': '2026-07-20T10:00:00Z', 'fim': '2026-07-20T11:00:00Z',
+        }, format='json')
+        self.client.force_authenticate(self.profissional_b)
+        self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda_geral.id, 'titulo': 'Consulta B',
+            'inicio': '2026-07-21T10:00:00Z', 'fim': '2026-07-21T11:00:00Z',
+        }, format='json')
+
+        admin = _make_user(email='admin-ag-m63@teste.com')
+        self.client.force_authenticate(admin)
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 2)
+
+    def test_operacional_sem_filtro_de_escopo_ca11(self):
+        """RN-07/CA-11 — regra de escopo e so para PROFISSIONAL puro;
+        OPERACIONAL continua vendo tudo sem filtro, sem regressao."""
+        self.client.force_authenticate(self.profissional_a)
+        self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda_geral.id, 'titulo': 'Consulta A',
+            'inicio': '2026-07-20T10:00:00Z', 'fim': '2026-07-20T11:00:00Z',
+        }, format='json')
+
+        self.client.force_authenticate(self.recepcionista)
+        resp = self.client.get('/api/v1/agendamento/compromissos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['results']), 1)
+
+
+class AgendaEscopoProfissionalAPITest(APITestCase):
+    def setUp(self):
+        self.profissional_a = _make_profissional('prof-agenda-a@teste.com')
+        self.profissional_b = _make_profissional('prof-agenda-b@teste.com')
+        self.agenda_sem_dono = _make_agenda('Agenda Sem Dono')
+        self.agenda_do_a = Agenda.objects.create(nome='Agenda do A', profissional=self.profissional_a)
+
+    def test_profissional_ve_so_a_propria_agenda_vinculada_rf07(self):
+        self.client.force_authenticate(self.profissional_a)
+        resp = self.client.get('/api/v1/agendamento/agendas/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        nomes = [item['nome'] for item in resp.data['results']]
+        self.assertIn('Agenda do A', nomes)
+        self.assertNotIn('Agenda Sem Dono', nomes)
+
+    def test_profissional_b_nao_ve_agenda_do_a_rf07(self):
+        self.client.force_authenticate(self.profissional_b)
+        resp = self.client.get('/api/v1/agendamento/agendas/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        nomes = [item['nome'] for item in resp.data['results']]
+        self.assertNotIn('Agenda do A', nomes)

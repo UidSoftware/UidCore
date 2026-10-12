@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from common.mixins import AuditMixin
+from common.permissions import BloqueiaEscritaDeProfissional
 
 from .models import AcionistaCliente, Cliente, HistoricoCliente
 from .serializers import AcionistaClienteSerializer, ClienteSerializer, HistoricoClienteSerializer
@@ -11,6 +12,7 @@ from .serializers import AcionistaClienteSerializer, ClienteSerializer, Historic
 
 class ClienteViewSet(AuditMixin, viewsets.ModelViewSet):
     serializer_class = ClienteSerializer
+    permission_classes = [BloqueiaEscritaDeProfissional]  # Manutencao 63 (RF-06) — era implicito (IsAuthenticated)
     filter_backends = [filters.SearchFilter, filters.OrderingFilter]
     search_fields = ['nome_razao_social', 'documento', 'email', 'cidade']
     ordering_fields = ['nome_razao_social', 'created_at', 'segmento']

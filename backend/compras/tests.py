@@ -478,3 +478,84 @@ class AuditoriaManutencao62APITest(APITestCase):
         compra.refresh_from_db()
         self.assertEqual(compra.updated_by, user_b)
         self.assertEqual(compra.created_by, user_a)
+
+
+# --- Manutencao 63 [NUCLEO 2/5] (RF-03/RF-09) — perfil FINANCEIRO em Compras ---
+# Cobre CA-03 e CA-09 (parte compras) da Especificacao_Hotfix.md.
+
+def _make_financeiro(email='financeiro-compras@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Financeiro Teste',
+        perfil='FINANCEIRO', is_staff=False,
+    )
+
+
+def _make_operacional_compras(email='operacional-compras@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Operacional Teste', is_staff=False,
+    )
+
+
+def _make_profissional_compras(email='profissional-compras@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Profissional Teste',
+        perfil='PROFISSIONAL', is_staff=False,
+    )
+
+
+class PermissaoFinanceiroCompraAPITest(APITestCase):
+    def setUp(self):
+        self.fornecedor = _make_fornecedor()
+        self.conta = _make_conta()
+        _make_categoria_compra()
+        self.produto1 = _make_produto(nome='Produto Permissao 1')
+        self.produto2 = _make_produto(nome='Produto Permissao 2')
+
+    def _payload(self, status_inicial='PENDENTE'):
+        return {
+            'fornecedor': self.fornecedor.id,
+            'conta': self.conta.id,
+            'numero_nota_fiscal': 'NF-PERM-001',
+            'data_emissao': '2026-09-01',
+            'forma_pagamento': 'PIX',
+            'status': status_inicial,
+            'observacoes': '',
+            'itens': [
+                {
+                    'produto': self.produto1.id,
+                    'quantidade': '2',
+                    'unidade': 'UN',
+                    'valor_unitario_custo': '10.00',
+                },
+                {
+                    'produto': self.produto2.id,
+                    'quantidade': '3',
+                    'unidade': 'UN',
+                    'valor_unitario_custo': '5.00',
+                },
+            ],
+        }
+
+    def test_financeiro_get_e_post_compras_ca03(self):
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.get('/api/v1/compras/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        resp = self.client.post('/api/v1/compras/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_financeiro_cancela_compra_ca03(self):
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.post('/api/v1/compras/', self._payload(), format='json')
+        compra_id = resp.data['id']
+        resp = self.client.post(f'/api/v1/compras/{compra_id}/cancelar/', {}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+
+    def test_operacional_bloqueado_em_compras_ca09(self):
+        self.client.force_authenticate(_make_operacional_compras())
+        resp = self.client.get('/api/v1/compras/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profissional_bloqueado_em_compras_ca09(self):
+        self.client.force_authenticate(_make_profissional_compras())
+        resp = self.client.get('/api/v1/compras/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)

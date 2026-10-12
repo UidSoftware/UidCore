@@ -1122,3 +1122,130 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(categoria.deleted_by, user_c)
         self.assertIsNotNone(categoria.deleted_at)
         self.assertFalse(Categoria.objects.filter(pk=categoria_id).exists())
+
+
+# --- Manutencao 63 [NUCLEO 2/5] (RF-02/RF-03/RF-09) — perfil FINANCEIRO ---
+# Cobre CA-01, CA-02, CA-04, CA-08, CA-10, CA-11 da Especificacao_Hotfix.md.
+
+def _make_financeiro(email='financeiro@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Financeiro Teste', perfil='FINANCEIRO',
+    )
+
+
+def _make_operacional(email='operacional-fin@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Operacional Teste',
+    )
+
+
+def _make_profissional(email='profissional-fin@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Profissional Teste', perfil='PROFISSIONAL',
+    )
+
+
+def _make_marketing_user(email='marketing-fin@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Marketing Teste', perfil='MARKETING',
+    )
+
+
+class PermissaoFinanceiroAPITest(APITestCase):
+    def setUp(self):
+        self.conta = _make_conta(nome='Conta Permissao')
+
+    def test_financeiro_acessa_recursos_do_modulo_ca01(self):
+        self.client.force_authenticate(_make_financeiro())
+        endpoints = [
+            '/api/v1/financeiro/contas/',
+            '/api/v1/financeiro/receitas/',
+            '/api/v1/financeiro/despesas/',
+            '/api/v1/financeiro/livro-caixa/',
+            '/api/v1/financeiro/dre/',
+            '/api/v1/financeiro/balanco/',
+            '/api/v1/financeiro/fluxo-projetado/',
+            '/api/v1/financeiro/indicadores/',
+            '/api/v1/financeiro/conciliacoes/',
+        ]
+        for url in endpoints:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, status.HTTP_200_OK, f'{url} -> {resp.status_code}')
+
+    def test_financeiro_estorna_receita_ca02(self):
+        receita = Receita.objects.create(
+            descricao='Receita Permissao', valor_bruto=Decimal('100.00'),
+            conta=self.conta, status='RECEBIDO',
+        )
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.post(f'/api/v1/financeiro/receitas/{receita.id}/estornar/', {
+            'valor': '100.00', 'motivo': 'Teste permissao FINANCEIRO',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_financeiro_estorna_despesa_ca02(self):
+        despesa = Despesa.objects.create(
+            descricao='Despesa Permissao', valor_bruto=Decimal('50.00'),
+            conta=self.conta, status='PAGO', pagamento=date.today(),
+        )
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.post(f'/api/v1/financeiro/despesas/{despesa.id}/estornar/', {
+            'motivo': 'Teste permissao FINANCEIRO',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_financeiro_estorna_lancamento_livro_caixa_ca02(self):
+        lancamento = LivroCaixa.objects.create(
+            conta=self.conta, tipo='ENTRADA', origem='MANUAL', descricao='Lancamento Permissao',
+            valor=Decimal('30.00'), data=date.today(),
+            saldo_anterior=Decimal('0'), saldo_atual=Decimal('30.00'),
+        )
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.post(f'/api/v1/financeiro/livro-caixa/{lancamento.id}/estornar/', {
+            'motivo': 'Teste permissao FINANCEIRO',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_financeiro_sem_acesso_rh_colaboradores_ca04(self):
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.get('/api/v1/rh/colaboradores/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_financeiro_sem_acesso_rh_folhas_ca04(self):
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.get('/api/v1/rh/folhas/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_financeiro_sem_acesso_usuarios_ca04(self):
+        self.client.force_authenticate(_make_financeiro())
+        resp = self.client.get('/api/v1/accounts/usuarios/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_operacional_bloqueado_em_financeiro_ca08(self):
+        self.client.force_authenticate(_make_operacional())
+        resp = self.client.get('/api/v1/financeiro/contas/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_profissional_bloqueado_em_financeiro_ca08(self):
+        self.client.force_authenticate(_make_profissional())
+        for url in ['/api/v1/financeiro/contas/', '/api/v1/financeiro/receitas/', '/api/v1/financeiro/dre/']:
+            resp = self.client.get(url)
+            self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN, f'{url} -> {resp.status_code}')
+
+    def test_marketing_bloqueado_em_financeiro_ca08(self):
+        self.client.force_authenticate(_make_marketing_user())
+        resp = self.client.get('/api/v1/financeiro/contas/')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_admin_continua_acessando_tudo_ca10(self):
+        admin = _make_user(email='admin-ca10@teste.com')
+        self.client.force_authenticate(admin)
+        resp = self.client.get('/api/v1/financeiro/contas/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        resp = self.client.get('/api/v1/financeiro/dre/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+    def test_operacional_dashboard_sem_regressao_ca11(self):
+        self.client.force_authenticate(_make_operacional())
+        resp = self.client.get('/api/v1/financeiro/dashboard/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)

@@ -5,7 +5,7 @@ from django.db import connection, transaction
 from django.db.models import Sum, Q
 from django.db.models.functions import TruncMonth
 from rest_framework import status
-from rest_framework.decorators import action, api_view
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.response import Response
@@ -13,7 +13,7 @@ from rest_framework.viewsets import GenericViewSet, ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
 from common.mixins import AuditMixin
-from common.permissions import IsAdmin
+from common.permissions import IsAdmin, IsFinanceiro
 
 from .signals import _reconstruir_cadeia
 from .models import (
@@ -37,7 +37,7 @@ class ReadCreateViewSet(CreateModelMixin, ListModelMixin, RetrieveModelMixin, Ge
 class CategoriaViewSet(AuditMixin, ModelViewSet):
     queryset = Categoria.objects.filter(is_active=True).order_by('nome')
     serializer_class = CategoriaSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin | IsFinanceiro]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['tipo']
 
@@ -50,7 +50,7 @@ class ContaViewSet(AuditMixin, ModelViewSet):
     # (RN 18/08/2026) que deixava list/retrieve em IsAuthenticated pra PDV
     # ler contas tipo=CAIXA foi revogada -- vazava acesso de leitura pra
     # qualquer autenticado, inclusive perfil=MARKETING (CA-13/RN08).
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin | IsFinanceiro]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['tipo']
     search_fields = ['nome']
@@ -128,7 +128,7 @@ class ContaViewSet(AuditMixin, ModelViewSet):
 class AporteViewSet(AuditMixin, ModelViewSet):
     queryset = Aporte.objects.filter(is_active=True).select_related('conta').order_by('-data')
     serializer_class = AporteSerializer
-    permission_classes = [IsAdmin]
+    permission_classes = [IsAdmin | IsFinanceiro]
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['tipo', 'conta']
     ordering_fields = ['data', 'valor']
@@ -141,7 +141,7 @@ class ReceitaViewSet(AuditMixin, ModelViewSet):
         .order_by('vencimento')
     )
     serializer_class = ReceitaSerializer
-    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
+    permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['tipo', 'status', 'cliente', 'conta']
     search_fields = ['descricao']
@@ -162,7 +162,7 @@ class ReceitaViewSet(AuditMixin, ModelViewSet):
         receita.save()
         return Response(ReceitaSerializer(receita).data)
 
-    @action(detail=True, methods=['post'], url_path='estornar', permission_classes=[IsAdmin])
+    @action(detail=True, methods=['post'], url_path='estornar', permission_classes=[IsAdmin | IsFinanceiro])
     def estornar(self, request, pk=None):
         from financeiro.services import estornar_receita
         from rest_framework.exceptions import ValidationError as DRFValidationError
@@ -193,7 +193,7 @@ class DespesaViewSet(AuditMixin, ModelViewSet):
         .order_by('vencimento')
     )
     serializer_class = DespesaSerializer
-    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
+    permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['tipo', 'status', 'conta', 'estornado']
     search_fields = ['descricao', 'fornecedor']
@@ -218,7 +218,7 @@ class DespesaViewSet(AuditMixin, ModelViewSet):
         despesa.save()
         return Response(DespesaSerializer(despesa).data)
 
-    @action(detail=True, methods=['post'], url_path='estornar', permission_classes=[IsAdmin])
+    @action(detail=True, methods=['post'], url_path='estornar', permission_classes=[IsAdmin | IsFinanceiro])
     def estornar_despesa(self, request, pk=None):
         # RF-10/secao 6.3 (Manutencao 58): logica movida para
         # financeiro/services.py::estornar_despesa() para ser reaproveitada
@@ -259,7 +259,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
         .order_by('-data', '-criado_em')
     )
     serializer_class = LivroCaixaSerializer
-    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
+    permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, OrderingFilter]
     filterset_fields = ['conta', 'tipo', 'origem', 'estornado']
     ordering_fields = ['data', 'valor']
@@ -267,7 +267,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAdmin])
+    @action(detail=True, methods=['post'], permission_classes=[IsAdmin | IsFinanceiro])
     def estornar(self, request, pk=None):
         lancamento = self.get_object()
         if lancamento.estornado:
@@ -334,6 +334,7 @@ class LivroCaixaViewSet(ReadCreateViewSet):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdmin | IsFinanceiro])
 def fluxo_caixa(request):
     mes_str = request.query_params.get('mes')
     conta_id = request.query_params.get('conta')
@@ -399,6 +400,7 @@ def fluxo_caixa(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdmin | IsFinanceiro])
 def dre(request):
     try:
         ano = int(request.query_params.get('ano', date.today().year))
@@ -438,6 +440,7 @@ def dre(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdmin | IsFinanceiro])
 def balanco_patrimonial(request):
     data_str = request.query_params.get('data')
     data_ref = None
@@ -450,11 +453,13 @@ def balanco_patrimonial(request):
 
 
 @api_view(['GET'])
+@permission_classes([IsAdmin | IsFinanceiro])
 def fluxo_projetado(request):
     return Response(calcular_fluxo_projetado())
 
 
 @api_view(['GET'])
+@permission_classes([IsAdmin | IsFinanceiro])
 def indicadores_cfo(request):
     return Response(calcular_indicadores_cfo())
 
@@ -696,7 +701,7 @@ from .conciliacao_service import criar_conciliacao
 class ConciliacaoViewSet(ReadOnlyModelViewSet):
     queryset = ConciliacaoExtrato.objects.filter(is_active=True)
     serializer_class = ConciliacaoExtratoSerializer
-    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
+    permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
 
     @action(detail=False, methods=['post'], url_path='upload', parser_classes=[MultiPartParser])
     def upload(self, request):
@@ -800,4 +805,4 @@ class ConciliacaoViewSet(ReadOnlyModelViewSet):
 class PadraoSeguroConciliacaoViewSet(AuditMixin, ModelViewSet):
     queryset = PadraoSeguroConciliacao.objects.filter(is_active=True)
     serializer_class = PadraoSeguroConciliacaoSerializer
-    permission_classes = [IsAdmin]  # RN08 (Manutencao #54) — antes so IsAuthenticated
+    permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated

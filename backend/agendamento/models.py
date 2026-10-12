@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 from common.models import BaseModel
@@ -7,6 +8,10 @@ class Agenda(BaseModel):
     nome      = models.CharField(max_length=100, blank=True)
     descricao = models.TextField(blank=True)
     cor       = models.CharField(max_length=7, default='#3B82F6')
+    profissional = models.ForeignKey(            # Manutencao 63 (RF-05)
+        settings.AUTH_USER_MODEL, verbose_name='profissional responsável',
+        null=True, blank=True, on_delete=models.SET_NULL, related_name='agendas_vinculadas',
+    )
 
     class Meta:
         db_table = 'age_agenda'
