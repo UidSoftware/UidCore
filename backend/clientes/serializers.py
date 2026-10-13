@@ -28,6 +28,9 @@ class ClienteSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     acionistas = AcionistaClienteSerializer(many=True, read_only=True)
     segmento_display = serializers.CharField(source='get_segmento_display', read_only=True)
     tipo_pessoa_display = serializers.CharField(source='get_tipo_pessoa_display', read_only=True)
+    anonimizado_por_nome = serializers.CharField(
+        source='anonimizado_por.nome_completo', read_only=True, default=''
+    )
 
     class Meta:
         model = Cliente
@@ -40,8 +43,12 @@ class ClienteSerializer(AuditFieldsMixin, serializers.ModelSerializer):
             'is_active', 'created_at', 'updated_at',
             'created_by_nome', 'updated_by_nome',
             'historico', 'acionistas',
+            'anonimizado', 'anonimizado_em', 'anonimizado_por_nome',
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        read_only_fields = [
+            'created_at', 'updated_at',
+            'anonimizado', 'anonimizado_em',
+        ]
 
     def validate_documento(self, value):
         if value == '':

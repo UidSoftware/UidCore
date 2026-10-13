@@ -2,12 +2,14 @@
 
 Cobre: campos cpf/cnpj, AcionistaCliente, endpoints de acionistas.
 """
+from decimal import Decimal
+
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from .models import AcionistaCliente, Cliente
+from .models import AcionistaCliente, Cliente, HistoricoCliente
 
 
 def _make_user(email='admin@teste.com'):
@@ -256,3 +258,268 @@ class BloqueiaEscritaDeProfissionalAPITest(APITestCase):
         self.client.force_authenticate(admin)
         resp = self.client.post('/api/v1/clientes/', {'nome_razao_social': 'Cliente Admin'}, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED)
+
+
+# --- Manutencao #66 [NUCLEO 5/5] — LGPD: exportacao e anonimizacao do
+# titular. Cobre CA-01 a CA-10 da Especificacao_Hotfix.md (CA-11, build do
+# container, verificado manualmente pelo Forge — nao testavel via Django
+# TestCase). ---
+
+from common.models import ExportacaoTitular  # noqa: E402
+
+
+def _make_admin_lgpd(email='admin-lgpd@teste.com'):
+    return User.objects.create_user(
+        email=email, password='senha123', nome_completo='Admin LGPD', is_staff=True,
+    )
+
+
+def _make_cliente_com_dado_pessoal(nome='Titular LGPD'):
+    return Cliente.objects.create(
+        nome_razao_social=nome, tipo_pessoa='PF', cpf='98765432100',
+        telefone='34999998888', email='titular@teste.com',
+        endereco='Rua Teste, 123', cidade='Uberlândia', estado='MG', cep='38400000',
+        observacoes='Observação pessoal do titular',
+    )
+
+
+class ClienteExportarAPITest(APITestCase):
+    def setUp(self):
+        self.cliente = _make_cliente_com_dado_pessoal()
+
+    def test_exportar_json_200_e_contem_secao_clientes_ca02(self):
+        self.client.force_authenticate(_make_admin_lgpd())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('cliente', resp.data)
+        self.assertIn('secoes', resp.data)
+        apps = [s['app'] for s in resp.data['secoes']]
+        self.assertIn('clientes', apps)
+        secao_clientes = next(s for s in resp.data['secoes'] if s['app'] == 'clientes')
+        self.assertEqual(
+            secao_clientes['dados']['cadastro']['nome_razao_social'], 'Titular LGPD'
+        )
+
+    def test_exportar_default_sem_formato_e_json(self):
+        self.client.force_authenticate(_make_admin_lgpd())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIn('secoes', resp.data)
+
+    def test_exportar_pdf_200_content_type_pdf_ca01(self):
+        self.client.force_authenticate(_make_admin_lgpd())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=pdf')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp['Content-Type'], 'application/pdf')
+        self.assertTrue(resp.content.startswith(b'%PDF'))
+
+    def test_exportar_formato_invalido_400(self):
+        self.client.force_authenticate(_make_admin_lgpd())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=xml')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_exportar_cria_exportacao_titular_ca03(self):
+        admin = _make_admin_lgpd()
+        self.client.force_authenticate(admin)
+        self.assertEqual(ExportacaoTitular.objects.filter(cliente=self.cliente).count(), 0)
+        self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        self.assertEqual(ExportacaoTitular.objects.filter(cliente=self.cliente).count(), 1)
+        exportacao = ExportacaoTitular.objects.get(cliente=self.cliente)
+        self.assertEqual(exportacao.formato, 'JSON')
+        self.assertEqual(exportacao.created_by, admin)
+
+    def test_exportar_pdf_tambem_cria_exportacao_titular_formato_pdf(self):
+        self.client.force_authenticate(_make_admin_lgpd())
+        self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=pdf')
+        exportacao = ExportacaoTitular.objects.get(cliente=self.cliente)
+        self.assertEqual(exportacao.formato, 'PDF')
+
+    def test_exportar_sem_permissao_403_ca10(self):
+        self.client.force_authenticate(_make_operacional_cliente())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_exportar_profissional_403_ca10(self):
+        self.client.force_authenticate(_make_profissional())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_exportar_sem_autenticacao_403(self):
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        self.assertIn(resp.status_code, (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN))
+
+    def test_exportar_agrega_secao_de_outro_app_financeiro_ca01(self):
+        from financeiro.models import Conta, Receita
+
+        conta = Conta.objects.create(nome='Conta Teste LGPD')
+        Receita.objects.create(
+            cliente=self.cliente, conta=conta, descricao='Mensalidade Teste',
+            valor_bruto=Decimal('150.00'),
+        )
+        self.client.force_authenticate(_make_admin_lgpd())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        apps = [s['app'] for s in resp.data['secoes']]
+        self.assertIn('financeiro', apps)
+        secao_financeiro = next(s for s in resp.data['secoes'] if s['app'] == 'financeiro')
+        self.assertEqual(secao_financeiro['dados']['receitas'][0]['descricao'], 'Mensalidade Teste')
+
+    def test_exportar_nao_vaza_pk_de_usuario_rnf04(self):
+        # RNF-04: a secao de portal expoe email, nunca o id interno do User.
+        from portal.models import AcessoPortalCliente
+
+        usuario = User.objects.create_user(
+            email='titular-portal@teste.com', password='senha123', nome_completo='Titular Portal',
+        )
+        AcessoPortalCliente.objects.create(cliente=self.cliente, usuario=usuario)
+        self.client.force_authenticate(_make_admin_lgpd())
+        resp = self.client.get(f'/api/v1/clientes/{self.cliente.id}/exportar/?formato=json')
+        secao_portal = next(s for s in resp.data['secoes'] if s['app'] == 'portal')
+        acesso = secao_portal['dados']['acessos'][0]
+        self.assertEqual(acesso['usuario_email'], 'titular-portal@teste.com')
+        self.assertNotIn('usuario_id', acesso)
+        self.assertNotIn('id', acesso)
+
+
+class ClienteAnonimizarAPITest(APITestCase):
+    def setUp(self):
+        self.cliente = _make_cliente_com_dado_pessoal()
+        self.admin = _make_admin_lgpd()
+
+    def _exportar(self, cliente=None):
+        cliente = cliente or self.cliente
+        self.client.force_authenticate(self.admin)
+        return self.client.get(f'/api/v1/clientes/{cliente.id}/exportar/?formato=json')
+
+    def test_anonimizar_sem_exportacao_previa_400_ca04(self):
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.cliente.refresh_from_db()
+        self.assertFalse(self.cliente.anonimizado)
+
+    def test_anonimizar_sem_confirmo_400_ca06(self):
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {}, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_anonimizar_confirmo_false_400_ca06(self):
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': False}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_anonimizar_com_exportacao_e_confirmo_200_ca05(self):
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.cliente.refresh_from_db()
+        self.assertTrue(self.cliente.anonimizado)
+        self.assertEqual(self.cliente.nome_razao_social, f'Titular anonimizado #{self.cliente.id}')
+        self.assertIsNone(self.cliente.documento)
+        self.assertEqual(self.cliente.cpf, '')
+        self.assertEqual(self.cliente.telefone, '')
+        self.assertEqual(self.cliente.email, '')
+        self.assertEqual(self.cliente.endereco, '')
+        self.assertEqual(self.cliente.observacoes, '')
+        self.assertIsNotNone(self.cliente.anonimizado_em)
+        self.assertEqual(self.cliente.anonimizado_por, self.admin)
+
+    def test_anonimizar_some_das_buscas_por_nome_antigo_ca05(self):
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        resp = self.client.get('/api/v1/clientes/?search=Titular LGPD')
+        resultados = resp.data['results'] if 'results' in resp.data else resp.data
+        ids = [r['id'] for r in resultados]
+        self.assertNotIn(self.cliente.id, ids)
+
+    def test_anonimizar_duas_vezes_400_ca07(self):
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_anonimizar_sem_permissao_403_ca10(self):
+        self._exportar()
+        self.client.force_authenticate(_make_operacional_cliente())
+        resp = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_anonimizar_mantem_receita_intacta_ca08(self):
+        from financeiro.models import Conta, Receita
+
+        conta = Conta.objects.create(nome='Conta Teste LGPD 2')
+        receita = Receita.objects.create(
+            cliente=self.cliente, conta=conta, descricao='Mensalidade Intacta',
+            valor_bruto=Decimal('200.00'),
+        )
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        receita.refresh_from_db()
+        self.assertEqual(str(receita.valor_bruto), '200.00')
+        self.assertEqual(receita.descricao, 'Mensalidade Intacta')
+        self.assertEqual(receita.cliente_id, self.cliente.id)
+
+    def test_anonimizar_remove_descricao_historico(self):
+        HistoricoCliente.objects.create(cliente=self.cliente, descricao='Dado pessoal sensível')
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        historico = HistoricoCliente.objects.get(cliente=self.cliente)
+        self.assertEqual(historico.descricao, '[conteúdo removido por anonimização LGPD]')
+
+    def test_anonimizar_acionista(self):
+        acionista = AcionistaCliente.objects.create(
+            cliente=self.cliente, nome='Sócio Pessoal', email='socio@teste.com',
+            cpf='11122233344', telefone='34988887777',
+        )
+        self._exportar()
+        self.client.force_authenticate(self.admin)
+        self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        acionista.refresh_from_db()
+        self.assertEqual(acionista.nome, f'Acionista anonimizado #{acionista.pk}')
+        self.assertEqual(acionista.email, '')
+        self.assertEqual(acionista.cpf, '')
+        self.assertEqual(acionista.telefone, '')
+
+    def test_segundo_cliente_anonimizado_documento_nao_conflita(self):
+        cliente2 = _make_cliente_com_dado_pessoal('Segundo Titular')
+        self._exportar()
+        self._exportar(cliente2)
+
+        self.client.force_authenticate(self.admin)
+        resp1 = self.client.post(
+            f'/api/v1/clientes/{self.cliente.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        resp2 = self.client.post(
+            f'/api/v1/clientes/{cliente2.id}/anonimizar/', {'confirmo': True}, format='json',
+        )
+        self.assertEqual(resp1.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp2.status_code, status.HTTP_200_OK)
+        cliente2.refresh_from_db()
+        self.assertIsNone(cliente2.documento)

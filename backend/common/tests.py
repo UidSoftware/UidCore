@@ -111,3 +111,80 @@ class BloqueiaEscritaDeProfissionalTest(TestCase):
         request = self.factory.get('/')
         request.user = AnonymousUser()
         self.assertFalse(BloqueiaEscritaDeProfissional().has_permission(request, None))
+
+
+# --- Manutencao #66 [NUCLEO 5/5] — RF-01/RF-07/RN-04/CA-09: registry de
+# exportacao LGPD. Cobre que o nucleo (common/lgpd.py) nao precisa
+# conhecer o app_label com antecedencia — um app "fake" criado dentro do
+# proprio teste se registra e aparece em exportar_tudo(), sem alterar
+# common/. ---
+
+class LgpdRegistryTest(TestCase):
+    def setUp(self):
+        from common import lgpd
+        self._lgpd = lgpd
+        # Isola o registry global entre testes — nao queremos que um
+        # app_label fake registrado aqui vaze pros demais testes do
+        # processo (e vice-versa, nao queremos perder os registros reais
+        # dos apps de negocio feitos em AppConfig.ready()).
+        self._registry_original = dict(lgpd._REGISTRY)
+
+    def tearDown(self):
+        self._lgpd._REGISTRY.clear()
+        self._lgpd._REGISTRY.update(self._registry_original)
+
+    def _make_cliente(self, nome='Cliente Registry Teste'):
+        from clientes.models import Cliente
+        return Cliente.objects.create(nome_razao_social=nome)
+
+    def test_app_novo_registra_e_aparece_no_export_ca09(self):
+        cliente = self._make_cliente()
+        self._lgpd.registrar_exportador('app_teste', 'Seção Teste', lambda c: {'ok': True})
+
+        self.assertIn('app_teste', self._lgpd.apps_registrados())
+
+        secoes = self._lgpd.exportar_tudo(cliente)
+        apps = [s['app'] for s in secoes]
+        self.assertIn('app_teste', apps)
+        secao_teste = next(s for s in secoes if s['app'] == 'app_teste')
+        self.assertEqual(secao_teste['titulo'], 'Seção Teste')
+        self.assertEqual(secao_teste['dados'], {'ok': True})
+
+    def test_funcao_retornando_none_omite_secao(self):
+        cliente = self._make_cliente('Cliente Sem Dado Nesse App')
+        self._lgpd.registrar_exportador('app_vazio', 'Seção Vazia', lambda c: None)
+
+        secoes = self._lgpd.exportar_tudo(cliente)
+        apps = [s['app'] for s in secoes]
+        self.assertNotIn('app_vazio', apps)
+
+    def test_funcao_retornando_dict_vazio_omite_secao(self):
+        cliente = self._make_cliente('Cliente Dict Vazio')
+        self._lgpd.registrar_exportador('app_dict_vazio', 'Seção Dict Vazio', lambda c: {})
+
+        secoes = self._lgpd.exportar_tudo(cliente)
+        apps = [s['app'] for s in secoes]
+        self.assertNotIn('app_dict_vazio', apps)
+
+    def test_apps_de_negocio_reais_ja_registrados(self):
+        # AppConfig.ready() dos apps de negocio ja rodou no boot do
+        # processo de teste — clientes sempre se registra (RF-02).
+        self.assertIn('clientes', self._lgpd.apps_registrados())
+
+    def test_resumir_secoes_vazio(self):
+        self.assertEqual(self._lgpd.resumir_secoes([]), 'sem dados em outros módulos')
+
+    def test_resumir_secoes_com_lista(self):
+        resumo = self._lgpd.resumir_secoes([
+            {'app': 'financeiro', 'titulo': 'Financeiro', 'dados': {'receitas': [1, 2, 3]}},
+        ])
+        self.assertIn('financeiro:3', resumo)
+
+    def test_formatar_em_linhas_dict_simples(self):
+        linhas = self._lgpd.formatar_em_linhas({'nome': 'Fulano', 'idade': 30})
+        self.assertIn('nome: Fulano', linhas)
+        self.assertIn('idade: 30', linhas)
+
+    def test_formatar_em_linhas_lista_de_dicts(self):
+        linhas = self._lgpd.formatar_em_linhas({'itens': [{'descricao': 'Item A'}]})
+        self.assertTrue(any('descricao: Item A' in l for l in linhas))

@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from common.models import BaseModel, PessoaBase
 from django.db import transaction
@@ -24,6 +25,15 @@ class Cliente(PessoaBase):
                               help_text='Como o cliente chegou (indicação, Google, etc.)')
     limite_credito = models.DecimalField(
         'limite de crédito', max_digits=12, decimal_places=2, default=0,
+    )
+    # Manutencao #66 [NUCLEO 5/5] — LGPD art. 18 (eliminação). Irreversível
+    # — não existe endpoint de "desanonimizar" (RN-07). Bloqueado pela
+    # action anonimizar() se já True (RN-02/CA-07).
+    anonimizado = models.BooleanField('anonimizado (LGPD)', default=False)
+    anonimizado_em = models.DateTimeField('anonimizado em', null=True, blank=True)
+    anonimizado_por = models.ForeignKey(
+        settings.AUTH_USER_MODEL, verbose_name='anonimizado por',
+        null=True, blank=True, on_delete=models.SET_NULL, related_name='+',
     )
 
     class Meta:

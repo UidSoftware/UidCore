@@ -82,3 +82,37 @@ class PessoaBase(BaseModel):
 
     def __str__(self):
         return self.nome_razao_social
+
+
+class FormatoExportacao(models.TextChoices):
+    JSON = 'JSON', 'JSON'
+    PDF = 'PDF', 'PDF'
+
+
+class ExportacaoTitular(BaseModel):
+    """
+    Manutencao #66 [NUCLEO 5/5] — trilha de auditoria da exportação de
+    dados do titular (LGPD art. 18). Toda exportação (JSON ou PDF) grava um
+    registro aqui ANTES de devolver a resposta — é o "backup" que a
+    anonimização exige existir previamente (RN-02 da Especificacao_Hotfix).
+    `created_by`/`created_at` (herdados de BaseModel) já respondem "quem
+    exportou e quando" — sem campo duplicado. Nunca editável depois de
+    criado (sem endpoint de update/delete).
+    """
+    cliente = models.ForeignKey(
+        'clientes.Cliente', verbose_name='cliente',
+        on_delete=models.PROTECT, related_name='exportacoes_lgpd',
+    )
+    formato = models.CharField(
+        'formato', max_length=4, choices=FormatoExportacao.choices,
+    )
+    conteudo_resumo = models.TextField('resumo do conteúdo', blank=True, default='')
+
+    class Meta:
+        db_table = 'common_exportacao_titular'
+        ordering = ['-created_at']
+        verbose_name = 'Exportação de Titular (LGPD)'
+        verbose_name_plural = 'Exportações de Titular (LGPD)'
+
+    def __str__(self):
+        return f'{self.cliente} — {self.formato} — {self.created_at:%d/%m/%Y %H:%M}'
