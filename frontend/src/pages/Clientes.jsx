@@ -1,7 +1,11 @@
 import { useState, useEffect, useCallback } from 'react'
-import { User, Building2, Plus, Trash2 } from 'lucide-react'
+import {
+  User, Building2, Plus, Trash2,
+  Shield, Download, FileText, FileJson, UserX, AlertTriangle, History, ShieldCheck,
+} from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
+import useAuthStore, { selectTemAcessoTotal } from '../stores/authStore.js'
 import Card from '../components/ui/Card.jsx'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
@@ -164,6 +168,222 @@ function AbaAssinaturasCliente({ clienteId }) {
   )
 }
 
+// Dispara o download de um Blob gerado em memoria — nunca renderiza o
+// conteudo exportado na tela (RF-08). Mesma tecnica em PDF e JSON.
+function dispararDownload(blob, nomeArquivo) {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// Aba "LGPD" na ficha do Cliente (Manutencao #66 [NUCLEO 5/5]) — exportar
+// dados do titular (PDF/JSON) e anonimizar. Visivel somente para
+// tem_acesso_total (guarda replicada no componente pai, mesma regra do
+// backend em ClienteViewSet.get_permissions — RF-05/RF-06/RN-01).
+//
+// Nota tecnica: o backend desta manutencao (commit 5fa2591) nao expõe
+// nenhum endpoint/campo de LISTAGEM das `ExportacaoTitular` do cliente
+// (nem em ClienteSerializer, nem endpoint proprio) — so cria o registro
+// a cada exportacao via common.lgpd/ClienteViewSet.exportar. Por isso o
+// "Historico de exportacoes" abaixo e' preenchido apenas com as
+// exportacoes feitas NESTA sessao do navegador (nao persiste entre
+// reloads) — e' o melhor possivel sem alterar arquivos de backend, que
+// esta fora do escopo do Loom nesta tarefa. Debito tecnico a registrar
+// para o Sentinel/Planner: se quiserem historico persistente entre
+// sessoes, o Forge precisa expor `cliente.exportacoes_lgpd` (related_name
+// ja existe em common.models.ExportacaoTitular) no ClienteSerializer ou
+// endpoint dedicado.
+function AbaLgpdCliente({ clienteId, cliente, showToast, onAnonimizado }) {
+  const [exportando, setExportando] = useState(null) // 'pdf' | 'json' | null
+  const [historico, setHistorico] = useState([])
+  const [modalAberto, setModalAberto] = useState(false)
+  const [valorDigitado, setValorDigitado] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const [erroAnonimizar, setErroAnonimizar] = useState('')
+
+  const nomeAtual = cliente?.nome_razao_social || ''
+
+  const baixarArquivo = async (formato) => {
+    setExportando(formato)
+    try {
+      const response = await api.get(`/clientes/${clienteId}/exportar/`, {
+        params: { formato },
+        responseType: 'blob',
+      })
+      const mime = formato === 'pdf' ? 'application/pdf' : 'application/json'
+      const blob = new Blob([response.data], { type: mime })
+      dispararDownload(blob, `titular_${clienteId}.${formato}`)
+      setHistorico((prev) => [
+        { formato: formato.toUpperCase(), created_at: new Date().toISOString(), created_by_nome: 'Você (sessão atual)' },
+        ...prev,
+      ])
+    } catch (error) {
+      showToast(extractErrorMessage(error, 'Erro ao exportar dados do titular.'), 'error')
+    } finally {
+      setExportando(null)
+    }
+  }
+
+  const abrirModalAnonimizar = () => {
+    setValorDigitado('')
+    setErroAnonimizar('')
+    setModalAberto(true)
+  }
+
+  const fecharModalAnonimizar = () => {
+    setModalAberto(false)
+    setValorDigitado('')
+    setErroAnonimizar('')
+  }
+
+  const confirmarAnonimizacao = async () => {
+    setEnviando(true)
+    setErroAnonimizar('')
+    try {
+      const { data } = await api.post(`/clientes/${clienteId}/anonimizar/`, { confirmo: true })
+      setModalAberto(false)
+      onAnonimizado(data)
+      showToast('Titular anonimizado com sucesso.')
+    } catch (error) {
+      setErroAnonimizar(extractErrorMessage(error, 'Erro ao anonimizar titular.'))
+    } finally {
+      setEnviando(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Exportação e eliminação de dados (LGPD)</h3>
+        <p className="text-xs text-gray-400 dark:text-slate-500">
+          Direitos do titular previstos no art. 18 da LGPD (acesso, portabilidade, eliminação).
+        </p>
+      </div>
+
+      {/* Card Exportar dados */}
+      <div className="bg-gray-50 dark:bg-navy-900/50 border border-gray-200 dark:border-navy-700 rounded-lg p-4">
+        <div className="flex items-center gap-2">
+          <Download size={16} className="text-primary-600 dark:text-violet-400" />
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-slate-200">Exportar dados do titular</h4>
+        </div>
+        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1 mb-3">
+          Gera um relatório completo (cadastro, financeiro, vendas, agendamentos) para entregar ao titular.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={exportando === 'pdf'}
+            disabled={exportando === 'json'}
+            onClick={() => baixarArquivo('pdf')}
+          >
+            <FileText size={14} /> PDF
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={exportando === 'json'}
+            disabled={exportando === 'pdf'}
+            onClick={() => baixarArquivo('json')}
+          >
+            <FileJson size={14} /> JSON
+          </Button>
+        </div>
+      </div>
+
+      {/* Card Anonimizar titular */}
+      <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/40 rounded-lg p-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <UserX size={16} className="text-red-600 dark:text-red-400" />
+            <h4 className="text-sm font-semibold text-red-700 dark:text-red-300">Anonimizar titular</h4>
+          </div>
+          {cliente?.anonimizado && (
+            <span className="bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400 rounded-full px-2 py-0.5 text-xs font-medium flex items-center gap-1">
+              <ShieldCheck size={12} /> Já anonimizado
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-red-600/80 dark:text-red-400/80 mt-1 mb-3">
+          Remove nome, documento, contato e observações do titular de forma permanente. Requer uma
+          exportação prévia (é o backup exigido antes da eliminação). Registros financeiros e fiscais
+          são mantidos por obrigação legal.
+        </p>
+        <Button variant="danger" size="sm" disabled={cliente?.anonimizado} onClick={abrirModalAnonimizar}>
+          <UserX size={14} /> Anonimizar titular
+        </Button>
+      </div>
+
+      {/* Histórico de exportações */}
+      <div>
+        <h4 className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide mt-2">
+          Histórico de exportações
+        </h4>
+        {historico.length === 0 ? (
+          <p className="text-xs text-gray-400 dark:text-slate-500 text-center py-3">
+            Nenhuma exportação registrada ainda.
+          </p>
+        ) : (
+          historico.map((h, idx) => (
+            <div key={idx} className="flex items-center gap-2 text-xs text-slate-400 py-1">
+              <History size={12} />
+              {new Date(h.created_at).toLocaleString('pt-BR')} — {h.formato} — por {h.created_by_nome}
+            </div>
+          ))
+        )}
+      </div>
+
+      {modalAberto && (
+        <Modal title="Anonimizar titular" onClose={fecharModalAnonimizar} maxW="max-w-md">
+          <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-lg p-3 flex gap-2 items-start">
+            <AlertTriangle size={20} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />
+            <p className="text-sm text-red-700 dark:text-red-300">
+              <strong>Esta ação é irreversível.</strong> Nome, documento, telefone, e-mail e observações de
+              &quot;{nomeAtual}&quot; serão removidos permanentemente. Registros financeiros e fiscais
+              continuam vinculados ao cliente, por obrigação legal (LGPD art. 16, I).
+            </p>
+          </div>
+
+          {erroAnonimizar && (
+            <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-900/50 rounded-lg p-3 text-sm text-red-700 dark:text-red-300 mt-3">
+              {erroAnonimizar}
+            </div>
+          )}
+
+          <div className="mt-4">
+            <label className="text-sm text-gray-700 dark:text-slate-300 mb-1 block">
+              Para confirmar, digite o nome completo do titular:
+            </label>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">&quot;{nomeAtual}&quot;</p>
+            <Input
+              value={valorDigitado}
+              onChange={(e) => setValorDigitado(e.target.value)}
+              placeholder="Digite o nome exatamente como mostrado acima"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 mt-5 flex-wrap">
+            <Button variant="secondary" onClick={fecharModalAnonimizar}>Cancelar</Button>
+            <Button
+              variant="danger"
+              disabled={valorDigitado !== nomeAtual}
+              loading={enviando}
+              onClick={confirmarAnonimizacao}
+            >
+              Confirmar anonimização
+            </Button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  )
+}
+
 const EMPTY_ACIONISTA = { nome: '', email: '', cpf: '', telefone: '', whatsapp: '', principal: false }
 
 const EMPTY_FORM = {
@@ -188,6 +408,7 @@ const EMPTY_FORM = {
 }
 
 export default function Clientes() {
+  const temAcessoTotal = useAuthStore(selectTemAcessoTotal)
   const [clientes, setClientes] = useState([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
@@ -551,11 +772,47 @@ export default function Clientes() {
               >
                 Assinaturas
               </button>
+              {temAcessoTotal && (
+                <button
+                  type="button"
+                  onClick={() => setAbaFicha('lgpd')}
+                  className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    abaFicha === 'lgpd'
+                      ? 'border-violet-500 text-violet-600 dark:text-violet-400'
+                      : 'border-transparent text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
+                  }`}
+                >
+                  <Shield size={14} className="inline mr-1 -mt-0.5" /> LGPD
+                </button>
+              )}
             </div>
           )}
 
           {editingId && abaFicha === 'assinaturas' ? (
             <AbaAssinaturasCliente clienteId={editingId} />
+          ) : editingId && abaFicha === 'lgpd' && temAcessoTotal ? (
+            <AbaLgpdCliente
+              clienteId={editingId}
+              cliente={clientes.find((c) => c.id === editingId)}
+              showToast={showToast}
+              onAnonimizado={(atualizado) => {
+                setClientes((prev) => prev.map((c) => (c.id === atualizado.id ? atualizado : c)))
+                setForm((prev) => ({
+                  ...prev,
+                  nome_razao_social: atualizado.nome_razao_social,
+                  cpf: atualizado.cpf || '',
+                  cnpj: atualizado.cnpj || '',
+                  telefone: atualizado.telefone || '',
+                  email: atualizado.email || '',
+                  endereco: atualizado.endereco || '',
+                  cep: atualizado.cep || '',
+                  cidade: atualizado.cidade || '',
+                  estado: atualizado.estado || '',
+                  data_nascimento: atualizado.data_nascimento || '',
+                  observacoes: atualizado.observacoes || '',
+                }))
+              }}
+            />
           ) : (
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Segmented control PF/PJ */}
