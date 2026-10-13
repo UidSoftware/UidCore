@@ -1,453 +1,810 @@
-# Especificação UI Hotfix — UidCore (Manutenção #64 [NUCLEO 3/5])
-## Assinaturas: mensalidade recorrente com contrato ativo
+# Especificação UI Hotfix — Manutenção #65 [NUCLEO 4/5]
+## Agenda com capacidade (vagas) + agendamento público
 
+**Sistema:** UidCore
+**Data:** 2026-10-13
 **Autor:** Brush (MODO HOTFIX)
-**Base:** `Especificacao_Hotfix.md` (Manutenção #64) + design system existente do
-projeto (inferido de `pages/Compras.jsx`, `pages/Clientes.jsx`, `pages/Vendas.jsx`,
-`components/ui/*`, `tailwind.config.js`). Este documento **sobrescreve** o
-`Especificacao_UI_Hotfix.md` da Manutenção #63 (fase anterior do pacote NUCLEO,
-já encerrada — este arquivo é sempre o retrato da fase em execução).
+**Base:** Especificacao_Hotfix.md (Analista, mesma data)
 
 ---
 
-## 0. Design System do Projeto (referência — nada disto é novo)
+## Design System do Projeto (referência)
 
-- **Modo:** dark mode por padrão (toggle ☀️/🌙 no Header, `useTheme.js`,
-  localStorage `uidcore-theme`) — ver Manutenção #31.
-- **Paleta:** tokens Tailwind `navy-*` (950/900/800/700/600/500 — superfícies)
-  e `violet-*` (700/600/500/400 — interação/foco), com `primary-*`/`accent-*`
-  mapeados no light mode. Vermelho só para erro/destrutivo (`red-*`).
-- **Fonte:** Plus Jakarta Sans (títulos) + DM Sans (corpo), via Google Fonts
-  em `index.css`. **Nunca** Inter/Roboto/Arial.
-- **BorderRadius padrão:** `rounded-lg` (8px) em inputs/botões, `rounded-2xl`
-  (16px) em `Modal`/`Card`, `rounded-full` em badges.
-- **Componentes genéricos reutilizáveis** (`components/ui/`): `Button.jsx`,
-  `Card.jsx`, `Input.jsx`, `Select.jsx`, `Modal.jsx`, `Pagination.jsx`,
-  `Loading.jsx`, `ResourceCrud.jsx`, `AuditFooter.jsx`.
-- **Não existe** componente `Badge`/`StatusBadge` compartilhado nem
-  `Autocomplete`/`FinanceiroTable` genéricos — cada página **duplica** um
-  `function Badge({ status })` local com mapa de classes Tailwind (ver
-  `Compras.jsx` linha ~58, citando explicitamente que copia o padrão de
-  `Financeiro.jsx` em vez de importar) e uma função local de busca
-  debounced tipo `ProdutoAutocomplete`/`BuscaProdutoRapida` (`Vendas.jsx`
-  linha ~45/193). **Assinaturas.jsx segue exatamente essa convenção** — não
-  é o momento de extrair componentes compartilhados (fora de escopo desta
-  fase, é módulo isolado).
-- **Padrão de página de listagem** (visto identicamente em `Compras.jsx`,
-  `Clientes.jsx`, `Vendas.jsx`): toast local fixo (`fixed top-4 right-4`),
-  header `flex items-center justify-between` com título h1 + subtítulo +
-  botão de ação à direita, `Card` com barra de filtros (`Input` busca +
-  `Select` status), depois **split mobile/desktop**: `div.md:hidden` com
-  `Card` por item (mobile) e `table` tradicional (`hidden md:table`/
-  `md:block`) para desktop, com estado vazio (emoji grande + texto
-  cinza) e estado de loading (texto centralizado).
-- **Modal de formulário:** `Modal.jsx` — props `title`, `onClose`, `maxW`
-  (default `max-w-lg`), conteúdo via `children`, sem tabs nativas — qualquer
-  tab dentro de modal é implementada na página (estado local `activeTab`),
-  não vem de um componente `Tabs` genérico (não existe).
+O UidCore usa dark mode com classe `dark` no root. Paleta definida em
+`frontend/tailwind.config.js` (Manutenção #31):
+
+**Superfícies (navy):**
+- `navy-950` (`#0a0f1e`) — fundo da aplicação / página pública
+- `navy-900` (`#0f1729`) — fundo de cards secundários, slots lotados
+- `navy-800` (`#1a2540`) — cards, modais, tabelas, inputs
+- `navy-700` (`#232f4d`) — hover de linhas, bordas de separação
+- `navy-600` (`#2a3352`) — bordas de cards e inputs
+- `navy-500` (`#3d4a73`) — ícones e elementos de apoio
+
+**Interação (violet):**
+- `violet-600` (`#7c3aed`) — botão primário (dark), aba ativa
+- `violet-700` (`#6d28d9`) — hover de botão primário (dark)
+- `violet-500` (`#8b5cf6`) — destaque de link, badge de ação
+- `violet-400` (`#a78bfa`) — texto de label ativo, ícone selecionado
+- `violet-300` (`#c4b5fd`) — texto de caption sobre fundo escuro
+
+**Texto:**
+- `text-slate-100` — texto principal
+- `text-slate-400` — texto secundário / labels
+- `text-slate-500` — placeholder / muted
+
+**Feedback:**
+- Success: `text-emerald-400` / `bg-emerald-400/15`
+- Warning: `text-amber-400` / `bg-amber-400/15`
+- Error: `text-red-400` / `bg-red-400/15`
+- Info: `text-violet-400` / `bg-violet-400/15`
+
+**Fontes:**
+- Títulos/labels de peso: `font-sans` (Plus Jakarta Sans), weight 600–800
+- Body / dados: `font-body` (DM Sans), weight 400–500
+
+**BorderRadius padrão:**
+- Botões: `rounded-lg` (8px)
+- Cards: `rounded-xl` (12px)
+- Badges: `rounded-full`
+- Inputs: `rounded-lg`
+- Modal: `rounded-2xl`
+
+**Padrão de card:**
+```
+bg-white dark:bg-navy-800
+border border-gray-200 dark:border-navy-600
+rounded-xl
+p-6
+```
+
+**Padrão de tabela (linha de item):**
+```
+border-b border-navy-700
+hover:bg-navy-700/40
+px-4 py-3
+text-sm text-slate-200
+```
+
+**Componentes reutilizáveis disponíveis:**
+- `ResourceCrud` — CRUD genérico com tabela, modal, paginação, toast
+- `Modal` — overlay centralizado, `maxW` configurável, dark mode pronto
+- `Input` — label + input + error, dark mode pronto
+- `Select` — label + select + error, dark mode pronto
+- `Button` — variantes primary/secondary/danger, dark mode pronto
+- `Card` — superfície com sombra leve
+- `Pagination` — paginação paginada
+- `AuditFooter` — rodapé created_by/updated_by em modais
 
 ---
 
-## 1. Tela: Sidebar + Rota — item de menu "Assinaturas"
+## Tela 1 — Aba "Horários" dentro de Agendamento.jsx
 
-RF-08/RF-09 do Analista já fixam o essencial — Brush confirma consistência
-visual, sem inventar nada novo:
+### Integração na tela existente
 
-- Ícone: `🔁` (emoji, **não** Lucide) — Sidebar do projeto usa emojis em
-  todos os itens (`📊 Dashboard`, `🧾 Compras`, `💰 Financeiro`, `🔄
-  Conciliação`...), divergência já documentada e aceita como decisão de
-  projeto (DIV-UI03, Manutenção #8/#9 — **não** reabrir essa discussão
-  nesta fase).
-- Posição no array `navItems` de `Sidebar.jsx`: logo depois de
-  `{ to: '/conciliacao', ... }` e antes de `{ to: '/administrativo', ... }`
-  — agrupa com os demais itens `requer: 'financeiro'` (Compras, Financeiro,
-  Conciliação), mantendo a vizinhança semântica do menu.
-- Gate de visibilidade: `requer: 'financeiro'` → já resolvido por
-  `selectPodeAcessarFinanceiro(authStore)` — **nenhuma lógica de ícone
-  condicional por perfil**, é o mesmo seletor que já oculta Compras/
-  Financeiro/Conciliação para OPERACIONAL/MARKETING/PROFISSIONAL (fecha
-  CA-09 na ponta visual).
-- Rota: `/assinaturas` envolta em `FinanceiroRoute` (mesmo wrapper de
-  `/compras`), sem layout especial — usa o `AppLayout` padrão (sidebar
-  desktop fixa + bottom/collapse mobile já existente, **nunca**
-  `overflow-hidden` no root).
+`Agendamento.jsx` hoje tem 3 abas: Compromissos | Agendas | Calendário.
+Adicionar duas abas novas na sequência:
+
+```
+Compromissos | Agendas | Calendário | Horários | Pendentes
+```
+
+Padrão visual das abas (já existe, manter idêntico):
+```
+ativa:   bg-violet-600 text-white rounded-lg px-4 py-2 text-sm font-medium
+inativa: bg-navy-800 text-slate-400 hover:bg-navy-700 border border-navy-600
+         rounded-lg px-4 py-2 text-sm font-medium
+```
+
+Container de abas: `flex gap-1 overflow-x-auto pb-1` — já existe, não alterar.
 
 ---
 
-## 2. Tela: `Assinaturas.jsx` (listagem principal)
+### Layout da aba "Horários"
 
-### Layout geral
-- Estrutura idêntica a `Compras.jsx`: toast fixo → header (título +
-  subtítulo + botão) → `Card` de filtros → lista (mobile cards / desktop
-  table) → `Modal` de criação/edição → `Modal` menor de confirmação de
-  encerramento.
-- Container raiz: `<div className="space-y-4">` (padrão de todas as
-  páginas de listagem do projeto — não inventar novo espaçamento vertical).
-- Padding da página: nenhum padding próprio — herdado do `AppLayout`
-  (conteúdo já tem padding lateral padrão do shell).
+**Cabeçalho da aba:**
+```
+┌────────────────────────────────────────────────────────────────┐
+│ [Select: Agenda ▼]                   [+ Novo Horário]          │
+└────────────────────────────────────────────────────────────────┘
+```
 
-### Cabeçalho
-```jsx
-<div className="flex items-center justify-between gap-3">
-  <div>
-    <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Assinaturas</h1>
-    <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">
-      Mensalidades recorrentes — planos, contratos ativos e cobrança automática
-    </p>
-  </div>
-  <Button onClick={openNovaAssinatura}>+ Nova Assinatura</Button>
+- Select de agenda: componente `Select` existente, `w-64`, label "Agenda",
+  opções carregadas de `GET /api/v1/agendamento/agendas/`
+- Botão "+ Novo Horário": `Button variant="primary"`, ícone `<Plus size={14} />`
+- Layout: `flex items-center justify-between gap-4 mb-4`
+
+**Tabela de horários:**
+
+Colunas: Dia | Hora | Duração | Serviço | Vagas | Público | Ativo | Ações
+
+```
+┌──────────┬───────┬──────────┬──────────────┬───────┬─────────┬───────┬────────┐
+│ Dia      │ Hora  │ Duração  │ Serviço      │ Vagas │ Público │ Ativo │ Ações  │
+├──────────┼───────┼──────────┼──────────────┼───────┼─────────┼───────┼────────┤
+│ Segunda  │ 09:00 │ 30 min   │ Consulta     │ 2     │ [badge] │ [tog] │ [edit] │
+│ Quarta   │ 10:00 │ 60 min   │ Avaliação    │ 5     │ [badge] │ [tog] │ [edit] │
+└──────────┴───────┴──────────┴──────────────┴───────┴─────────┴───────┴────────┘
+```
+
+Estilos da tabela:
+- Container: `overflow-x-auto rounded-xl border border-navy-600`
+- `<table>` com `w-full`
+- `<thead>`: `bg-navy-900`, células `px-4 py-3 text-xs font-semibold
+  text-slate-400 uppercase tracking-wide text-left`
+- `<tbody>` linha: `border-b border-navy-700 hover:bg-navy-700/40 transition-colors`
+- Células: `px-4 py-3 text-sm text-slate-200`
+
+**Coluna "Dia":** texto por extenso a partir de `dia_semana_label`
+(ex: "Segunda"), `text-slate-200 font-medium`
+
+**Coluna "Hora":** `hora_inicio` formatado como "HH:mm", `text-slate-200`
+
+**Coluna "Duração":** `duracao_minutos` + " min" (ex: "30 min"), `text-slate-400`
+
+**Coluna "Serviço":** `servico` ou "—" se vazio, `text-slate-200`
+
+**Coluna "Vagas":** número, `text-slate-200 font-medium`
+
+**Coluna "Público":**
+- `publico=true`: badge `bg-violet-400/15 text-violet-400 border border-violet-400/30
+  rounded-full px-2 py-0.5 text-xs font-medium` — label "Público"
+- `publico=false`: badge `bg-navy-600 text-slate-500 rounded-full px-2 py-0.5
+  text-xs font-medium` — label "Privado"
+
+**Coluna "Ativo" (toggle):**
+- Toggle inline: `relative inline-flex h-5 w-9 cursor-pointer
+  items-center rounded-full transition-colors`
+- Ligado: `bg-emerald-500`
+- Desligado: `bg-navy-600`
+- Bolinha: `absolute h-3.5 w-3.5 rounded-full bg-white shadow transition-transform`
+- Ao clicar: PATCH `{ativo: !atual}` para
+  `/api/v1/agendamento/horarios-disponiveis/{id}/`
+- Toast "Horário ativado" / "Horário desativado" após sucesso
+
+**Coluna "Ações":**
+- Ícone `<Pencil size={14} />` — abre modal de edição do horário
+- `text-slate-500 hover:text-violet-400 transition-colors cursor-pointer`
+- Sem label — apenas ícone, `title="Editar"`
+
+**Estado vazio (sem horários para a agenda selecionada):**
+```
+ícone <Clock size={32} /> + texto "Nenhum horário cadastrado para esta agenda."
+```
+Centralizado, `text-slate-500`, padding `py-12`
+
+**Estado inicial (nenhuma agenda selecionada):**
+```
+ícone <CalendarDays size={32} /> + texto "Selecione uma agenda para ver os horários."
+```
+Centralizado, `text-slate-500`, padding `py-12`
+
+**Mobile (375px):**
+- Tabela com `overflow-x-auto` — scroll horizontal
+- Colunas mínimas visíveis sem scroll: Dia, Hora, Vagas, Ativo
+- Colunas Duração, Serviço, Público ficam acessíveis via scroll
+
+---
+
+### Modal "Novo / Editar Horário"
+
+Reutilizar componente `Modal` existente com `maxW="max-w-md"`.
+
+**Título:** "Novo Horário" / "Editar Horário"
+
+**Campos (em grid `grid grid-cols-2 gap-4`):**
+
+```
+┌─────────────────────┬─────────────────────┐
+│ Dia da Semana *     │ Hora de Início *     │
+│ [Select ▼]          │ [Input type=time]    │
+├─────────────────────┼─────────────────────┤
+│ Duração (min) *     │ Vagas *              │
+│ [Input type=number] │ [Input type=number]  │
+├─────────────────────┴─────────────────────┤
+│ Serviço (rótulo livre)                    │
+│ [Input placeholder="ex: Consulta 30min"] │
+├───────────────────────────────────────────┤
+│ [checkbox] Público  [checkbox] Ativo      │
+└───────────────────────────────────────────┘
+```
+
+Detalhes dos campos:
+
+- **Dia da Semana** (`Select`): opções 0=Segunda, 1=Terça, 2=Quarta,
+  3=Quinta, 4=Sexta, 5=Sábado, 6=Domingo. Obrigatório.
+
+- **Hora de Início** (`Input type="time"`): `step="300"` (intervalos de
+  5 min), obrigatório.
+
+- **Duração (min)** (`Input type="number"`): `min="5"`, `step="5"`,
+  placeholder "30". Obrigatório.
+
+- **Vagas** (`Input type="number"`): `min="1"`, placeholder "1".
+  Obrigatório.
+
+- **Serviço**: `Input type="text"`, placeholder "ex: Consulta 30min".
+  Opcional.
+
+- **Público**: checkbox inline com label "Horário visível no agendamento
+  público". Padrão marcado.
+
+- **Ativo**: checkbox inline com label "Aceitar novos agendamentos".
+  Padrão marcado. Hint abaixo (`text-xs text-slate-500`): "Desativar impede
+  novos agendamentos, mas não cancela os já existentes."
+
+**Checkboxes estilo:**
+```
+flex items-center gap-2
+input[type=checkbox]: w-4 h-4 rounded accent-violet-600
+label: text-sm text-slate-300
+```
+
+**Rodapé do modal:**
+```
+[Cancelar]  [Salvar Horário]
+```
+- Cancelar: `Button variant="secondary" size="md"`
+- Salvar: `Button variant="primary" size="md"`, loading spinner durante POST/PATCH
+- Layout: `flex justify-end gap-2 mt-6 pt-4 border-t border-navy-600`
+
+Validação inline: mostrar `error` nas props do `Input` quando campo
+obrigatório estiver vazio ao tentar salvar.
+
+---
+
+## Tela 2 — Indicador de vagas na aba Calendário/lista
+
+### Contexto
+
+A aba "Calendário" (`CalendarioTab`) exibe eventos/slots. Quando um slot
+está vinculado a um `HorarioDisponivel`, exibir badge de ocupação.
+
+### Badge de vagas
+
+Posição: à direita do nome do serviço/horário, na mesma linha.
+
+**Visual:**
+```
+[09:00 Consulta]  [2/5]
+```
+
+- Badge container: `inline-flex items-center gap-1 rounded-full px-2 py-0.5
+  text-xs font-semibold`
+- Com vagas disponíveis (`vagas_disponiveis > 0`):
+  `bg-emerald-400/15 text-emerald-400`
+  ícone: `<Users size={10} />` antes do número
+- Lotado (`vagas_disponiveis == 0`):
+  `bg-red-400/15 text-red-400`
+  ícone: `<Users size={10} />` antes do número
+
+Formato do texto: "{vagas_ocupadas}/{vagas}" (ex: "2/5", "5/5")
+
+Tooltip ao hover: "X vagas disponíveis" ou "Horário lotado" via `title`
+HTML nativo.
+
+**Carregamento:**
+- Ao montar o dia no calendário, buscar
+  `GET /api/v1/agendamento/horarios-disponiveis/{horario_id}/ocupacao/?data={AAAA-MM-DD}`
+  para cada slot com `horario` vinculado
+- Durante carregamento: exibir `—` em `text-slate-500`
+- Badge não bloqueia a renderização do evento (lazy, independente)
+
+**Mobile:** badge permanece visível; o evento fica em card empilhado,
+badge na linha abaixo do nome se não couber na mesma linha
+
+---
+
+## Tela 3 — Aba "Pendentes" (painel de confirmação)
+
+### Layout da aba
+
+**Cabeçalho:**
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Pendentes de Confirmação          [badge contador]             │
+│  Compromissos recebidos pelo agendamento público aguardando...  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- Título: `text-lg font-semibold text-slate-100` (Plus Jakarta Sans)
+- Subtítulo: `text-sm text-slate-400 mt-0.5`
+- Badge contador: `bg-amber-400/20 text-amber-400 border border-amber-400/30
+  rounded-full px-2 py-0.5 text-xs font-bold` — ao lado do título
+- Layout header: `flex items-start justify-between gap-4 mb-4`
+
+**Tabela de pendentes:**
+
+Colunas: Contato | Telefone | Data | Serviço | Recebido em | Ações
+
+Estilos da tabela: idênticos ao padrão já descrito na Tela 1.
+
+**Coluna "Contato":** `nome_contato`, `text-slate-200 font-medium`.
+Se `email_contato` existir: exibir abaixo em `text-xs text-slate-500`
+
+**Coluna "Telefone":** `telefone_contato`, `text-slate-300`
+
+**Coluna "Data":** `data_horario` formatado como "DD/MM/AAAA" +
+dia da semana abreviado (ex: "20/10 — Ter"), `text-slate-300`
+
+**Coluna "Serviço":** campo `horario_servico` no serializer do
+compromisso (ou "—" se sem horário vinculado), `text-slate-400`
+
+**Coluna "Recebido em":** `created_at` como tempo relativo ("há 2h"),
+`text-slate-500 text-xs`
+
+**Coluna "Ações":**
+
+Botão Confirmar:
+```
+Button variant="secondary" size="sm"
+ícone <CheckCircle size={14} /> + label "Confirmar"
+classes extras: dark:border-emerald-500/50 dark:text-emerald-400
+                dark:hover:bg-emerald-500/10
+```
+
+Botão Cancelar (recusar):
+```
+ícone <X size={14} /> apenas, sem label
+text-slate-500 hover:text-red-400 transition-colors
+title="Recusar agendamento"
+```
+
+Ao clicar "Confirmar": PATCH `{status: "CONFIRMADO"}` —
+sucesso: toast verde "Agendamento confirmado.", linha some da tabela.
+
+Ao clicar recusar (X): exibir popover inline de confirmação (sem modal):
+```
+"Recusar este agendamento?"  [Sim, recusar]  [Não]
+```
+- Popover: `absolute bg-navy-800 border border-navy-600 rounded-lg
+  p-3 shadow-xl z-10 text-sm`
+- Posicionado abaixo do ícone X, alinhado à direita
+
+**Estado vazio:**
+```
+ícone <CalendarCheck size={32} /> + "Nenhum agendamento pendente."
+```
+Centralizado, `text-slate-500`, padding `py-12`
+
+**Atualização:** ao entrar na aba, buscar
+`GET /api/v1/agendamento/compromissos/?origem=PUBLICO&status=AGENDADO`.
+Botão de refresh manual `<RefreshCw size={14} />` no canto superior
+direito do cabeçalho, `text-slate-500 hover:text-slate-300 cursor-pointer`,
+sem label.
+
+**Mobile (375px):** tabela com scroll horizontal; colunas Telefone e
+"Recebido em" ficam acessíveis via scroll.
+
+---
+
+## Tela 4 — Formulário de Compromisso ampliado
+
+### Contexto
+
+O formulário de Compromisso está dentro do `ResourceCrud` da aba
+"Compromissos". Os novos campos são condicionais e devem ser inseridos
+após o campo "Cliente" existente.
+
+### Ordem dos campos no modal (completo)
+
+```
+1. Título *
+2. Agenda *
+3. Profissional
+4. Cliente (opcional)
+── separador visual ──
+5. Horário Disponível (select, opcional)
+6. Data do Horário (date, condicional: visível só quando horário selecionado)
+── separador visual ──
+7. Nome do Contato (condicional: visível quando Cliente vazio)
+8. Telefone do Contato (condicional: visível quando Cliente vazio)
+9. Email do Contato (condicional: visível quando Cliente vazio)
+── separador visual ──
+10. Início (datetime-local)
+11. Fim (datetime-local)
+12. Local
+13. Status
+14. Descrição
+15. Observações
+```
+
+Separador visual entre seções:
+```html
+<div class="border-t border-navy-700 my-3" />
+```
+
+**Campo "Horário Disponível" (campo 5):**
+- `Select` existente, carregado de
+  `GET /api/v1/agendamento/horarios-disponiveis/?agenda={agenda_id}&ativo=true`
+- Só habilita quando "Agenda" já estiver selecionada; caso contrário,
+  `disabled`, placeholder "Selecione uma agenda primeiro"
+- Ao selecionar: auto-preencher `inicio` e `fim` quando `data_horario`
+  também estiver preenchida
+- Label: "Horário Disponível"
+- Hint abaixo (`text-xs text-slate-500`): "Vincula este compromisso a um
+  horário com controle de vagas"
+- Ícone `<Clock size={14} />` no início do label: `flex items-center gap-1.5`
+
+**Campo "Data do Horário" (campo 6):**
+- `Input type="date"`, label "Data do Horário"
+- Visível somente quando `horario` estiver selecionado
+- Hint (`text-xs text-slate-500`): "Deve ser uma {dia_semana_label}"
+- Erro de dia errado: `text-red-400 text-xs` com ícone `<AlertTriangle size={12} />`
+
+**Badge de origem (read-only na edição):**
+- INTERNO: `bg-navy-600 text-slate-400 rounded-full px-2 py-0.5 text-xs`
+  + ícone `<Shield size={10} />` — "Interno"
+- PUBLICO: `bg-violet-400/15 text-violet-400 border border-violet-400/30
+  rounded-full px-2 py-0.5 text-xs` + ícone `<Globe size={10} />` — "Público"
+- Posição: linha própria acima do campo Status
+- Label: `text-xs text-slate-500 mb-1` "Origem"
+
+**Seção de campos de contato (campos 7–9, condicionais):**
+
+Cabeçalho da seção (quando visível):
+```
+texto: "Dados de contato"
+style: text-xs font-semibold text-slate-500 uppercase tracking-wide
+       flex items-center gap-1.5
+ícone: <User size={12} />
+```
+
+- Nome do Contato: `Input`, label "Nome do contato"
+- Telefone do Contato: `Input type="tel"`, placeholder "(00) 00000-0000"
+- Email do Contato: `Input type="email"`, label "Email (opcional)"
+
+Visibilidade: seção inteira aparece quando `cliente` estiver vazio
+(`""` ou `null`). Usar `transition-all duration-150` para entrada suave.
+
+**Toast de aviso de conflito** (quando API retorna `aviso` no 201):
+```
+style:  bg-amber-400/20 border border-amber-400/40 text-amber-300
+        rounded-lg px-4 py-3 flex items-start gap-2.5
+ícone:  <AlertTriangle size={16} className="text-amber-400 shrink-0 mt-0.5" />
+texto:  "Cliente já possui compromisso no mesmo período."
+```
+Duração: 6 segundos.
+
+**Mobile (375px):** modal já usa `overflow-y-auto` — campos novos
+seguem o scroll vertical natural.
+
+---
+
+## Tela 5 — Página pública `/agendar/{slug}`
+
+Esta página não usa AppLayout, Sidebar nem header de admin. É standalone
+com visual limpo, dark mode por padrão (classe `dark` no root da página),
+otimizada para 375px.
+
+### Estrutura HTML da página
+
+```
+<div class="min-h-screen bg-navy-950 text-slate-100 font-body">
+  <header>          Identidade da agenda
+  <main>
+    <section>       Seletor de data (semana)
+    <section>       Lista de horários do dia
+    <section>       Formulário de contato (condicional)
+    <section>       Estado de sucesso (condicional)
+  </main>
+  <footer>          Rodapé discreto
 </div>
 ```
-- Título: `text-2xl font-bold` (Plus Jakarta Sans herdado do `h1` global).
-- Subtítulo: `text-sm text-gray-500 dark:text-slate-400`.
-- Botão: `Button` padrão (`variant` default/primary), texto `+ Nova
-  Assinatura` — mesma convenção textual de `+ Nova Compra` em
-  `Compras.jsx` (não usar ícone `Plus` dentro do próprio `Button` aqui,
-  já que nenhuma outra listagem do projeto faz isso no botão de header —
-  só o texto com `+`).
 
-### Barra de filtros (dentro de `Card`)
-```jsx
-<Card>
-  <div className="flex flex-wrap gap-3">
-    <div className="flex-1 min-w-[200px]">
-      <Input placeholder="Buscar por cliente..." value={search} onChange={...} />
-    </div>
-    <div className="w-48">
-      <Select options={STATUS_FILTRO_OPTIONS} value={statusFiltro} onChange={...} />
-    </div>
-  </div>
-</Card>
+### Header
+
 ```
-- `STATUS_FILTRO_OPTIONS`: `[{value:'', label:'Todos'}, {value:'ATIVA',
-  label:'Ativa'}, {value:'PAUSADA', label:'Pausada'}, {value:'ENCERRADA',
-  label:'Encerrada'}]` — mesmo shape de `STATUS_FILTRO_OPTIONS` em
-  `Compras.jsx`.
-- Busca por cliente: `search` dispara `GET
-  /api/v1/assinaturas/assinaturas/?search=<termo>` (ou `?cliente__nome=`
-  conforme o Forge exponha — Brush não define contrato de API, só o
-  campo de UI) com `setPage(1)` ao digitar, igual padrão de `Compras.jsx`.
-
-### Lista — Mobile (`<768px`, `div.flex.flex-col.gap-3.md:hidden`)
-Cada item em `Card`:
-```jsx
-<Card key={item.id}>
-  <div className="flex items-start justify-between gap-2">
-    <div className="min-w-0">
-      <p className="font-medium text-gray-800 dark:text-slate-200 truncate">{item.cliente_nome}</p>
-      <p className="text-xs text-gray-400 dark:text-slate-500">
-        {item.plano_nome} · vence dia {item.dia_vencimento}
-      </p>
-    </div>
-    <Badge status={item.status} />
-  </div>
-  <div className="flex items-center justify-between mt-2">
-    <span className="font-semibold text-gray-800 dark:text-slate-200">{BRL(item.valor)}</span>
-    <div className="flex gap-3">
-      <button onClick={() => openEditar(item)} className="text-gray-400 dark:text-slate-500">
-        <Pencil size={16} />
-      </button>
-      {item.status !== 'ENCERRADA' && (
-        <button onClick={() => togglePausarRetomar(item)} className="text-gray-400 dark:text-slate-500">
-          {item.status === 'ATIVA' ? <PauseCircle size={16} /> : <PlayCircle size={16} />}
-        </button>
-      )}
-      {item.status !== 'ENCERRADA' && (
-        <button onClick={() => abrirModalEncerrar(item)} className="text-gray-400 dark:text-slate-500">
-          <XCircle size={16} />
-        </button>
-      )}
-    </div>
-  </div>
-</Card>
+┌────────────────────────────────────┐
+│  [dot de cor 12px]                 │
+│  Nome da Agenda                    │
+│  Descrição curta da agenda         │
+└────────────────────────────────────┘
 ```
 
-### Lista — Desktop (`table` padrão `hidden md:block`, igual `Compras.jsx`)
-Colunas sugeridas (larguras relativas):
-| Coluna | Conteúdo | Largura |
-|---|---|---|
-| Cliente | `item.cliente_nome` | flex |
-| Plano | `item.plano_nome` | 18% |
-| Valor | `BRL(item.valor)` | 12%, alinhado à direita |
-| Vencimento | `dia {item.dia_vencimento}` | 10% |
-| Status | `<Badge status={item.status} />` | 12%, centralizado |
-| Ações | ícones (ver abaixo) | 14%, centralizado |
+- Container: `px-4 pt-8 pb-6 max-w-lg mx-auto`
+- Dot de cor: `w-3 h-3 rounded-full inline-block mr-2`, cor do campo `cor`
+  da agenda (inline style)
+- Nome: `text-xl font-bold text-slate-100` (Plus Jakarta Sans 700)
+- Descrição: `text-sm text-slate-400 mt-1`
+- Separador: `border-b border-navy-700 mt-6`
 
-Cada linha: `<tr className="border-b border-gray-100 dark:border-navy-700 hover:bg-gray-50 dark:hover:bg-navy-700/30">`
-(hover sutil, mesmo padrão de todas as tabelas do projeto).
+### Seletor de data (navegação por semana)
 
-### Ícones (Lucide React — padrão já em uso no projeto, nunca emoji em ação de linha)
-| Ação | Ícone | Tamanho | Observação |
-|---|---|---|---|
-| Nova Assinatura | — (texto `+ Nova Assinatura` no `Button`, sem ícone) | — | consistente com `+ Nova Compra` |
-| Editar | `<Pencil />` | 16px | mesmo ícone de ação de edição já usado no projeto |
-| Pausar (quando `status=ATIVA`) | `<PauseCircle />` | 16px | novo no projeto — `lucide-react` já é dependência, ícone existe no pacote |
-| Retomar (quando `status=PAUSADA`) | `<PlayCircle />` | 16px | contraponto visual direto do Pausar — fica óbvio o toggle |
-| Encerrar | `<XCircle />` | 16px | ação terminal — cor neutra na listagem (não vermelha na linha, só confirma gravidade dentro do modal, RN-07) |
-| Estado vazio | `<span className="text-4xl">🔁</span>` (emoji grande, igual padrão `📦`/`🏭` já usado) | — | consistência com `Compras.jsx`/`Clientes.jsx` |
-
-> Nota: `Pencil`, `Trash2`, `Search`, `Plus`, `Eye`, `Ban`, `User`,
-> `Building2`, `ArrowRight`, `Gift`, `Package`, `Store`, `ClipboardList`
-> já são os únicos ícones Lucide importados hoje no projeto (grep
-> confirmado em `Clientes.jsx`, `Compras.jsx`, `Produtos.jsx`,
-> `Vendas.jsx`). `PauseCircle`/`PlayCircle`/`XCircle` são novos nesta
-> fase — **confirmar no `package.json` que `lucide-react` já contém esses
-> ícones** (faz parte do pacote padrão da lib, não precisa de upgrade de
-> versão) antes do Loom importar.
-
-### Badge de status (duplicar o padrão local, não importar)
-```jsx
-const STATUS_BADGES = {
-  ATIVA: 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300',
-  PAUSADA: 'bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300',
-  ENCERRADA: 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400',
-}
-function Badge({ status }) {
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGES[status] || STATUS_BADGES.ENCERRADA}`}>
-      {status}
-    </span>
-  )
-}
 ```
-Exatamente as mesmas classes/tons já usados para `PENDENTE`/`PAGO`/
-`CANCELADO` em `Compras.jsx` — ATIVA reaproveita o verde de PAGO, PAUSADA
-reaproveita o amarelo de PENDENTE, ENCERRADA reaproveita o cinza de
-CANCELADO. Zero paleta nova.
-
-### Estado vazio / loading
-```jsx
-{loading ? (
-  <div className="text-center py-12 text-gray-400 dark:text-slate-500 text-sm">Carregando...</div>
-) : items.length === 0 ? (
-  <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
-    <span className="text-4xl">🔁</span>
-    <p className="text-sm">Nenhuma assinatura cadastrada.</p>
-  </div>
-) : ( /* lista */ )}
+┌──────────────────────────────────────────────┐
+│  [<]   Seg 13    Ter 14    Qua 15  ...  [>]  │
+└──────────────────────────────────────────────┘
 ```
 
----
-
-## 3. Modal "Nova Assinatura" / Editar
-
-- Componente: `Modal` (`maxW="max-w-lg"` — formulário médio, mesmo porte
-  do modal de Compra/Cliente, não precisa de `max-w-2xl`).
-- Título: `"Nova Assinatura"` (criação) / `"Editar Assinatura"` (edição) —
-  mesmo padrão de título dinâmico condicional já usado em todo modal do
-  projeto.
-- Campos, em ordem, cada um com `Input`/`Select` padrão (label acima,
-  mesma estrutura de `components/ui/Input.jsx`/`Select.jsx`):
-
-1. **Cliente** — campo de busca/autocomplete local (reaproveitar o padrão
-   de função debounced tipo `ProdutoAutocomplete` de `Vendas.jsx`, adaptado
-   para `GET /api/v1/clientes/?search=`): input de texto com dropdown de
-   resultados abaixo (`position: absolute`, **nunca** `position: fixed`
-   dentro deste modal pequeno — ele não tem o problema de overflow-clip de
-   modais grandes com scroll interno, mas ainda assim usar `z-10` no
-   dropdown para garantir que fique acima do restante do form). Ao
-   selecionar, grava `cliente_id` + mostra nome selecionado com botão "✕"
-   para trocar.
-2. **Plano** — `Select` populado via `GET /api/v1/assinaturas/planos/?ativo=true`
-   (só planos `ativo=True`, RF-02). Ao mudar, **pré-preenche** o campo
-   `valor` abaixo com `plano.valor` (editável depois — snapshot, RF-03).
-3. **Valor** — `Input type="number" step="0.01"` com label "Valor (R$)",
-   pré-preenchido pelo passo 2, editável (desconto negociado).
-4. **Dia de vencimento** — `Input type="number" min={1} max={28}` label
-   "Dia do vencimento" + texto de ajuda pequeno abaixo (`text-xs
-   text-gray-400 dark:text-slate-500`): "Entre 1 e 28 — evita problema em
-   meses com menos dias".
-5. **Data início** — `Input type="date"` label "Início".
-6. **Data fim (opcional)** — `Input type="date"` label "Fim (opcional)" +
-   texto de ajuda: "Deixe em branco para contrato sem prazo definido".
-7. **Conta** — `Select` populado via `GET /api/v1/financeiro/contas/?is_active=true`
-   label "Conta de destino" (conta onde a Receita mensal vai cair).
-
-- Rodapé do modal: `Button variant="secondary"` "Cancelar" + `Button`
-  "Salvar" (mesmo par de botões de todo modal do projeto, alinhados à
-  direita, `flex justify-end gap-2 mt-5`).
-- Em modo edição, campo **Plano** e **Cliente** ficam bloqueados
-  (`disabled`) — trocar cliente/plano de uma assinatura ativa não é um
-  caso de uso coberto pelo backend (RF-03 trata valor como snapshot, não
-  há endpoint de "migrar assinatura para outro plano"); se o usuário
-  precisar trocar, o fluxo correto é Encerrar + criar nova (RN-07,
-  coerente com o estado terminal documentado).
-
----
-
-## 4. Modal "Encerrar Assinatura" (ação de linha, RF-10)
-
-Modal pequeno e distinto do modal de edição — ação **sem volta** (RN-07),
-precisa de fricção visual proposital:
-
-- Componente: `Modal` (`maxW="max-w-sm"` — bem menor que o de formulário,
-  reforça "isso é uma confirmação, não um cadastro").
-- Título: `"Encerrar Assinatura"`.
-- Corpo:
-  - Texto de alerta: `"Encerrar a assinatura de {cliente_nome}? Essa ação
-    não pode ser desfeita — a assinatura para de gerar cobrança a partir
-    da data informada."` em `text-sm text-gray-600 dark:text-slate-300`.
-  - Campo **Data de encerramento** — `Input type="date"`, label "A partir
-    de" (vira `data_fim` no payload).
-  - Campo **Motivo** — `<textarea>` com mesmas classes visuais do `Input`
-    padrão (borda/foco idênticos — projeto não tem `Textarea.jsx` próprio,
-    então replicar inline as classes de `Input.jsx`), label "Motivo do
-    encerramento", `rows={3}`.
-- Botão de confirmação em destaque de risco: `Button` com classe adicional
-  de cor de alerta (`bg-red-600 hover:bg-red-700 text-white` — **não**
-  `variant="danger"` porque esse variant não existe em `Button.jsx` hoje;
-  usar `className` extra sobre o `Button` padrão, mesmo truque usado em
-  outros pontos do projeto para ação destrutiva pontual) + texto
-  `"Confirmar encerramento"`.
-- **Sem** `window.confirm()` nativo do browser — o próprio modal com
-  texto de alerta já cumpre o papel de "guard antes de chamar a action"
-  pedido no RF-10; `window.confirm` style (mencionado no texto do
-  Analista) é satisfeito pela fricção do modal dedicado, não por um
-  `window.confirm()` real (UX melhor, consistente com o resto do projeto
-  que já evita `window.confirm` nativo em ações críticas — ver
-  `Compras.jsx` que usa `window.confirm` só para cancelamento simples de
-  1 linha, mas aqui o encerramento tem 2 campos obrigatórios, não cabe em
-  um `confirm()` de texto único).
-
----
-
-## 5. Aba "Assinaturas" na ficha do Cliente (RF-11)
-
-`Clientes.jsx` hoje **não tem** uma "ficha" de detalhe com abas — só um
-`Modal` único reaproveitado para criar/editar (confirmado lendo o arquivo:
-um só `<Modal>` no fim do componente, sem sistema de tabs). RF-11 pede
-"tela/modal de ficha" — a interpretação de menor atrito com o padrão
-existente é **adicionar abas dentro do modal de edição já existente**,
-visíveis só quando `editingId` está preenchido (cliente já existe — não
-faz sentido mostrar assinaturas de um cliente que ainda não foi salvo):
-
-### Layout
-```jsx
-{editingId && (
-  <div className="flex gap-1 border-b border-gray-200 dark:border-navy-600 mb-4 -mt-1">
-    <button
-      onClick={() => setAbaFicha('dados')}
-      className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors ${
-        abaFicha === 'dados'
-          ? 'border-violet-500 text-violet-600 dark:text-violet-400'
-          : 'border-transparent text-gray-400 dark:text-slate-500 hover:text-gray-600 dark:hover:text-slate-300'
-      }`}
-    >
-      Dados
-    </button>
-    <button
-      onClick={() => setAbaFicha('assinaturas')}
-      className={/* mesma lógica, chave 'assinaturas' */}
-    >
-      Assinaturas
-    </button>
-  </div>
-)}
-
-{(!editingId || abaFicha === 'dados') && ( /* formulário atual, sem mudança */ )}
-{editingId && abaFicha === 'assinaturas' && <AbaAssinaturasCliente clienteId={editingId} />}
-```
-- Estilo do seletor de aba: sublinhado (`border-b-2`), cor ativa
-  `violet-500`/`violet-400` (dark) — é o primeiro uso de tabs dentro de
-  `Clientes.jsx`, então Brush define aqui o padrão em vez de inferir de
-  outro lugar; usa a cor de interação (`violet`) já estabelecida em todo
-  o projeto para estado ativo/foco (mesma família de cor do anel de foco
-  de `Select.jsx`/`Input.jsx`), não uma cor nova.
-- Ao fechar o modal (`closeModal`), resetar `abaFicha` para `'dados'` —
-  próxima abertura (de qualquer cliente) sempre começa na aba Dados.
-
-### Conteúdo da aba "Assinaturas" (somente leitura, RF-11 explícito)
-Sub-componente `AbaAssinaturasCliente`:
-- Busca `GET /api/v1/assinaturas/assinaturas/?cliente=<id>` ao montar.
-- **Sem** `Card` wrapper extra (já está dentro do `Modal`, que já tem
-  padding) — lista direta.
-- Cada assinatura do cliente, bloco compacto:
-  ```jsx
-  <div className="flex items-center justify-between py-2 border-b border-gray-100 dark:border-navy-700 last:border-0">
-    <div>
-      <p className="text-sm font-medium text-gray-800 dark:text-slate-200">{assinatura.plano_nome}</p>
-      <p className="text-xs text-gray-400 dark:text-slate-500">
-        {BRL(assinatura.valor)} · vence dia {assinatura.dia_vencimento}
-      </p>
-    </div>
-    <Badge status={assinatura.status} />
-  </div>
+- Container: `px-4 py-4 max-w-lg mx-auto`
+- Row de navegação: `flex items-center justify-between gap-2`
+- Botões `[<]` e `[>]`:
+  `w-8 h-8 rounded-lg bg-navy-800 hover:bg-navy-700 border border-navy-600
+  flex items-center justify-center text-slate-400 hover:text-slate-200 transition-colors`
+  Ícones: `<ChevronLeft size={16} />` / `<ChevronRight size={16} />`
+- Dias da semana (7 botões, scroll horizontal em mobile):
+  Container: `flex gap-1.5 overflow-x-auto py-1 flex-1`
+  Cada dia inativo:
   ```
-- Abaixo da lista de assinaturas, seção "Cobranças geradas" (título
-  `text-xs font-semibold uppercase text-gray-400 dark:text-slate-500
-  mt-4 mb-2`), listando as `Receita`s vinculadas
-  (`?assinatura__cliente=<id>` conforme RF-11 do Analista), cada linha
-  compacta: `referencia_mes` formatado (ex: "Nov/2026") + `BRL(valor_bruto)`
-  + badge de status da Receita (reaproveitar o `Badge` de status já
-  descrito, com as chaves de `Receita.status` — `PENDENTE`/`RECEBIDO`/
-  etc., **não** as chaves de `Assinatura.status` — são badges visualmente
-  idênticos mas semanticamente de domínios diferentes, não confundir ao
-  implementar).
-- Estado vazio desta aba (cliente sem nenhuma assinatura): texto simples
-  centralizado `"Nenhuma assinatura para este cliente."`, sem emoji
-  grande (é um bloco pequeno dentro de modal, não uma página — manter
-  compacto, emoji grande ficaria desproporcional aqui).
-- **Nenhum botão de ação** nesta aba (nem editar, nem pausar, nem
-  encerrar) — RF-11 é explícito: ações de mutação continuam centralizadas
-  em `Assinaturas.jsx`. Se o usuário quiser agir, sai do modal de Cliente
-  e vai para a tela Assinaturas (nenhum deep-link automático nesta fase —
-  fora de escopo, RF-11 não pede).
+  min-w-[52px] flex flex-col items-center gap-0.5 rounded-xl px-2 py-2 text-center
+  cursor-pointer transition-colors bg-navy-800 hover:bg-navy-700 border border-navy-600
+  texto do dia: text-xs text-slate-500 uppercase tracking-wide
+  número:       text-base font-semibold text-slate-300
+  ```
+  Ativo:
+  ```
+  bg-violet-600 border-violet-600
+  texto do dia: text-xs text-violet-200 uppercase tracking-wide
+  número:       text-base font-semibold text-white
+  ```
+  Hoje: ponto `w-1.5 h-1.5 rounded-full bg-emerald-400 mx-auto mt-0.5`
+
+- Mobile: row de dias com `overflow-x-auto`, 5 dias visíveis (2 via scroll)
+
+### Lista de horários do dia selecionado
+
+**Container:** `px-4 max-w-lg mx-auto space-y-2 mt-2`
+
+**Estado de carregamento:**
+```html
+<div class="flex justify-center py-8">
+  <div class="w-6 h-6 border-2 border-violet-600 border-t-transparent rounded-full animate-spin" />
+</div>
+```
+
+**Card de slot disponível:**
+```
+bg-navy-800 hover:bg-violet-700/60 border border-navy-600
+hover:border-violet-500 rounded-xl px-4 py-3.5
+flex items-center justify-between
+cursor-pointer transition-all duration-150
+
+Hora:     text-base font-bold text-slate-100 (Plus Jakarta Sans)
+Serviço:  text-sm text-slate-300 mt-0.5
+Duração:  text-xs text-slate-500
+Vagas:    flex items-center gap-1 text-xs text-emerald-400
+          ícone: <Users size={12} />
+          texto: "{vagas_disponiveis} vaga(s)"
+```
+
+**Slot selecionado (clicado, antes do submit):**
+```
+bg-violet-700/40 border-violet-500 border-2
+(ícone <CheckCircle size={14} className="text-violet-400" /> no canto superior direito)
+```
+
+**Card de slot lotado:**
+```
+bg-navy-900 border border-navy-700 rounded-xl px-4 py-3.5
+flex items-center justify-between
+opacity-60 cursor-not-allowed
+
+Hora:     text-base font-bold text-slate-500
+Serviço:  text-sm text-slate-600
+Badge:    bg-red-400/10 text-red-400 rounded-full px-2 py-0.5 text-xs — "Lotado"
+```
+
+**Estado sem horários no dia:**
+```
+ícone <Clock size={28} className="text-slate-600" />
+texto "Nenhum horário disponível neste dia."
+style: text-center py-8 text-slate-500 text-sm space-y-2
+```
+
+### Formulário de contato (aparece ao clicar em slot disponível)
+
+Transição de entrada suave (o Loom decide a implementação — slide-in ou
+transition-all, desde que a entrada não seja abrupta).
+
+**Cabeçalho do formulário:**
+```
+┌──────────────────────────────────────────────────────┐
+│  Horário selecionado                    [×]          │
+│  Segunda, 20 de outubro • 09:00 • Consulta 30min     │
+└──────────────────────────────────────────────────────┘
+```
+
+- Container: `bg-navy-800 border border-navy-600 rounded-xl p-4 mt-4`
+- Label "Horário selecionado": `text-xs text-slate-500 uppercase tracking-wide
+  font-semibold`
+- Resumo do slot: `text-sm text-slate-200 mt-1`
+- Botão X (desselecionar):
+  `text-slate-500 hover:text-slate-300 text-lg leading-none`
+
+**Campos do formulário:**
+```
+space-y-3 mt-4
+```
+
+- Nome (`Input`, `label="Seu nome"`, obrigatório):
+  placeholder "Como você prefere ser chamado(a)?"
+
+- Telefone (`Input type="tel"`, `label="Telefone"`, obrigatório):
+  placeholder "(00) 00000-0000"
+  hint (`text-xs text-slate-500 mt-1`): "Usaremos para confirmar seu agendamento"
+
+- Email (`Input type="email"`, `label="Email (opcional)"`):
+  placeholder "seu@email.com"
+
+Os componentes `Input` e `Select` existentes têm dark mode pronto
+(`dark:bg-navy-800 dark:border-navy-500 dark:text-slate-100`) — a classe
+`dark` no root da página pública ativa esses tokens automaticamente.
+
+**Botão de submissão:**
+```
+Button variant="primary" size="lg" className="w-full mt-4"
+loading={enviando}
+ícone à esquerda: <CalendarCheck size={16} />
+label: "Confirmar Agendamento"
+```
+
+**Nota de privacidade (abaixo do botão):**
+```
+text-xs text-slate-600 text-center mt-2
+"Seus dados são usados apenas para confirmar seu agendamento."
+```
+
+**Mobile (375px):** formulário em coluna única, `px-4`, botão full-width.
+
+### Estado de sucesso
+
+Substitui toda a `<main>` após confirmação:
+
+```
+ícone <CheckCircle size={56} className="text-emerald-400 mb-4" />
+
+"Agendamento confirmado!"          text-xl font-bold text-slate-100 (Plus Jakarta Sans)
+"Segunda, 20 de outubro de 2026"   text-sm text-slate-300 mt-2
+"09:00 — Consulta 30min"
+"Anote o horário ou tire um print  text-sm text-slate-500 mt-3
+ desta tela como comprovante."
+
+[Fazer outro agendamento]          Button variant="secondary" size="md" mt-6
+```
+
+Container: `flex flex-col items-center justify-center text-center
+px-6 py-16 max-w-sm mx-auto`
+
+Botão "Fazer outro agendamento": ao clicar, resetar todos os estados
+(volta ao início, mesma página).
+
+### Exibição de erros (feedback inline)
+
+**Vaga esgotada** (400 `{"erro": "Horário sem vagas disponíveis."}`):
+```
+bg-red-400/10 border border-red-400/30 rounded-xl px-4 py-3 mt-3
+flex items-start gap-2.5
+ícone:  <AlertTriangle size={16} className="text-red-400 shrink-0 mt-0.5" />
+texto:  "Este horário foi preenchido. Escolha outro."
+style:  text-sm text-red-300
+```
+Ao exibir: desselecionar o slot (volta à lista de horários).
+
+**Throttle** (429):
+```
+mesmo container visual
+texto: "Muitas tentativas. Aguarde antes de tentar novamente."
+```
+
+**Erro genérico** (qualquer 4xx/5xx não mapeado):
+```
+texto: "Algo deu errado. Tente novamente em instantes."
+```
+
+Todos os erros exibidos abaixo do botão, sem substituir a UI.
+
+### Rodapé da página pública
+
+```html
+<footer class="text-center py-6 mt-8 border-t border-navy-800">
+  <p class="text-xs text-slate-700">Powered by UidCore</p>
+</footer>
+```
+
+### Breakpoints da página pública
+
+| Viewport | Layout |
+|---|---|
+| 375px (padrão) | Coluna única, header compacto, dias em scroll horizontal |
+| 768px | Centralizado max-w-lg, padding lateral maior (px-8) |
+| 1024px+ | max-w-xl centrado, seletor de dias cabe todo em linha sem scroll |
 
 ---
 
-## 6. Mobile-first (breakpoint 375px)
+## Resumo de ícones Lucide (todos os ícones desta spec)
 
-- **Assinaturas.jsx:** filtros em `flex-wrap` já quebram naturalmente para
-  coluna única em telas pequenas (mesma classe `flex flex-wrap gap-3` de
-  `Compras.jsx`, testado e aprovado nas fases anteriores — não reinventar).
-  Lista em `Card`s empilhados (`flex flex-col gap-3 md:hidden`), sem grid.
-- **Modal de Nova/Editar Assinatura:** `Modal` já é responsivo por padrão
-  (`w-full max-w-lg px-4` no overlay) — campos em coluna única, sem
-  necessidade de grid 2 colunas (formulário tem 7 campos simples, cabe
-  bem em coluna única mesmo no desktop; não forçar layout 2-colunas só
-  porque há espaço — mantém consistência com o modal de Compra, que
-  também é coluna única para o grupo de campos principais).
-- **Aba Assinaturas no Cliente:** o seletor de abas (`Dados`/`Assinaturas`)
-  usa `flex gap-1` — em 375px os dois botões cabem lado a lado sem quebrar
-  (textos curtos), não precisa de `overflow-x-auto`.
-- **Dropdown do autocomplete de Cliente** (dentro do modal de Assinatura):
-  `w-full` dentro do container do campo, nunca `w-screen`/`fixed` — o modal
-  já é pequeno (`max-w-lg`) e não tem scroll interno complexo o suficiente
-  para justificar `position: fixed` com `getBoundingClientRect()` (esse
-  truque, usado em `ProdutoAutocomplete`, resolve corte em modais grandes
-  com `overflow-y-auto` agressivo — o modal de Assinatura é curto, 7
-  campos, não deve ter esse problema; se o Loom notar corte na prática,
-  aplicar o mesmo fix de `position: fixed`, mas não antecipar
-  complexidade que pode não existir aqui).
-
----
-
-## 7. O que NÃO fazer (reforço das armadilhas do projeto)
-
-```
-❌ NÃO criar componente Badge/StatusBadge compartilhado — duplicar local, como todo o resto do projeto já faz
-❌ NÃO criar componente Autocomplete/Tabs genérico em components/ui/ — fora de escopo desta fase isolada
-❌ NÃO usar ícone Lucide no item de Sidebar — é emoji (🔁), igual todos os outros itens
-❌ NÃO usar window.confirm() nativo para o Encerrar — modal dedicado com 2 campos obrigatórios
-❌ NÃO permitir trocar Plano/Cliente em assinatura já existente — não há endpoint para isso (RF-03 é snapshot)
-❌ NÃO misturar Badge de status de Assinatura com Badge de status de Receita — mesma aparência, chaves de cor diferentes, não reaproveitar o mesmo objeto STATUS_BADGES
-❌ NÃO adicionar overflow-hidden em nenhum container novo desta fase (regra global do SistemaLayout/AppLayout)
-❌ NÃO esquecer Plus Jakarta Sans/DM Sans — são herdadas globalmente via index.css, nenhuma declaração de fonte nova necessária nesta fase
-```
+| Contexto | Ícone Lucide | Tamanho |
+|---|---|---|
+| Botão "+ Novo Horário" | `<Plus />` | 14px |
+| Ação editar linha | `<Pencil />` | 14px |
+| Ação confirmar pendente | `<CheckCircle />` | 14px |
+| Ação recusar pendente | `<X />` | 14px |
+| Refresh pendentes | `<RefreshCw />` | 14px |
+| Badge vagas (calendário) | `<Users />` | 10px |
+| Vagas no card público | `<Users />` | 12px |
+| Empty state horários | `<Clock />` | 32px |
+| Empty state agenda | `<CalendarDays />` | 32px |
+| Empty state pendentes | `<CalendarCheck />` | 32px |
+| Botão confirmar agendamento | `<CalendarCheck />` | 16px |
+| Label "Horário" no formulário | `<Clock />` | 14px |
+| Badge origem Interno | `<Shield />` | 10px |
+| Badge origem Público | `<Globe />` | 10px |
+| Toast aviso de conflito | `<AlertTriangle />` | 16px |
+| Erro inline público | `<AlertTriangle />` | 16px |
+| Erro dia errado | `<AlertTriangle />` | 12px |
+| Seção dados de contato | `<User />` | 12px |
+| Seletor data — anterior | `<ChevronLeft />` | 16px |
+| Seletor data — próximo | `<ChevronRight />` | 16px |
+| Slot selecionado | `<CheckCircle />` | 14px |
+| Sucesso agendamento público | `<CheckCircle />` | 56px |
 
 ---
 
-## 8. Passagem de bastão
+## Componentes existentes a reutilizar (mapa explícito)
+
+| Componente | Onde reutilizar |
+|---|---|
+| `ResourceCrud` | Aba Horários (com `resource="agendamento/horarios-disponiveis"`) |
+| `Modal` | Modal de Novo/Editar Horário (`maxW="max-w-md"`) |
+| `Input` | Todos os campos de formulário (interno e público) |
+| `Select` | Select de agenda, dia da semana, horário disponível |
+| `Button` | Todos os botões (interno e público) |
+| `AuditFooter` | Rodapé do modal de Horário |
+| `Pagination` | Se lista de horários for paginada |
+
+A aba "Horários" pode usar `ResourceCrud` para o CRUD básico, mas os
+campos condicionais do modal de Compromisso ampliado e a lógica de toggle
+do campo "Ativo" exigem lógica fora do `ResourceCrud` padrão. O Loom
+decide a estratégia (extensão via `rowActions` + modal customizado, ou
+componente próprio `HorariosTab.jsx`).
+
+A página pública `AgendamentoPublico.jsx` é standalone — não usa
+`AppLayout`, não importa `api` de `../../api/client.js` (que adiciona token),
+mas pode reutilizar `Input`, `Button` e `Select` como componentes de UI
+pura (sem dependência de auth).
+
+---
+
+## O que NÃO fazer (armadilhas desta tela)
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #64 [NUCLEO 3/5])
-   Telas analisadas: 3 (Sidebar/rota, Assinaturas.jsx listagem+modais, aba Assinaturas na ficha do Cliente)
-   Componentes reutilizados: Card, Button, Input, Select, Modal, AuditFooter (indireto via AuditMixin), padrão Badge-local, padrão autocomplete-local
-   Novos padrões: tabs dentro de Modal (Dados/Assinaturas em Clientes.jsx) — primeira ocorrência no projeto, documentado acima; ícones PauseCircle/PlayCircle/XCircle (novos no projeto, já no pacote lucide-react)
-   Modo: Padrão Uid (dark mode navy/violet já estabelecido, nenhuma identidade nova)
+❌ NÃO usar overflow-hidden em nenhum container novo — clipa select no Linux
+❌ NÃO mostrar dados pessoais de outros agendamentos no frontend público
+❌ NÃO usar tokenRef na página pública — não tem autenticação
+❌ NÃO bloquear a lista de horários enquanto carrega badges de vaga
+   (carregamento do badge é lazy, independente da lista)
+❌ NÃO mostrar o formulário de contato antes do usuário clicar em um slot
+❌ NÃO substituir o estado de sucesso por um toast simples — o usuário
+   precisa da tela de confirmação para tirar print como comprovante
+❌ NÃO usar BottomBar na página pública — é fluxo linear, não app admin
+❌ NÃO colocar labels nos botões de ação da tabela — ícone + title apenas
+❌ NÃO adicionar ícone Lucide no item da Sidebar — é emoji (padrão do projeto)
+```
 
-📁 Arquivo: Especificacao_UI_Hotfix.md (em /var/www/uidcore, sobrescreve a versão da Manutenção #63)
+---
 
-➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md antes de implementar
-   Assinaturas.jsx, a aba na ficha do Cliente e o item de Sidebar/rota.
+## Passagem de bastão
+
+```
+Especificacao UI concluida — UidCore [NUCLEO 4/5]
+Telas especificadas: 5
+  1. Aba "Horários" em Agendamento.jsx (CRUD de HorarioDisponivel)
+  2. Badge de vagas "X/Y" na aba Calendário
+  3. Aba "Pendentes" (painel de confirmação de origem=PUBLICO)
+  4. Formulário de Compromisso ampliado (horário, data, contato, origem)
+  5. Página pública /agendar/{slug} (standalone, sem auth, mobile-first 375px)
+
+Componentes reutilizados: ResourceCrud, Modal, Input, Select, Button,
+                          AuditFooter, Pagination
+Novos componentes:        HorariosTab (ou extensão do ResourceCrud),
+                          AgendamentoPublico (standalone, sem tokenRef)
+Modo: Padrão Uid (dark mode navy/violet já estabelecido)
+
+Arquivo: /var/www/uidcore/Especificacao_UI_Hotfix.md
+
+-> Loom le Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md
+   antes de implementar Agendamento.jsx (abas Horários e Pendentes),
+   CalendarioTab (badge de vagas), formulário de Compromisso ampliado
+   e AgendamentoPublico.jsx.
 ```

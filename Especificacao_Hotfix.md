@@ -1,424 +1,745 @@
-# Especificação Hotfix — Manutenção #64 [NUCLEO 3/5]
-## Assinaturas: mensalidade recorrente com contrato ativo
+# Especificação Hotfix — Manutenção #65 [NUCLEO 4/5]
+## Agenda com capacidade (vagas) + agendamento público
 
 **Sistema:** UidCore (OS #7)
-**Data:** 2026-10-12
+**Data:** 2026-10-13
 **Autor:** Analista (modo manutenção)
-**Origem:** melhoria de núcleo migrada da análise do NosFluir (PlanosPagamentos +
-AlunoPlano + comando `gerar_mensalidades`) — fase única do pacote [NUCLEO] (3/5),
-independente das fases #62, #63 e das que ainda virão.
+**Origem:** melhoria de núcleo migrada da análise do NosFluir (SlotExperimental +
+AgendamentoExperimental vindo do site) — fase única do pacote [NUCLEO] (4/5),
+independente das outras fases.
 
 ---
 
 ## 1. Contexto
 
 ### AS-IS (como é hoje)
-A recorrência de cobrança no UidCore não existe como conceito próprio. O
-padrão atual (`Despesa.recorrente` + `frequencia` + `quantidade`, usado no
-módulo financeiro) gera **N parcelas de uma vez no `perform_create`** — um
-"estouro" fixo de lançamentos futuros, sem ciclo de vida posterior. Não há
-noção de "cliente tem um contrato ativo que gera cobrança todo mês até ser
-encerrado". Resultado: qualquer negócio de mensalidade (academia, escola,
-clínica, contabilidade, SaaS) não tem como modelar assinatura de verdade —
-só pacotes fechados de parcelas.
+O app `agendamento` do UidCore é um calendário de CRM básico. Modelos existentes:
+
+- `Agenda`: nome, descrição, cor, profissional (FK User), is_active — sem slug,
+  sem controle de vagas, sem acesso público.
+- `Compromisso`: agenda (FK), título, descrição, início, fim, local, cliente (FK),
+  status (AGENDADO/CONFIRMADO/CANCELADO/CONCLUÍDO), observações — sem vínculo
+  a horários padronizados, sem origem interna/pública, sem dados de contato
+  avulso (para quem não é cliente cadastrado).
+
+Não existe verificação de capacidade. Qualquer número de compromissos pode ser
+criado para o mesmo horário. Não há endpoint público (sem autenticação).
 
 ### Lição real que vira requisito obrigatório
-No NosFluir (Studio Fluir), o cron de geração de mensalidades **continuou
-gerando cobranças 2 meses depois do contrato do aluno ter sido encerrado**
-(27/08 e 27/09/2026) porque a rotina de geração não consultava fim/status
-do contrato antes de criar a cobrança do mês. Isso vira **requisito
-obrigatório e testável** nesta especificação (RN-03 e RN-04 abaixo) — não é
-nice-to-have, é a causa raiz documentada que esta fase existe para fechar
-de vez no núcleo.
+No NosFluir, a validação de vagas do agendamento público (RN-AGE-01) foi
+**documentada mas nunca implementada**. Resultado: um horário com capacidade 2
+aceitava o 3º, o 4º e qualquer número subsequente de agendamentos. Esta
+especificação transforma essa falha em critério de aceite com **teste de
+concorrência obrigatório** (CA-03).
 
-### TO-BE (como será)
-Novo app `assinaturas` com dois models (`Plano`, `Assinatura`) + uma rotina
-de geração de cobranças (serviço + management command) que:
-- só gera cobrança para assinatura `ATIVA` dentro da janela
-  `data_inicio..data_fim`;
-- nunca gera para `ENCERRADA` ou `PAUSADA`, nem olhando pra trás nem pra
-  frente da data de encerramento;
-- é idempotente (rodar o mesmo mês 2x não duplica);
-- respeita periodicidade (mensal roda todo mês; trimestral/semestral/anual
-  só nos meses de competência a partir de `data_inicio`);
-- nunca escreve no `LivroCaixa` diretamente — cria `financeiro.Receita`
-  `PENDENTE`, e o signal existente da Receita cuida do caixa quando ela for
-  de fato recebida (ADR já em vigor no módulo financeiro, visto em
-  `financeiro/services.py` e `financeiro/signals.py`).
+### TO-BE (o que esta manutenção entrega)
+1. Novo model `HorarioDisponivel` — grade de horários por agenda com vagas,
+   rótulo, flag público e ativo.
+2. `Compromisso` ampliado — FK para `HorarioDisponivel` (opcional), origem
+   INTERNO/PÚBLICO, campos de contato para agendamento sem cliente cadastrado.
+3. Validação de vaga atômica com `select_for_update` + `transaction.atomic()`
+   — bloqueio real em concorrência, não só checagem soft.
+4. Aviso de conflito (não bloqueio) — se o mesmo cliente já tem compromisso
+   sobreposto, retorna aviso no response mas não impede o agendamento.
+5. API pública sem autenticação:
+   - `GET /api/v1/publico/agenda/{slug}/disponibilidade/`
+   - `POST /api/v1/publico/agenda/{slug}/agendar/`
+   - Throttle por IP (10 req/h) + validação de telefone.
+6. Frontend interno: cadastro de horários disponíveis + painel de ocupação
+   "X/Y vagas" + lista de pendentes por agenda.
+7. Frontend público: página `/agendar/{slug}` (sem login, mobile-first 375px).
 
 ---
 
 ## 2. Requisitos Funcionais
 
-### Backend — app `assinaturas`
+### Backend
 
-**RF-01** — Novo app Django `assinaturas`, registrado em `INSTALLED_APPS`
-(`core/settings.py`) e montado em `core/urls.py` sob
-`path('api/v1/assinaturas/', include('assinaturas.urls'))` — mesmo padrão
-dos apps `compras`/`marketing` (últimos dois a entrar no núcleo).
+**RF-01** — `Agenda` ganha dois campos novos:
+- `slug`: CharField único, gerado automaticamente a partir do nome (slugify),
+  editável pelo operador. Usado na URL pública.
+- `permite_agendamento_publico`: BooleanField, default=False.
 
-**RF-02** — Model `Plano(BaseModel)`:
-```
-nome            CharField(150)
-descricao       TextField(blank=True)
-valor           DecimalField(max_digits=12, decimal_places=2)
-periodicidade   CharField(choices=Periodicidade: MENSAL/TRIMESTRAL/SEMESTRAL/ANUAL)
-categoria       FK financeiro.Categoria (on_delete=PROTECT, limit_choices_to tipo=ENTRADA, is_active=True)
-ativo           BooleanField(default=True)   # visível/selecionável em nova Assinatura
-```
-`ativo` aqui é **campo de negócio distinto de `is_active`** (herdado do
-BaseModel) — um Plano pode ficar `is_active=True` (não soft-deletado) mas
-`ativo=False` (descontinuado para novas vendas, sem afetar assinaturas já
-ativas nele). Precedente já existe no sistema: `Categoria` também separa
-soft delete de significado de negócio.
+**RF-02** — Novo model `HorarioDisponivel(BaseModel)`:
+- `agenda`: FK para Agenda, on_delete=PROTECT
+- `dia_semana`: IntegerField com choices 0=Seg … 6=Dom
+- `hora_inicio`: TimeField
+- `duracao_minutos`: PositiveIntegerField (mínimo 5)
+- `vagas`: PositiveIntegerField (mínimo 1)
+- `servico`: CharField (rótulo livre, ex: "Avaliação" / "Consulta 30min")
+- `publico`: BooleanField default=True
+- `ativo`: BooleanField default=True (campo próprio de negócio — distinto do
+  `is_active` de `BaseModel` que é o soft delete; aqui "ativo" significa
+  "este horário está sendo ofertado", pode ser desativado temporariamente
+  sem apagar o registro)
 
-**RF-03** — Model `Assinatura(BaseModel)`:
-```
-cliente             FK clientes.Cliente (on_delete=PROTECT)
-plano               FK assinaturas.Plano (on_delete=PROTECT)
-valor               DecimalField(max_digits=12, decimal_places=2)   # copiado do plano no create, editável (desconto negociado)
-dia_vencimento      PositiveSmallIntegerField (validators: MinValueValidator(1), MaxValueValidator(28))
-data_inicio         DateField
-data_fim            DateField(null=True, blank=True)   # null = indeterminado
-status              CharField(choices=StatusAssinatura: ATIVA/PAUSADA/ENCERRADA, default=ATIVA)
-conta               FK financeiro.Conta (on_delete=PROTECT)   # conta de destino das Receitas geradas
-motivo_encerramento TextField(blank=True)
-encerrada_em        DateTimeField(null=True, blank=True)
-```
-- `dia_vencimento` limitado a 1–28 (RN-02) evita o bug clássico de
-  vencimento dia 30/31 não existir em fevereiro.
-- `valor` não recalcula sozinho se o `Plano.valor` mudar depois — é
-  snapshot editável no momento da criação (igual ao padrão
-  `Receita.valor_bruto`/`Despesa.valor_bruto`, que também não seguem
-  nenhuma tabela de preço "ao vivo").
+**RF-03** — `Compromisso` ganha cinco campos novos (todos opcionais para
+compatibilidade retroativa):
+- `horario`: FK para HorarioDisponivel, null=True, blank=True
+- `data_horario`: DateField, null=True, blank=True — data concreta do horário
+  (necessária pois `HorarioDisponivel` define dia da semana + hora, não uma
+  data absoluta; o Compromisso precisa saber em qual data específica o slot
+  foi ocupado para contagem de vagas)
+- `origem`: CharField choices INTERNO/PUBLICO, default=INTERNO
+- `nome_contato`: CharField max_length=255, blank=True
+- `telefone_contato`: CharField max_length=20, blank=True
+- `email_contato`: EmailField, blank=True
 
-**RF-04** — Actions no `AssinaturaViewSet`:
-- `POST /api/v1/assinaturas/assinaturas/{id}/encerrar/` — body
-  `{data_fim, motivo}`. Seta `status=ENCERRADA`, `data_fim` (obrigatório,
-  não pode ser anterior a `data_inicio`), `motivo_encerramento`,
-  `encerrada_em=now()`. Idempotente: encerrar uma já `ENCERRADA` retorna
-  400 (RN-07).
-- `POST /api/v1/assinaturas/assinaturas/{id}/pausar/` — seta
-  `status=PAUSADA`. Bloqueado se já `ENCERRADA` (RN-07 — status terminal,
-  sem retorno).
-- `POST /api/v1/assinaturas/assinaturas/{id}/retomar/` — seta
-  `status=ATIVA`. Só permitido a partir de `PAUSADA` (RN-07).
+**RF-04** — Validação de vaga (BLOQUEANTE):
+Ao criar um Compromisso vinculado a um `HorarioDisponivel`, o sistema deve:
+1. Entrar em `transaction.atomic()`.
+2. Fazer `select_for_update()` no `HorarioDisponivel` relacionado.
+3. Contar compromissos não cancelados para o mesmo `horario` + `data_horario`
+   (status != CANCELADO, is_active=True).
+4. Se contagem >= vagas → retornar HTTP 400 com `{"erro": "Horário sem vagas disponíveis."}`.
+5. Caso contrário → criar o compromisso dentro da mesma transação.
 
-**RF-05** — Função de serviço `assinaturas/services.py::gerar_cobrancas_mes(mes, dry_run=False)`:
-- `mes`: `date` representando o 1º dia do mês de competência (ex:
-  `date(2026, 11, 1)`).
-- Itera `Assinatura.objects.filter(status='ATIVA')` elegíveis ao mês
-  (RN-03/RN-04/RN-05 abaixo definem elegibilidade).
-- Para cada assinatura elegível, em `transaction.atomic()` própria (RN-06):
-  cria `financeiro.Receita` com `tipo=MENSALIDADE`, `cliente=assinatura.cliente`,
-  `categoria=assinatura.plano.categoria`, `valor_bruto=assinatura.valor`,
-  `conta=assinatura.conta`, `vencimento=date(mes.year, mes.month, assinatura.dia_vencimento)`,
-  `status=PENDENTE`, `referencia_mes=mes`, `descricao` incluindo nome do
-  plano e nº da assinatura.
-- Retorna um resumo: `{criadas: N, puladas_idempotencia: N, puladas_elegibilidade: N, erros: [...]}`.
-- `dry_run=True`: executa toda a lógica de decisão (o que seria criado/
-  pulado) mas não persiste nenhuma `Receita` — nenhuma gravação no banco
-  (RN-08).
+Esta validação se aplica tanto à criação interna (autenticada) quanto ao
+endpoint público.
 
-**RF-06** — Management command `gerar_cobrancas_assinaturas`:
-```
-python manage.py gerar_cobrancas_assinaturas [--mes AAAA-MM] [--dry-run]
-```
-- `--mes` default = mês corrente (`date.today()` truncado para dia 1).
-- Chama `gerar_cobrancas_mes`, imprime o resumo (`self.stdout.write`) no
-  mesmo padrão de `conciliar_extrato.py` (`BaseCommand` + `add_arguments`).
-- Log de erro por assinatura não derruba o comando inteiro (RN-06) — ao
-  final, se houve erro em alguma assinatura, `CommandError` só é levantado
-  se **todas** falharem; erros parciais aparecem no resumo e o exit code
-  continua 0 (cron não deve re-tentar o mês inteiro por causa de 1
-  assinatura com dado inconsistente).
+**RF-05** — Aviso de conflito de horário para o mesmo cliente (NÃO BLOQUEANTE):
+Se `cliente` for informado e já existir compromisso ativo (não cancelado) com
+`inicio <= novo_fim` e `fim >= novo_inicio`, retornar HTTP 201 normalmente com
+campo extra `{"aviso": "Cliente já possui compromisso no mesmo período."}` no
+response.
 
-**RF-07** — Idempotência via constraint de unicidade: `unique_together`
-em `Receita` não é viável (model já em produção, mexer lá é risco maior
-que o escopo desta fase) — usar `FK Assinatura` **nullable** direto em
-`financeiro.Receita` (campo novo `assinatura`, `on_delete=SET_NULL`,
-`null=True`, `blank=True`, `related_name='cobrancas'`) + constraint
-`UniqueConstraint(fields=['assinatura', 'referencia_mes'], condition=Q(assinatura__isnull=False), name='uniq_assinatura_referencia_mes')`.
-Isso cobre o critério de aceite "rodar 2x não duplica" via `get_or_create`
-no serviço (lookup por `assinatura` + `referencia_mes`) e via constraint de
-banco como segunda camada de proteção contra race condition.
+**RF-06** — Endpoint público de disponibilidade:
+`GET /api/v1/publico/agenda/{slug}/disponibilidade/?de=AAAA-MM-DD&ate=AAAA-MM-DD`
+- Acesso: AllowAny.
+- Requer que `Agenda.permite_agendamento_publico = True`; caso contrário 404.
+- Retorna apenas horários com `publico=True` e `ativo=True`.
+- Para cada dia no intervalo, calcula os slots do dia da semana correspondente
+  e retorna: `{data, dia_semana, hora_inicio, duracao_minutos, servico, vagas,
+  vagas_ocupadas, vagas_disponiveis}`.
+- Vagas ocupadas = compromissos com status != CANCELADO para aquele
+  `horario` + `data_horario`.
+- Slots com `vagas_disponiveis == 0` são retornados com flag `lotado: true`
+  (cliente vê, mas não pode agendar).
+- Limite de intervalo: máximo 60 dias. Se `ate - de > 60` → 400.
 
-> Alternativa avaliada e descartada: tabela de vínculo separada
-> (`CobrancaAssinatura`) em vez de FK direta em `Receita`. Descartada por
-> exigir 2 queries/joins em todo lugar que hoje já lista Receita (dashboard,
-> relatórios), sem ganho real — FK nullable é aditiva e não quebra nenhum
-> código existente que já lê `Receita` sem saber de `assinaturas`.
+**RF-07** — Endpoint público de agendamento:
+`POST /api/v1/publico/agenda/{slug}/agendar/`
+- Acesso: AllowAny.
+- Throttle por IP: 10 requisições por hora (AnonRateThrottle).
+- Payload obrigatório:
+  ```json
+  {
+    "horario_id": <int>,
+    "data_horario": "AAAA-MM-DD",
+    "nome_contato": "<string>",
+    "telefone_contato": "<string>",
+    "email_contato": "<string, opcional>"
+  }
+  ```
+- Validações:
+  - `horario_id` deve pertencer à agenda do slug e ter `publico=True` e `ativo=True`.
+  - `data_horario` deve corresponder ao `dia_semana` do horário.
+  - `telefone_contato` obrigatório, mínimo 8 dígitos (apenas dígitos após strip de
+    caracteres não numéricos).
+  - Aplica RF-04 (validação de vaga com lock).
+- Response 201: `{"id": <int>, "mensagem": "Agendamento confirmado."}`.
+- Response 400 com vaga esgotada: `{"erro": "Horário sem vagas disponíveis."}`.
+- Não vaza dados de outros clientes: resposta não inclui nome/telefone de
+  quem já agendou, apenas contagem de vagas.
 
-### Regras de Negócio (elegibilidade de geração — núcleo da lição real)
+**RF-08** — Throttle configurado via `DEFAULT_THROTTLE_CLASSES` e
+`DEFAULT_THROTTLE_RATES` no settings (ou `throttle_classes` na view
+pública). Rate: `anon: "10/hour"`.
 
-**RN-01** — Só gera Receita se `Assinatura.status == 'ATIVA'`.
-`PAUSADA` e `ENCERRADA` **nunca geram**, em nenhuma circunstância — sem
-exceção para "mês de transição" ou "já estava gerado antes de pausar".
+**RF-09** — `Agenda` endpoint interno (`/api/v1/agendamento/agendas/`) atualizado:
+- Serializer passa a incluir `slug` e `permite_agendamento_publico`.
+- Slug deve ser validado como único no `validate_slug` do serializer.
+- Se slug não for enviado no POST, gerar automaticamente a partir do `nome`
+  (usando `django.utils.text.slugify`).
 
-**RN-02** — Só gera se `data_inicio <= mes` (não gera cobrança para mês
-anterior ao início do contrato).
+**RF-10** — Endpoint interno de horários disponíveis:
+`/api/v1/agendamento/horarios-disponiveis/` — CRUD completo (ModelViewSet),
+autenticado. Filtros por `agenda`, `dia_semana`, `publico`, `ativo`.
 
-**RN-03 (requisito obrigatório vindo da lição do NosFluir)** — Só gera se
-`data_fim IS NULL OR data_fim >= mes`. Esta é a regra que faltava no
-NosFluir e gerou 2 meses de cobrança indevida pós-encerramento — aqui ela
-é parte da *query* de elegibilidade, não um filtro aplicado depois (a
-assinatura `ENCERRADA` com `data_fim` no passado simplesmente não entra no
-`queryset` que o comando itera).
+**RF-11** — Endpoint interno de ocupação:
+`GET /api/v1/agendamento/horarios-disponiveis/{id}/ocupacao/?data=AAAA-MM-DD`
+— retorna `{vagas, vagas_ocupadas, vagas_disponiveis, compromissos: [...]}`.
+Action extra no ViewSet (não rota separada).
 
-**RN-04** — `RN-01` e `RN-03` são redundantes por design, não
-contraditórias: encerrar uma assinatura seta `status=ENCERRADA` (barra
-RN-01) **e** `data_fim` (barra RN-03) no mesmo `encerrar()`. As duas
-camadas existem porque a lição do NosFluir foi justamente uma rotina que
-dependia de só uma dessas condições e a condição que faltava não foi
-coberta — aqui nenhuma das duas pode ser removida sem quebrar teste.
+### Frontend Interno
 
-**RN-05** — Periodicidade não-mensal só gera cobrança no mês de
-competência exato, calculado por diferença de meses inteiros a partir de
-`data_inicio`:
-```
-diferenca_meses = (mes.year - data_inicio.year) * 12 + (mes.month - data_inicio.month)
-intervalo = {MENSAL: 1, TRIMESTRAL: 3, SEMESTRAL: 6, ANUAL: 12}[periodicidade]
-elegivel_por_periodicidade = diferenca_meses >= 0 and diferenca_meses % intervalo == 0
-```
-Ex.: `data_inicio=2026-01-15`, `TRIMESTRAL` → gera em jan/2026, abr/2026,
-jul/2026, out/2026... nunca em fev, mar, mai etc.
+**RF-12** — Tela Agendamento.jsx ganha aba "Horários" (ao lado de "Agenda" e
+"Calendário" já existentes):
+- Lista os `HorarioDisponivel` da agenda selecionada.
+- Permite criar/editar/desativar horários.
+- Cada linha exibe: dia da semana, hora início, duração, serviço, vagas,
+  badge "Público" ou "Privado", toggle ativo/inativo.
 
-**RN-06** — Cada assinatura processada dentro de sua própria
-`transaction.atomic()` — uma assinatura com dado inconsistente (ex: FK de
-conta apagada por engano, categoria inativa) registra erro no resumo e
-**não** impede as demais de serem processadas no mesmo lote. Nunca uma
-`transaction.atomic()` única em volta de todo o laço (isso faria 1 erro
-derrubar o mês inteiro).
+**RF-13** — Na aba "Calendário" (ou na lista de compromissos), cada slot de
+horário exibe badge de ocupação "X/Y vagas" calculado para o dia sendo
+visualizado.
 
-**RN-07** — Transições de status válidas: `ATIVA ↔ PAUSADA` (via
-pausar/retomar), `ATIVA → ENCERRADA`, `PAUSADA → ENCERRADA`. **Nunca**
-`ENCERRADA → qualquer coisa` — é estado terminal (criar nova Assinatura
-para o mesmo cliente se precisar reativar, nunca reabrir uma encerrada;
-preserva o histórico e a auditoria de `encerrada_em`/`motivo_encerramento`
-intactos).
+**RF-14** — Painel "Pendentes" (lista de compromissos com `origem=PUBLICO` e
+`status=AGENDADO`): nome_contato, telefone_contato, data_horario, serviço.
+Botões: Confirmar (→ CONFIRMADO) e Cancelar (→ CANCELADO).
 
-**RN-08** — `--dry-run` não grava nenhuma linha no banco — nem `Receita`,
-nem efeito colateral de signal (já garantido transitivamente, já que
-signal de `Receita` só dispara em `post_save` real).
+**RF-15** — Formulário de Compromisso interno atualizado para incluir:
+- Campo select de `HorarioDisponivel` (filtrado pela agenda selecionada).
+- Campo `data_horario` (date picker, obrigatório quando horario for selecionado).
+- Campo `origem` (read-only na edição, exibe INTERNO ou PÚBLICO).
+- Campos `nome_contato` / `telefone_contato` / `email_contato` (visíveis
+  quando `cliente` não estiver preenchido).
 
-**RN-09** — `Receita` gerada por assinatura nunca grava `LivroCaixa`
-diretamente — ela nasce `status=PENDENTE`; o `LivroCaixa` só é afetado
-quando o fluxo normal de "receber" a Receita rodar (endpoint/ação já
-existente no `ReceitaViewSet`), exatamente como qualquer outra Receita
-manual. Nenhuma lógica nova de caixa nesta fase.
+### Frontend Público
 
-**RN-10** — Payload de criação/edição de `Assinatura` ignora tentativa de
-setar `status=ENCERRADA` diretamente fora da action `encerrar` (campo
-`status` fica fora de `Meta.fields` editáveis no serializer de create/
-update padrão — só a action dedicada movimenta esse campo para
-`ENCERRADA`, preservando `motivo_encerramento`/`encerrada_em` sempre
-preenchidos juntos).
-
-### Frontend
-
-**RF-08** — Novo item no Sidebar: `{ to: '/assinaturas', label: 'Assinaturas', icon: '🔁', requer: 'financeiro' }`,
-seguindo exatamente o padrão de `requer: 'financeiro'` já usado por
-Compras/Financeiro/Conciliação (reusa `selectPodeAcessarFinanceiro` do
-`authStore.js` — nenhuma store nova).
-
-**RF-09** — Rota `/assinaturas` protegida por `FinanceiroRoute` (mesmo
-componente já usado em `/compras`, `/financeiro`, `/conciliacao`) em
-`routes/index.jsx`.
-
-**RF-10** — Tela `Assinaturas.jsx`:
-- Listagem com filtro por `status` (ATIVA/PAUSADA/ENCERRADA) e busca por
-  cliente.
-- Botão "Nova Assinatura" abre modal (padrão `ResourceCrud`/`Modal.jsx` já
-  usado em Clientes/Fornecedores/Produtos) com formulário: cliente
-  (autocomplete, reaproveitar componente de busca já usado em
-  Vendas/PDV), plano (select, ao escolher pré-preenche `valor` do plano —
-  editável), dia de vencimento, data início, data fim (opcional), conta.
-- Cada linha com ações: Editar, Pausar/Retomar (toggle conforme status
-  atual), Encerrar (abre modal pequeno pedindo data + motivo,
-  `window.confirm`-style guard antes de chamar a action — é operação sem
-  volta, RN-07).
-- Badge de status colorido (ATIVA=verde, PAUSADA=amarelo, ENCERRADA=
-  cinza), mesmo padrão visual de badges já usado em Compras (`StatusCompra`)
-  e PDV (`StatusDespesa`/`StatusReceita`).
-
-**RF-11** — Nova aba "Assinaturas" na tela/modal de ficha do Cliente
-(`Clientes.jsx`), listando: assinaturas do cliente (plano, valor, status,
-próximo vencimento) + Receitas já geradas por essas assinaturas
-(`GET /api/v1/financeiro/receitas/?assinatura__cliente=<id>` ou endpoint
-equivalente filtrando por `cliente` — reaproveitar filtro já existente de
-Receita por cliente se houver, senão adicionar `assinatura` a
-`filterset_fields` do `ReceitaViewSet`). Somente leitura nesta aba — ações
-de editar/encerrar/pausar continuam centralizadas na tela `Assinaturas.jsx`
-(evita duplicar lógica de mutação em dois lugares).
-
-**RF-12** — Permissão de UI: `tem_acesso_total` OU `perfil === FINANCEIRO`
-— mesmo gate usado por Compras/Conciliação/Financeiro (`IsAdmin | IsFinanceiro`
-no backend, `selectPodeAcessarFinanceiro` no frontend). Nenhum perfil novo
-criado nesta fase.
-
-### Cron (documentação, sem execução nesta fase)
-
-**RF-13** — Documentar no `CLAUDE.md` do projeto a proposta de cron na VPS:
-```
-0 6 1 * * cd /var/www/uidcore && docker compose -f docker-compose.prod.yml exec -T backend python manage.py gerar_cobrancas_assinaturas >> /var/log/uidcore-assinaturas.log 2>&1
-```
-- Dia 1 de cada mês, 06:00 — gera o mês corrente (sem `--mes`, usa default).
-- `-f docker-compose.prod.yml` **explícito** (regra global de todos os
-  crons Uid — nunca confiar em `docker compose` resolver o compose file
-  certo pelo diretório).
-- `exec -T` (sem TTY) — padrão de cron não-interativo.
-- Instalação do cron em si (`crontab -e` na VPS) é **passo do Pilot no
-  deploy**, não do Forge/Loom — a especificação aqui documenta o comando
-  exato a ser instalado e o motivo do agendamento (dia 1, início do mês de
-  competência, horário de menor uso do sistema).
+**RF-16** — Página `/agendar/{slug}` (rota pública, sem ProtectedRoute):
+- Mobile-first: viewport alvo 375px, testado até 1280px.
+- Header com nome e descrição da agenda.
+- Seletor de data (calendário inline ou navegação semana a semana).
+- Lista de horários disponíveis do dia: serviço, hora início, duração,
+  vagas disponíveis. Slots lotados exibidos como indisponíveis (cinza).
+- Ao clicar num slot disponível → formulário de dados de contato:
+  nome (obrigatório), telefone (obrigatório), email (opcional).
+- Botão "Confirmar Agendamento" → POST para o endpoint público.
+- Feedback de sucesso: mensagem "Agendamento confirmado!" com data e hora.
+- Feedback de erro de vaga esgotada: "Este horário foi preenchido.
+  Escolha outro." (sem expor detalhes técnicos).
+- Feedback de throttle (429): "Muitas tentativas. Aguarde antes de tentar
+  novamente."
+- Sem autenticação, sem JWT.
 
 ---
 
-## 3. Requisitos Não Funcionais
+## 3. Regras de Negócio
 
-**RNF-01** — Testes cobrindo obrigatoriamente (critério de aceite do
-pedido): cada periodicidade (MENSAL/TRIMESTRAL/SEMESTRAL/ANUAL) gerando no
-mês certo e pulando os errados; idempotência (rodar 2x no mesmo mês =
-1 Receita); `PAUSADA` não gera; `ENCERRADA` não gera mesmo com `data_fim`
-no passado (teste direto da lição do NosFluir — nome do teste deve
-referenciar o bug real, ex:
-`test_assinatura_encerrada_nao_gera_cobranca_mes_seguinte`); `--dry-run`
-não persiste nada; erro em 1 assinatura não derruba o lote (RN-06).
+**RN-01** — Validação de vaga é ATÔMICA com `select_for_update` dentro de
+`transaction.atomic()`. Não existe "checar antes e criar depois" — essa
+janela de race condition foi a causa do bug no NosFluir. A contagem e a
+criação acontecem dentro da mesma transação com lock no row do
+`HorarioDisponivel`.
 
-**RNF-02** — Soft delete: `Plano` e `Assinatura` herdam `BaseModel` — nunca
-hard delete. "Excluir" um Plano/Assinatura no frontend chama o DELETE
-padrão do DRF, que o `AuditMixin.perform_destroy` já converte em soft
-delete (`deleted_at`/`deleted_by`/`is_active=False`) — nenhum código novo
-de delete necessário além de registrar o ViewSet com `AuditMixin`.
+**RN-02** — Compromisso sem `horario` (agendamentos avulsos, estilo CRM antigo)
+continua funcionando exatamente como antes. A validação de vagas só se aplica
+quando `horario` for informado. Compatibilidade retroativa total.
 
-**RNF-03** — `AuditMixin` aplicado em `PlanoViewSet` e
-`AssinaturaViewSet` (padrão de todos os ViewSets desde a Manutenção #62) —
-`created_by`/`updated_by` preenchidos automaticamente.
+**RN-03** — Slug da Agenda deve ser único no banco (unique=True no model).
+Dois slugs iguais — mesmo que em agendas de clientes diferentes do mesmo
+UidCore — não são permitidos. O endpoint público usa apenas o slug para
+localizar a agenda.
 
-**RNF-04** — `id = serializers.IntegerField(source='pk', read_only=True)`
-como primeiro campo de `PlanoSerializer` e `AssinaturaSerializer` (regra
-absoluta de toda serializer no projeto).
+**RN-04** — `data_horario` deve coincidir com o `dia_semana` do
+`HorarioDisponivel` referenciado. Ex.: se o horário é `dia_semana=0` (segunda),
+a data informada deve ser uma segunda-feira. Validação no serializer público
+e no serializer interno.
 
-**RNF-05** — `response.data.results` no frontend (paginação padrão DRF) —
-nunca `.data` direto.
+**RN-05** — O endpoint público não retorna dados pessoais de outros
+agendamentos. A resposta de disponibilidade só traz contagens agregadas
+(`vagas_ocupadas`, `vagas_disponiveis`), nunca nomes ou telefones.
 
-**RNF-06** — Autenticação via JWT existente — nenhuma rota nova sem
-`permission_classes` explícito (`IsAdmin | IsFinanceiro`, mesmo padrão do
-`CompraViewSet`).
+**RN-06** — Throttle do endpoint público é por IP (`REMOTE_ADDR`). Ao atingir
+o limite, retornar HTTP 429 com body `{"erro": "Limite de agendamentos atingido.
+Tente novamente em 1 hora."}`.
 
-**RNF-07** — `makemigrations --check --dry-run` limpo antes do deploy —
-migration da FK nova em `Receita` (`assinatura`) incluída no mesmo PR do
-app `assinaturas` ou em migration separada dentro do app `financeiro`
-(decisão do Forge — ambas as opções são aceitáveis, mas a migration de
-`financeiro` precisa rodar depois da criação do app `assinaturas`, por
-causa da FK cruzada).
+**RN-07** — Agendamento público cria um `Compromisso` com `origem=PUBLICO`,
+`status=AGENDADO`, `cliente=None`. O operador interno pode posteriormente
+vincular a um cliente cadastrado editando o compromisso.
 
-**RNF-08** — Build frontend limpo (`npm run build`) sem novos erros/
-warnings de import não usado.
+**RN-08** — `HorarioDisponivel.ativo=False` impede novos agendamentos para
+aquele slot (tanto interno quanto público), mas não cancela compromissos já
+existentes.
 
----
+**RN-09** — O aviso de conflito (RF-05) só é emitido quando `cliente` for
+preenchido. Agendamentos públicos (sem cliente) não recebem esse aviso.
 
-## 4. Atores e Perfis
-
-| Ator | Permissão |
-|---|---|
-| ADMIN / SUPERADMIN (`tem_acesso_total`) | Acesso total a Planos e Assinaturas |
-| FINANCEIRO | Acesso total a Planos e Assinaturas (mesmo nível de ADMIN neste módulo) |
-| Demais perfis (OPERACIONAL, MARKETING, PROFISSIONAL) | Sem acesso — item de menu oculto, rota redireciona para `/dashboard` |
+**RN-10** — O intervalo máximo de consulta na disponibilidade pública é 60
+dias. Intervalos maiores retornam 400 com mensagem explicativa.
 
 ---
 
-## 5. Fora do Escopo (explícito no pedido)
+## 4. Spec Técnica Backend
 
-- Cobrança automática por gateway (boleto/PIX/cartão) — a Receita gerada
-  fica `PENDENTE`, recebimento continua manual via fluxo já existente de
-  `ReceitaViewSet`.
-- Reajuste anual automático de valor.
-- Pró-rata (assinatura iniciada no meio do mês cobra valor cheio no 1º
-  mês, ou só começa a gerar no mês seguinte conforme RN-02 — comportamento
-  atual já cobre isso sem lógica extra: `data_inicio` no meio do mês X
-  ainda é `<= mes X`, então já gera cheio nesse mês; se o negócio quiser
-  pró-rata de verdade, é fase futura).
-- Notificação ao cliente (WhatsApp/email) de cobrança gerada — mencionado
-  como futuro no CLAUDE.md global (item "Adicionar n8n ao pipeline"), não
-  nesta fase.
+### 4.1 Migrations
 
----
+**Migration `agendamento.0008_agenda_slug_publico`:**
+- Adiciona `Agenda.slug` (varchar, unique, null inicialmente para rodar em
+  produção sem travar — preencher com RunPython para registros existentes
+  antes de colocar NOT NULL, ou simplesmente `blank=True, null=True` e
+  deixar obrigatório só na UI).
+- Adiciona `Agenda.permite_agendamento_publico` (boolean, default=False).
 
-## 6. Riscos e Dependências
+**Migration `agendamento.0009_horariodisponivel`:**
+- Cria a tabela `age_horario_disponivel`.
 
-- **Dependência cruzada de app**: `financeiro.Receita` ganha FK para
-  `assinaturas.Assinatura`. Como `assinaturas` é o app novo e `financeiro`
-  já existe, a ordem de migration importa — `assinaturas` precisa ser
-  criado e migrado antes da migration que adiciona o campo em
-  `financeiro.Receita` (ou usar string de referência `'assinaturas.Assinatura'`
-  no FK, que o Django resolve em qualquer ordem de `INSTALLED_APPS` desde
-  que as migrations rodem na ordem certa — Forge deve conferir dependency
-  graph gerado por `makemigrations`).
-- **Risco de regressão em relatórios existentes**: dashboards que somam
-  `Receita` por `tipo=MENSALIDADE` (se já existir uso desse `TipoReceita`
-  em algum fluxo manual anterior) passam a incluir também as geradas por
-  assinatura — comportamento esperado e desejado, mas vale conferir no
-  Sentinel que nenhum teste existente assume `TipoReceita.MENSALIDADE`
-  como "nunca usado automaticamente".
-- **Risco operacional do cron**: só é instalado pelo Pilot após aprovação
-  do Sentinel — até lá, geração de cobrança só acontece via comando manual
-  (`python manage.py gerar_cobrancas_assinaturas`), o que é aceitável para
-  este ciclo (fase 3/5 do pacote [NUCLEO], outras fases ainda virão).
-- **Pendência técnica conhecida** (mesma classe da já documentada na
-  Manutenção #62 sobre `ComboSerializer`): nenhuma identificada nesta fase
-  — modelo novo, sem dívida técnica herdada.
+**Migration `agendamento.0010_compromisso_horario_origem_contato`:**
+- Adiciona os 5 campos novos em `Compromisso` (horario FK, data_horario,
+  origem, nome_contato, telefone_contato, email_contato).
 
----
-
-## 7. Spec técnica resumida para Forge
+### 4.2 Models
 
 ```
-backend/assinaturas/
-├── models.py          Plano, Periodicidade, Assinatura, StatusAssinatura
-├── serializers.py      PlanoSerializer, AssinaturaSerializer (id=IntegerField(source='pk'))
-├── views.py             PlanoViewSet, AssinaturaViewSet (AuditMixin, IsAdmin|IsFinanceiro)
-│                         actions: encerrar, pausar, retomar
-├── services.py          gerar_cobrancas_mes(mes, dry_run=False)
-├── urls.py              router DRF: planos, assinaturas
-├── admin.py             AuditModelAdmin (padrão common/admin.py)
-├── migrations/          0001_initial
-└── management/
-    └── commands/
-        └── gerar_cobrancas_assinaturas.py
+class OrigemCompromisso(models.TextChoices):
+    INTERNO = 'INTERNO', 'Interno'
+    PUBLICO = 'PUBLICO', 'Público'
 
-backend/financeiro/
-└── migrations/          nova migration: Receita.assinatura (FK nullable, SET_NULL)
-                          + UniqueConstraint(assinatura, referencia_mes) condicional
+class DiaSemana(models.IntegerChoices):
+    SEG = 0, 'Segunda'
+    TER = 1, 'Terça'
+    QUA = 2, 'Quarta'
+    QUI = 3, 'Quinta'
+    SEX = 4, 'Sexta'
+    SAB = 5, 'Sábado'
+    DOM = 6, 'Domingo'
+
+class HorarioDisponivel(BaseModel):
+    agenda          = FK(Agenda, PROTECT, related_name='horarios')
+    dia_semana      = IntegerField(choices=DiaSemana.choices)
+    hora_inicio     = TimeField()
+    duracao_minutos = PositiveIntegerField(validators=[MinValueValidator(5)])
+    vagas           = PositiveIntegerField(validators=[MinValueValidator(1)])
+    servico         = CharField(max_length=255, blank=True)
+    publico         = BooleanField(default=True)
+    ativo           = BooleanField(default=True)
+
+    class Meta:
+        db_table = 'age_horario_disponivel'
+        ordering = ['dia_semana', 'hora_inicio']
 ```
 
+Campos adicionados em `Agenda`:
 ```
-frontend/src/
-├── pages/Assinaturas.jsx                novo
-├── pages/Clientes.jsx                   + aba Assinaturas na ficha
-├── components/layout/Sidebar.jsx        + item Assinaturas (requer: financeiro)
-└── routes/index.jsx                     + rota /assinaturas (FinanceiroRoute)
+slug                        = SlugField(max_length=100, unique=True, blank=True)
+permite_agendamento_publico = BooleanField(default=False)
+```
+
+Campos adicionados em `Compromisso`:
+```
+horario          = FK(HorarioDisponivel, null=True, blank=True, SET_NULL)
+data_horario     = DateField(null=True, blank=True)
+origem           = CharField(choices=OrigemCompromisso.choices, default='INTERNO')
+nome_contato     = CharField(max_length=255, blank=True)
+telefone_contato = CharField(max_length=20, blank=True)
+email_contato    = EmailField(blank=True)
+```
+
+### 4.3 Serializers
+
+**`HorarioDisponivelSerializer(AuditFieldsMixin, ModelSerializer)`:**
+- Campos: id, agenda, agenda_nome (read_only), dia_semana, dia_semana_label
+  (source=get_dia_semana_display), hora_inicio, duracao_minutos, vagas,
+  servico, publico, ativo, is_active, created_at, created_by_nome,
+  updated_by_nome.
+- `validate`: `duracao_minutos >= 5`, `vagas >= 1`.
+
+**`AgendaSerializer`** atualizado para incluir `slug` e
+`permite_agendamento_publico`. No `validate_slug`: se vazio e
+`self.instance is None`, gerar slug a partir do `nome` via `slugify`.
+Verificar unicidade manualmente (ou via `UniqueValidator`).
+
+**`CompromissoSerializer`** atualizado para incluir os 5 campos novos.
+Adicionar `validate`:
+- Se `horario` informado: obrigar `data_horario`.
+- Chamar `_validar_dia_semana(horario, data_horario)`.
+- Aviso de conflito: verificar sobreposição e adicionar `aviso` ao response
+  via `to_representation` (não levantar ValidationError).
+
+**`AgendamentoPublicoSerializer(Serializer)`** (sem ModelSerializer):
+- Campos de entrada: horario_id, data_horario, nome_contato,
+  telefone_contato, email_contato (opcional).
+- `validate_telefone_contato`: strip de não-dígitos, mínimo 8 dígitos.
+- `validate`: verifica que `horario_id` existe, pertence ao slug da agenda,
+  tem `publico=True`, `ativo=True`; verifica `data_horario` vs `dia_semana`.
+
+### 4.4 Views / ViewSets
+
+**`HorarioDisponivelViewSet(AuditMixin, ModelViewSet)`:**
+- `filter_backends`: DjangoFilterBackend, OrderingFilter.
+- `filterset_fields`: ['agenda', 'dia_semana', 'publico', 'ativo'].
+- Action extra `@action(detail=True, methods=['get']) def ocupacao(...)`:
+  recebe `?data=AAAA-MM-DD`, retorna `{vagas, vagas_ocupadas,
+  vagas_disponiveis, compromissos: [id, titulo, nome_contato, status]}`.
+
+**`AgendaDisponibilidadePublicaView(APIView)`:**
+- `permission_classes = [AllowAny]`
+- `throttle_classes = [AnonRateThrottle]`
+- URL: `/api/v1/publico/agenda/{slug}/disponibilidade/`
+- Parâmetros: `de` e `ate` (AAAA-MM-DD). Valida `ate - de <= 60 dias`.
+- Itera dias no intervalo, filtra horários com `dia_semana` correspondente,
+  `publico=True`, `ativo=True`. Retorna contagens agregadas.
+
+**`AgendamentoPublicoView(APIView)`:**
+- `permission_classes = [AllowAny]`
+- `throttle_classes = [AnonRateThrottle]`
+- URL: `/api/v1/publico/agenda/{slug}/agendar/`
+- Lógica de criação atômica (RF-04):
+  ```python
+  with transaction.atomic():
+      horario = HorarioDisponivel.objects.select_for_update().get(pk=horario_id)
+      ocupados = Compromisso.objects.filter(
+          horario=horario,
+          data_horario=data_horario,
+          is_active=True,
+      ).exclude(status=StatusCompromisso.CANCELADO).count()
+      if ocupados >= horario.vagas:
+          raise ValidationError("Horário sem vagas disponíveis.")
+      Compromisso.objects.create(
+          agenda=horario.agenda,
+          horario=horario,
+          data_horario=data_horario,
+          inicio=datetime.combine(data_horario, horario.hora_inicio),
+          fim=datetime.combine(data_horario, horario.hora_inicio)
+              + timedelta(minutes=horario.duracao_minutos),
+          origem='PUBLICO',
+          nome_contato=nome_contato,
+          telefone_contato=telefone_contato,
+          email_contato=email_contato,
+          status='AGENDADO',
+      )
+  ```
+
+**`CompromissoViewSet.perform_create`** — chamar a mesma lógica atômica
+quando `horario` for informado. Pode ser extraída para uma função utilitária
+`_criar_compromisso_com_validacao_vaga(horario_id, data_horario, **kwargs)`.
+
+### 4.5 URLs
+
+Adicionar em `agendamento/urls.py`:
+```python
+router.register(r'horarios-disponiveis', views.HorarioDisponivelViewSet, basename='horario-disponivel')
+```
+
+Adicionar em `core/urls.py` (novo prefixo):
+```python
+path('api/v1/publico/', include('agendamento.urls_publico')),
+```
+
+Criar `agendamento/urls_publico.py`:
+```python
+urlpatterns = [
+    path('agenda/<slug:slug>/disponibilidade/', AgendaDisponibilidadePublicaView.as_view()),
+    path('agenda/<slug:slug>/agendar/', AgendamentoPublicoView.as_view()),
+]
+```
+
+### 4.6 Settings
+
+Adicionar (ou confirmar presença) em `settings.py` / `settings_base.py`:
+```python
+REST_FRAMEWORK = {
+    ...
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '10/hour',
+        'user': '1000/day',
+    },
+}
 ```
 
 ---
 
-## 8. Critério de Aceite (consolidado)
+## 5. Spec Técnica Frontend
 
-- [ ] CA-01: criar `Assinatura` MENSAL → rodar `gerar_cobrancas_assinaturas` → 1 `Receita PENDENTE` com `referencia_mes` correto.
-- [ ] CA-02: rodar o command de novo no mesmo mês → continua existindo exatamente 1 `Receita` para essa assinatura/mês.
-- [ ] CA-03: encerrar a assinatura (`POST .../encerrar/`) → rodar o command do mês seguinte → 0 Receitas novas para essa assinatura.
-- [ ] CA-04: `--dry-run` não grava nenhuma `Receita` no banco.
-- [ ] CA-05: `PAUSADA` não gera cobrança em nenhum mês enquanto permanecer pausada.
-- [ ] CA-06: `TRIMESTRAL`/`SEMESTRAL`/`ANUAL` geram só nos meses de competência corretos a partir de `data_inicio` (testado com pelo menos 2 ciclos de cada).
-- [ ] CA-07: `data_fim` no passado bloqueia geração mesmo que `status` ainda não tenha sido movido para `ENCERRADA` manualmente (defesa em profundidade da RN-03).
-- [ ] CA-08: erro em 1 assinatura (ex: conta inválida) não impede geração das demais no mesmo lote — resumo final reporta o erro.
-- [ ] CA-09: usuário `OPERACIONAL` sem `tem_acesso_total` não vê o menu Assinaturas nem acessa a rota/API.
-- [ ] CA-10: aba Assinaturas na ficha do Cliente lista corretamente as assinaturas e cobranças geradas daquele cliente.
-- [ ] CA-11: 100% dos RFs com teste — nenhum `@skip`/`@xfail`.
+### 5.1 Tela interna — Agendamento.jsx
+
+A tela já possui abas (a de Calendário foi adicionada na Manutenção #55).
+Adicionar nova aba "Horários" e expandir a aba de formulário de compromisso.
+
+**Aba "Horários":**
+- Dropdown de seleção de agenda no topo (reutilizar o existente).
+- Tabela com colunas: Dia, Hora Início, Duração, Serviço, Vagas, Público,
+  Ativo (toggle), Ações (editar / desativar).
+- Botão "+ Novo Horário" abre modal com campos do `HorarioDisponivel`.
+- POST `GET /api/v1/agendamento/horarios-disponiveis/?agenda={id}`.
+- Criar/editar via modal. Desativar via PATCH `{ativo: false}`.
+
+**Painel "Pendentes"** (nova sub-aba ou seção separada):
+- `GET /api/v1/agendamento/compromissos/?origem=PUBLICO&status=AGENDADO`.
+- Tabela com: nome_contato, telefone_contato, data_horario, serviço (via
+  horario.servico), criado_em.
+- Botões: "Confirmar" → PATCH `{status: "CONFIRMADO"}`, "Cancelar" → PATCH
+  `{status: "CANCELADO"}`.
+
+**Indicador de vagas** na aba Calendário:
+- Ao exibir um evento ou slot de horário, buscar ocupação via
+  `/api/v1/agendamento/horarios-disponiveis/{id}/ocupacao/?data={date}`.
+- Exibir badge "X/Y" ao lado do nome do serviço.
+- Cor: verde se vagas_disponiveis > 0, vermelho se lotado.
+
+**Formulário de Compromisso** atualizado:
+- Campo "Horário Disponível" (select, opcional): `GET /api/v1/agendamento/
+  horarios-disponiveis/?agenda={id}&ativo=true`. Ao selecionar, preencher
+  automaticamente `inicio` e `fim` calculados a partir de `hora_inicio` +
+  `duracao_minutos` e da `data_horario` escolhida.
+- Campo "Data do Horário" (date picker, aparece quando horário for selecionado).
+- Campos nome_contato / telefone_contato / email_contato (aparecem quando
+  campo "Cliente" estiver vazio).
+- Badge "PÚBLICO" ou "INTERNO" read-only na edição de compromisso com origem
+  já definida.
+- Ao receber `aviso` no response 201, exibir toast de aviso amarelo:
+  "Cliente já possui compromisso no mesmo período."
+
+### 5.2 Página pública — /agendar/{slug}
+
+**Rota:** adicionar em `routes/index.jsx` como rota pública (fora de
+`ProtectedRoute`):
+```jsx
+<Route path="/agendar/:slug" element={<AgendamentoPublico />} />
+```
+
+**Componente `AgendamentoPublico.jsx`** (novo arquivo em
+`src/pages/AgendamentoPublico.jsx`):
+
+Estrutura geral:
+```
+<header>     Nome e descrição da agenda
+<section>    Seletor de data (semana corrente + navegação anterior/próxima)
+<section>    Lista de horários do dia selecionado
+<section>    Formulário de contato (aparece ao clicar num horário disponível)
+<footer>     Mensagem de confirmação ou erro
+```
+
+Estados:
+- `loading`: spinner enquanto carrega disponibilidade.
+- `dataSelecionada`: Date — padrão hoje.
+- `slotSelecionado`: objeto do horário clicado.
+- `confirmado`: boolean — controla exibição do estado de sucesso.
+- `erro`: string — exibição de erros de API.
+
+Chamadas de API (sem auth, sem tokenRef):
+- `GET /api/v1/publico/agenda/{slug}/disponibilidade/?de={data}&ate={data}`
+  (um dia de cada vez, ou a semana — a critério do Loom, desde que respeitado
+  o limite de 60 dias).
+- `POST /api/v1/publico/agenda/{slug}/agendar/`.
+
+Paleta dark mode (tokens existentes):
+- Background: `bg-navy-950`.
+- Cards de slot disponível: `bg-navy-800 hover:bg-violet-700 cursor-pointer`.
+- Slots lotados: `bg-navy-900 opacity-50 cursor-not-allowed`.
+- Botão primário: `bg-violet-600 hover:bg-violet-500`.
+- Texto principal: `text-white`.
+- Texto secundário: `text-navy-400`.
+
+Mobile-first breakpoints:
+- 375px: layout de coluna única.
+- 768px: pode expandir para 2 colunas (seletor | detalhes).
+
+Não usa `tokenRef`. Não usa `authStore`. Não requer autenticação.
 
 ---
 
-**Próximo agente:** Planner → rotear para Pipeline (manutenção com fase de
-núcleo) → Forge (backend app `assinaturas` + migration `financeiro`) e Loom
-(frontend `Assinaturas.jsx` + aba na ficha de Cliente), em paralelo →
-Sentinel → Pilot (deploy + documentação do cron no CLAUDE.md do projeto).
+## 6. Spec de Concorrência — Como Testar `select_for_update`
+
+### Por que o teste de concorrência é obrigatório
+O bug original do NosFluir aconteceu porque a checagem de vagas era
+"ler e depois criar" — duas threads podiam ler "0 de 2 ocupados", ambas
+passarem na checagem e criarem o 2º e 3º compromisso simultaneamente,
+violando a capacidade. O `select_for_update` elimina isso colocando um
+lock no row do `HorarioDisponivel` antes de contar, garantindo que só uma
+thread por vez entra na seção crítica.
+
+### Padrão de teste com threading no Django TestCase
+
+```python
+import threading
+from django.test import TransactionTestCase  # NÃO TestCase comum
+from django.db import connection
+
+class VagaConcorrentesTest(TransactionTestCase):
+    """
+    TransactionTestCase é obrigatório — TestCase envolve tudo em um
+    rollback global que impede que múltiplas threads vejam as mesmas
+    mudanças no banco. TransactionTestCase commita de verdade.
+    """
+
+    def setUp(self):
+        self.agenda = Agenda.objects.create(nome='Agenda Conc', slug='agenda-conc')
+        self.horario = HorarioDisponivel.objects.create(
+            agenda=self.agenda,
+            dia_semana=0,  # Segunda
+            hora_inicio='09:00',
+            duracao_minutos=30,
+            vagas=2,
+            servico='Consulta',
+        )
+        self.data = date(2026, 10, 19)  # Uma segunda-feira
+
+    def _tentar_agendar(self, nome, resultados, idx):
+        """Executado por cada thread. Guarda o status_code no array."""
+        from django.test import RequestFactory
+        # Usar APIClient direto é mais simples:
+        from rest_framework.test import APIClient
+        client = APIClient()
+        resp = client.post(
+            f'/api/v1/publico/agenda/agenda-conc/agendar/',
+            {
+                'horario_id': self.horario.id,
+                'data_horario': str(self.data),
+                'nome_contato': nome,
+                'telefone_contato': '34991349194',
+            },
+            format='json',
+        )
+        resultados[idx] = resp.status_code
+        connection.close()  # Fechar conexão da thread (boa prática)
+
+    def test_concorrencia_max_vagas_ca03(self):
+        """
+        Dispara 3 threads simultaneamente para um horário com 2 vagas.
+        Resultado esperado: exatamente 2 com status 201, 1 com status 400.
+        Qualquer outro resultado indica race condition.
+        """
+        resultados = [None, None, None]
+        threads = [
+            threading.Thread(target=self._tentar_agendar, args=(f'Contato {i}', resultados, i))
+            for i in range(3)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        criados = resultados.count(201)
+        rejeitados = resultados.count(400)
+        self.assertEqual(criados, 2, f'Esperado 2 criados, obteve {resultados}')
+        self.assertEqual(rejeitados, 1, f'Esperado 1 rejeitado, obteve {resultados}')
+
+        # Confirmar no banco
+        total = Compromisso.objects.filter(
+            horario=self.horario,
+            data_horario=self.data,
+            is_active=True,
+        ).exclude(status='CANCELADO').count()
+        self.assertEqual(total, 2)
+```
+
+### Por que `TransactionTestCase` e não `TestCase`
+`TestCase` do Django envolve cada teste em uma transação de banco que é
+revertida ao final — mas como `select_for_update` e `transaction.atomic()`
+operam dentro de transações aninhadas, e múltiplas threads precisam de
+conexões independentes que se vejam mutuamente, `TestCase` não funciona
+para isso. `TransactionTestCase` commita de verdade, limpa o banco ao final
+por truncate, e permite que as threads se vejam. Desempenho é um pouco
+mais lento — aceitável pois é apenas 1 teste de concorrência.
+
+---
+
+## 7. Critérios de Aceite (CA)
+
+**CA-01** — `POST /api/v1/agendamento/horarios-disponiveis/` com
+`{agenda, dia_semana, hora_inicio, duracao_minutos, vagas, servico}` retorna
+201 e o registro aparece em `GET /api/v1/agendamento/horarios-disponiveis/`.
+
+**CA-02** — Criação do 1º e 2º compromisso num horário de 2 vagas retorna
+201. O 3º retorna 400 com `{"erro": "Horário sem vagas disponíveis."}`.
+
+**CA-03** — Teste de concorrência (threading) com 3 threads simultâneas em
+horário de 2 vagas: exatamente 2 retornam 201 e 1 retorna 400. O banco
+contém exatamente 2 compromissos não cancelados para o slot. (Usa
+`TransactionTestCase`.)
+
+**CA-04** — `GET /api/v1/publico/agenda/{slug}/disponibilidade/?de=...&ate=...`
+retorna 200 sem autenticação e não inclui nome/telefone de agendamentos
+existentes, apenas contagens.
+
+**CA-05** — `POST /api/v1/publico/agenda/{slug}/agendar/` sem token retorna
+201 (novo compromisso com `origem=PUBLICO`). Payload com `telefone_contato`
+com menos de 8 dígitos retorna 400.
+
+**CA-06** — Endpoint público retorna 429 após 11ª requisição do mesmo IP na
+mesma hora (throttle). Body: `{"erro": "Limite de agendamentos atingido..."}`.
+
+**CA-07** — `GET /api/v1/publico/agenda/{slug}/disponibilidade/` para agenda
+com `permite_agendamento_publico=False` retorna 404.
+
+**CA-08** — `POST /api/v1/publico/agenda/{slug}/agendar/` com `data_horario`
+em dia da semana diferente do `horario.dia_semana` retorna 400 com mensagem
+explicativa.
+
+**CA-09** — Compromisso avulso (sem `horario`) criado via API interna continua
+retornando 201 normalmente — compatibilidade retroativa confirmada.
+
+**CA-10** — Aviso de conflito: criar dois compromissos para o mesmo cliente
+no mesmo período retorna 201 para ambos, mas o segundo traz `{"aviso":
+"Cliente já possui compromisso no mesmo período."}` no response.
+
+**CA-11** — `DELETE /api/v1/agendamento/horarios-disponiveis/{id}/` faz soft
+delete (is_active=False + deleted_at preenchido), compromissos existentes
+vinculados não são afetados.
+
+**CA-12** — Tela `/agendar/{slug}` carrega sem autenticação. Slot disponível
+pode ser clicado. Formulário de contato é exibido. Submit chama o endpoint
+público. Mensagem de sucesso é exibida após 201.
+
+**CA-13** — Tela `/agendar/{slug}` exibe slot lotado como indisponível (cinza,
+não clicável) quando `vagas_disponiveis == 0`.
+
+**CA-14** — `GET /api/v1/agendamento/horarios-disponiveis/{id}/ocupacao/?data=2026-10-20`
+retorna `{vagas, vagas_ocupadas, vagas_disponiveis, compromissos: [...]}` com
+valores corretos para aquela data.
+
+**CA-15** — `npm run build` sem erros após as mudanças (incluindo nova rota
+pública e novo componente).
+
+**CA-16** — 0 migrations pendentes após aplicar as 3 novas migrations
+(`makemigrations --check --dry-run`).
+
+---
+
+## 8. Fora do Escopo
+
+- Notificação por WhatsApp ou email (confirmação de agendamento).
+- Pagamento antecipado ou cobrança vinculada ao agendamento público.
+- Integração com Google Calendar / iCal.
+- Cancelamento pelo próprio cliente (via link público).
+- Recorrência automática de horários (ex.: todo segundo terça do mês).
+- Múltiplos fusos horários.
+
+---
+
+## 9. Arquivos a Criar / Modificar
+
+### Criar
+- `backend/agendamento/migrations/0008_agenda_slug_publico.py`
+- `backend/agendamento/migrations/0009_horariodisponivel.py`
+- `backend/agendamento/migrations/0010_compromisso_horario_origem_contato.py`
+- `backend/agendamento/urls_publico.py`
+- `frontend/src/pages/AgendamentoPublico.jsx`
+
+### Modificar
+- `backend/agendamento/models.py` — novos campos em Agenda e Compromisso, novo model HorarioDisponivel
+- `backend/agendamento/serializers.py` — novos serializers e atualização dos existentes
+- `backend/agendamento/views.py` — HorarioDisponivelViewSet + views públicas
+- `backend/agendamento/urls.py` — registrar HorarioDisponivelViewSet
+- `backend/agendamento/tests.py` — novos testes (incluindo TransactionTestCase)
+- `backend/core/urls.py` — incluir `agendamento.urls_publico` sob `/api/v1/publico/`
+- `backend/core/settings.py` (ou equivalente) — throttle rates
+- `frontend/src/pages/Agendamento.jsx` — aba Horários, painel Pendentes, indicador de vagas
+- `frontend/src/routes/index.jsx` — rota pública `/agendar/:slug`
+
+---
+
+## 10. Dependências e Riscos
+
+**Dependência:** `Agenda.slug` precisa ser gerado para registros já
+existentes no banco antes de tornar o campo NOT NULL. A migration deve
+usar `RunPython` para popular slugs de agendas existentes a partir do nome
+(ou definir o campo como `null=True, blank=True` e exigir via serializer).
+
+**Risco:** banco de dados de produção provavelmente tem menos de 10 agendas
+— risco baixo. Verificar com `Agenda.objects.count()` antes do deploy.
+
+**Throttle em testes:** ao rodar os testes de throttle (CA-06), é necessário
+usar `override_settings(DEFAULT_THROTTLE_RATES={'anon': '10/hour'})` e
+resetar o cache de throttle entre testes. DRF usa o cache padrão do Django
+para contagem; em testes usar `from django.core.cache import cache;
+cache.clear()` no `setUp`.
+
+**TransactionTestCase limpa o banco:** ao usar `TransactionTestCase` para o
+teste de concorrência (CA-03), os dados criados por outros testes `TestCase`
+não estarão visíveis — cada classe é independente. O `setUp` de
+`VagaConcorrentesTest` cria seus próprios fixtures.
+
+**select_for_update e SQLite:** o banco de testes padrão do Django usa SQLite.
+`select_for_update()` no SQLite não faz lock real (é ignorado silenciosamente).
+Para o teste de concorrência ter validade real, o ambiente de CI deve usar
+PostgreSQL. Se o projeto roda os testes com PostgreSQL (o que é o caso em
+produção via docker-compose), o teste é válido. Se usar SQLite no CI, o
+Sentinel deve documentar essa limitação e o teste de concorrência deve ser
+marcado com `@skipIf(connection.vendor == 'sqlite', 'SQLite não suporta lock real')`.
