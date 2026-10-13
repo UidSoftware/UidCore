@@ -126,6 +126,14 @@ REST_FRAMEWORK = {
         'rest_framework.filters.SearchFilter',
         'rest_framework.filters.OrderingFilter',
     ],
+    # Throttle rates — usados pelas views publicas de agendamento (Manutencao 65 [NUCLEO 4/5])
+    # As classes de throttle NAO sao aplicadas globalmente (apenas nas views publicas via
+    # throttle_classes = [AnonRateThrottle] — nao no DEFAULT para nao afetar endpoints
+    # autenticados).
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '10/hour',
+        'user': '1000/day',
+    },
 }
 
 SIMPLE_JWT = {
