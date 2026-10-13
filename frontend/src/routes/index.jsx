@@ -28,6 +28,7 @@ import FrenteDeCaixa from '../pages/pdv/FrenteDeCaixa.jsx'
 import FechamentoCaixa from '../pages/pdv/FechamentoCaixa.jsx'
 import HistoricoVendas from '../pages/pdv/HistoricoVendas.jsx'
 import RelatorioSessoesCaixa from '../pages/pdv/RelatorioSessoesCaixa.jsx'
+import AgendamentoPublico from '../pages/AgendamentoPublico.jsx'
 
 function ProtectedRoute({ children }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated)
@@ -139,6 +140,9 @@ export default function AppRoutes() {
         <Route path="/pdv/vendas" element={<HistoricoVendas />} />
         <Route path="/pdv/sessoes" element={<RelatorioSessoesCaixa />} />
       </Route>
+
+      {/* Rota pública de agendamento — SEM ProtectedRoute, SEM AppLayout */}
+      <Route path="/agendar/:slug" element={<AgendamentoPublico />} />
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
