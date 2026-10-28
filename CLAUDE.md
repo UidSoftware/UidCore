@@ -104,6 +104,68 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-10-28] — Manutenção #71 — Media persistente (volume Docker) + STORAGE_BACKEND configurável (local/S3)
+
+**Contexto:** até esta manutenção, `/app/media` do backend vivia só na camada
+gravável do container (nunca num volume Docker nomeado) — qualquer recriação
+do container (deploy normal via CI/CD) apagava silenciosamente comprovantes e
+documentos administrativos já enviados por cliente real. Esta manutenção
+introduz volume Docker nomeado para `/app/media` e um backend de storage
+configurável por `.env` (local, padrão; ou S3-compatível), sem precisar
+tocar em `settings.py` para trocar.
+
+**Achado crítico pré-deploy (Pilot, antes de qualquer `git push`):** o
+Sentinel havia confirmado `backend/media/` **no host/repo** com 0 arquivos
+(resíduos de teste limpos), mas isso não significava que a produção estivesse
+vazia — o container `uidcore-backend-1` rodando (imagem antiga, sem volume
+nenhum para `/app/media`) tinha **338 arquivos reais de cliente**
+(`comprovantes/` + `docs/`) gravados só na camada do container, prontos para
+serem perdidos no próximo `docker compose up` que recriasse o backend. Pilot
+extraiu tudo via `docker cp uidcore-backend-1:/app/media/. /tmp/...` **antes**
+do `git push`, confirmou a contagem (338) e só então seguiu com o deploy.
+
+**Tarefas executadas:**
+- Backend: `Pillow` e `django-storages[s3]` adicionados ao `requirements.txt`; `settings.py` com `STORAGE_BACKEND=local` (padrão) ou `s3`, lido do `.env`
+- Infra: `docker-compose.prod.yml` — novo volume nomeado `media_volume`, montado em `/app/media` no backend (rw) e `/media` no nginx (ro); `nginx/nginx.conf` com `location /media/ { alias /media/; }`
+- `backend/.dockerignore` criado (exclui `media/` do contexto de build — evita reintroduzir arquivo de teste na imagem)
+- Testes: passaram a usar `MEDIA_ROOT` temporário (sem resíduo em disco)
+- `.env.prod`: `STORAGE_BACKEND=local` confirmado presente
+
+**Procedimento de migração de dado real executado pelo Pilot (fora do código, direto na VPS):**
+1. `docker cp uidcore-backend-1:/app/media/. /tmp/uidcore_media_backup_m71/` — backup dos 338 arquivos reais da imagem antiga (container sem volume) ANTES do push
+2. `git push origin main` → CI/CD (run 40650751402, sucesso em 18s) → `docker compose up -d` recriou `backend`+`nginx` com o volume `uidcore_media_volume` novo (nasceu vazio, como esperado — volume novo não herda a camada antiga do container)
+3. `docker cp /tmp/uidcore_media_backup_m71/. uidcore-backend-1:/app/media/` — restaurado o backup dentro do volume novo já montado no container recriado
+4. Conferido: 338 arquivos no volume novo (contagem idêntica ao backup); md5 de amostra idêntico entre backup e volume; backup temporário em `/tmp` removido só depois dessa confirmação
+
+**Arquivos alterados:**
+- backend/requirements.txt, backend/core/settings.py, backend/.dockerignore (commit 8d81298)
+- docker-compose.prod.yml, nginx/nginx.conf (commit 8d81298)
+- CLAUDE.md (este registro — commit a seguir)
+
+**Commits:**
+- 8d81298 — feat(infra+backend): media persistente + STORAGE_BACKEND configuravel - Manutencao 71
+
+**Sentinel:**
+- 533/533 testes Django passando (0 falhas), 10/10 critérios de aceite verificados
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-10-28T07:32:36Z UTC (04:32 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 40650751402, sucesso em 18s
+- Container `uidcore-backend-1` recriado: 2026-10-28 07:32:46 -03; `uidcore-nginx-1` recriado: 2026-10-28 07:32:47 -03; gunicorn 3 workers up sem crash (log confirmado)
+- Volume Docker real confirmado: **`uidcore_media_volume`** (`docker volume ls`), montado `rw` em `/app/media` no backend e `ro` em `/media` no nginx (`docker inspect --format '{{json .Mounts}}'` confirmado nos dois containers)
+- `nginx -t` dentro do container: "syntax is ok" / "test is successful"
+- Migração de dado real: 338 arquivos (comprovantes + docs) restaurados no volume novo — ver procedimento acima; 0 arquivo perdido
+- `STORAGE_BACKEND=local` confirmado carregado no container (`docker exec ... env`)
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/financeiro/dashboard/ (esperado, requer auth); `GET /media/comprovantes/<arquivo real>` → HTTP 200 com `Content-Type: application/pdf` (não `text/html` — confirma que o nginx está servindo o volume, não um fallback de SPA/404)
+- Procedimento de migração local→bucket (S3) documentado na seção "Armazenamento de mídia" acima — nome do volume usado nesta execução (`uidcore_media_volume`) confirmado idêntico ao exemplo já documentado
+- Todo novo `FileField`/`ImageField` futuro herda persistência e storage configurável automaticamente — nenhum trabalho de infra a repetir
+- SystemD: Manutenção #71 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 71`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção / ✅ Dado real de cliente preservado (338/338 arquivos)
+
+---
+
 ### [2026-10-24] — Manutenção #69 — Upgrade Django 4.2 LTS → 5.2 LTS + dependências pinadas
 
 **Contexto:** manutenção 100% backend/infra, sem tela/endpoint/model/migration nova — atualização de framework e pinagem de dependências transitivas para a próxima LTS do Django.
