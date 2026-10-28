@@ -3,13 +3,15 @@
 Cobre RF-D01 a RF-D11 e RN-D01 a RN-D07 da Especificacao_Hotfix.md (Manutencao #7).
 """
 import os
+import shutil
+import tempfile
 from datetime import date, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db.models import Sum
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -21,6 +23,15 @@ from .models import (
     Aporte, Categoria, Conta, ConciliacaoExtrato, Despesa,
     ItemConciliacao, LivroCaixa, PadraoSeguroConciliacao, Receita,
 )
+
+# Manutencao 71 (RF-06/RN-05): testes que gravam FileField/ImageField
+# NUNCA gravam no MEDIA_ROOT real do projeto -- usam diretorio temporario
+# isolado, removido ao final da execucao do modulo.
+_MEDIA_ROOT_TESTE = tempfile.mkdtemp()
+
+
+def tearDownModule():
+    shutil.rmtree(_MEDIA_ROOT_TESTE, ignore_errors=True)
 
 
 def _make_user(email='admin@teste.com'):
@@ -477,6 +488,7 @@ class PadraoSeguroConciliacaoAPITest(APITestCase):
 
 # --- RF-D01: endpoint de upload (financeiro/views.py) ---------------------
 
+@override_settings(MEDIA_ROOT=_MEDIA_ROOT_TESTE)
 class ConciliacaoUploadAPITest(APITestCase):
     def setUp(self):
         self.user = _make_user()

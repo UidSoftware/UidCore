@@ -8,3 +8,5 @@ python-decouple>=3.8
 gunicorn>=21.2
 pikepdf>=8.0
 weasyprint>=60.0
+Pillow>=10.0,<11.0
+django-storages[s3]>=1.14,<1.15

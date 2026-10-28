@@ -2,10 +2,12 @@
 
 Cobre RF-P01 a RF-P03 e RN-P01 a RN-P03 da Especificacao_Hotfix.md.
 """
+import shutil
+import tempfile
 from decimal import Decimal
 
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 
@@ -13,6 +15,15 @@ from accounts.models import User
 from clientes.models import Cliente
 
 from .models import Cobranca, MetodoPagamento, Parcela
+
+# Manutencao 71 (RF-06/RN-05): testes que gravam FileField/ImageField
+# NUNCA gravam no MEDIA_ROOT real do projeto -- usam diretorio temporario
+# isolado, removido ao final da execucao do modulo.
+_MEDIA_ROOT_TESTE = tempfile.mkdtemp()
+
+
+def tearDownModule():
+    shutil.rmtree(_MEDIA_ROOT_TESTE, ignore_errors=True)
 
 
 def _make_user(email='admin@teste.com'):
@@ -70,6 +81,7 @@ class ParcelaModelTest(TestCase):
         self.assertEqual(parcela.cobranca, self.cobranca)
 
 
+@override_settings(MEDIA_ROOT=_MEDIA_ROOT_TESTE)
 class CobrancaAPITest(APITestCase):
     def setUp(self):
         self.user = _make_user()
