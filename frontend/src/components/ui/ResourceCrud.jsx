@@ -9,6 +9,7 @@ import Select from './Select.jsx'
 import Modal from './Modal.jsx'
 import Pagination from './Pagination.jsx'
 import AuditFooter from './AuditFooter.jsx'
+import Avatar from './Avatar.jsx'
 
 const PAGE_SIZE = 10
 
@@ -217,6 +218,9 @@ export default function ResourceCrud({
 
   const renderCell = (item, col) => {
     const value = item[col.key]
+    if (col.avatar) {
+      return <Avatar foto={value} nome={item[col.nomeField || 'nome_completo'] ?? item.nome} size="sm" />
+    }
     if (col.boolean) {
       return value ? (
         <span className="text-xs bg-green-50 text-green-700 rounded-full px-2 py-0.5 font-medium dark:bg-emerald-950/40 dark:text-emerald-300">Sim</span>

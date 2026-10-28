@@ -33,6 +33,7 @@ export default function Usuarios() {
         emptyText="Nenhum usuário cadastrado."
         titleField="nome_completo"
         columns={[
+          { key: 'foto_url', label: '', avatar: true, nomeField: 'nome_completo' },
           { key: 'nome_completo', label: 'Nome' },
           { key: 'email', label: 'E-mail' },
           { key: 'colaborador_nome', label: 'Colaborador' },
