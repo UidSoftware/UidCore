@@ -85,6 +85,55 @@ class AlterarSenhaView(APIView):
         return Response({'mensagem': 'Senha alterada com sucesso.'})
 
 
+class FotoPerfilView(APIView):
+    """
+    Manutencao #72 (RF-02/RF-03) — usuario logado troca ou remove a
+    propria foto de perfil. Opera SEMPRE sobre request.user (RN-01):
+    nao recebe id de usuario na URL nem no body — ninguem altera foto de
+    outra conta por aqui.
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from django.core.exceptions import ValidationError
+
+        from common.media import processar_foto
+
+        arquivo = request.FILES.get('foto')
+        if not arquivo:
+            return Response({'erro': 'Envie o arquivo no campo "foto".'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            conteudo = processar_foto(arquivo)
+        except ValidationError as e:
+            mensagem = e.messages[0] if hasattr(e, 'messages') and e.messages else str(e)
+            return Response({'erro': mensagem}, status=status.HTTP_400_BAD_REQUEST)
+
+        usuario = request.user
+        # RN-06: so apaga o arquivo antigo DEPOIS do novo ser salvo com
+        # sucesso. Guardar so o nome (string) do arquivo antigo -- nunca a
+        # referencia ao FieldFile em si: `usuario.foto` e `foto_antiga`
+        # seriam o MESMO objeto (o descriptor do FileField cacheia a
+        # instancia), entao `usuario.foto.save(...)` abaixo mutaria
+        # `foto_antiga.name` tambem antes do delete, apagando o arquivo
+        # NOVO que acabou de ser salvo em vez do antigo.
+        nome_arquivo_antigo = usuario.foto.name if usuario.foto else None
+        storage_antigo = usuario.foto.storage
+        usuario.foto.save(conteudo.name, conteudo, save=True)
+        if nome_arquivo_antigo:
+            storage_antigo.delete(nome_arquivo_antigo)
+
+        return Response({'foto_url': UserSerializer(usuario, context={'request': request}).data['foto_url']})
+
+    def delete(self, request):
+        usuario = request.user
+        if usuario.foto:
+            usuario.foto.delete(save=False)
+            usuario.foto = None
+            usuario.save(update_fields=['foto'])
+        return Response({'foto_url': None})
+
+
 class SolicitarAcessoView(APIView):
     """ADMIN envia email de primeiro acesso para um usuario."""
     permission_classes = [IsAdmin]

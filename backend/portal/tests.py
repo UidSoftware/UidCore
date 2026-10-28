@@ -2,14 +2,38 @@
 
 Cobre RF-PO01 a RF-PO03 e RN-PO01 a RN-PO03 da Especificacao_Hotfix.md.
 """
-from django.test import TestCase
+import io
+import shutil
+import tempfile
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
+from PIL import Image
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from accounts.models import User
 from clientes.models import Cliente
 
+from .lgpd import exportar_titular
 from .models import AcessoPortalCliente
+
+# Manutencao 72 (RF-07): teste que grava ImageField (User.foto) nunca
+# grava no MEDIA_ROOT real do projeto -- diretorio temporario isolado,
+# removido ao final da execucao do modulo (mesmo padrao de accounts/
+# pagamentos/financeiro/administrativo).
+_MEDIA_ROOT_TESTE = tempfile.mkdtemp()
+
+
+def tearDownModule():
+    shutil.rmtree(_MEDIA_ROOT_TESTE, ignore_errors=True)
+
+
+def _jpeg_valido():
+    buffer = io.BytesIO()
+    Image.new('RGB', (40, 40), color='blue').save(buffer, format='JPEG')
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 def _make_user(email='admin@teste.com'):
@@ -108,3 +132,43 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(acesso.deleted_by, user_c)
         self.assertIsNotNone(acesso.deleted_at)
         self.assertFalse(AcessoPortalCliente.objects.filter(pk=acesso_id).exists())
+
+
+@override_settings(MEDIA_ROOT=_MEDIA_ROOT_TESTE)
+class ExportarTitularFotoUrlTest(TestCase):
+    """Manutencao 72 (RF-07/RN-09) -- exportar_titular(cliente) passa a
+    incluir foto_url de cada acesso, sem alterar as chaves preexistentes
+    (usuario_email, ultimo_acesso) nem regredir o caso ja coberto (sem
+    acesso -- None)."""
+
+    def test_acesso_com_usuario_com_foto_inclui_foto_url(self):
+        cliente = _make_cliente('Cliente LGPD Foto')
+        usuario = User.objects.create_user(
+            email='portal.foto.m72@teste.com', password='senha123', nome_completo='Usuario Portal Foto',
+        )
+        AcessoPortalCliente.objects.create(usuario=usuario, cliente=cliente)
+
+        c = APIClient()
+        c.force_authenticate(usuario)
+        arquivo = SimpleUploadedFile('foto.jpg', _jpeg_valido(), content_type='image/jpeg')
+        c.post('/api/v1/accounts/me/foto/', {'foto': arquivo}, format='multipart')
+
+        resultado = exportar_titular(cliente)
+        self.assertIsNotNone(resultado)
+        item = resultado['acessos'][0]
+        self.assertEqual(item['usuario_email'], 'portal.foto.m72@teste.com')
+        self.assertIsNotNone(item['foto_url'])
+
+    def test_acesso_com_usuario_sem_foto_e_none(self):
+        cliente = _make_cliente('Cliente LGPD Sem Foto')
+        usuario = User.objects.create_user(
+            email='portal.semfoto.m72@teste.com', password='senha123', nome_completo='Usuario Sem Foto',
+        )
+        AcessoPortalCliente.objects.create(usuario=usuario, cliente=cliente)
+
+        resultado = exportar_titular(cliente)
+        self.assertIsNone(resultado['acessos'][0]['foto_url'])
+
+    def test_cliente_sem_acesso_continua_retornando_none(self):
+        cliente = _make_cliente('Cliente LGPD Sem Acesso')
+        self.assertIsNone(exportar_titular(cliente))

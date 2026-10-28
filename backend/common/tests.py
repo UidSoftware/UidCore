@@ -6,9 +6,15 @@ nos dois sentidos (permite/bloqueia), conforme a tabela da secao 2.5 da
 Especificacao_Hotfix.md. Os testes de integracao via API real (contas,
 estornar, compras, agendamento, clientes) ficam nos apps respectivos.
 """
-from django.test import RequestFactory, TestCase
+import io
+
+from django.core.exceptions import ValidationError
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import RequestFactory, SimpleTestCase, TestCase
+from PIL import Image
 
 from accounts.models import User
+from common.media import LADO_PADRAO, TAMANHO_MAX_BYTES, processar_foto
 from common.permissions import BloqueiaEscritaDeProfissional, IsFinanceiro, IsProfissional
 
 
@@ -188,3 +194,77 @@ class LgpdRegistryTest(TestCase):
     def test_formatar_em_linhas_lista_de_dicts(self):
         linhas = self._lgpd.formatar_em_linhas({'itens': [{'descricao': 'Item A'}]})
         self.assertTrue(any('descricao: Item A' in l for l in linhas))
+
+
+def _jpeg_com_quadrante(exif_orientacao=None):
+    """JPEG 40x40 com o quadrante superior-esquerdo (20x20) vermelho e o
+    resto preto -- usado para confirmar visualmente que processar_foto
+    corrige a orientacao (ImageOps.exif_transpose) ANTES de descartar o
+    resto do bloco EXIF (RN-04). Com Orientation=6, o quadrante vermelho
+    migra para o canto superior-direito apos a correcao (comportamento do
+    Pillow confirmado empiricamente antes de escrever este teste)."""
+    imagem = Image.new('RGB', (40, 40), color='black')
+    for y in range(20):
+        for x in range(20):
+            imagem.putpixel((x, y), (255, 0, 0))
+    buffer = io.BytesIO()
+    if exif_orientacao is not None:
+        exif = imagem.getexif()
+        exif[274] = exif_orientacao  # tag Orientation
+        imagem.save(buffer, format='JPEG', quality=95, exif=exif)
+    else:
+        imagem.save(buffer, format='JPEG', quality=95)
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def _upload(conteudo, nome='foto.jpg', content_type='image/jpeg'):
+    return SimpleUploadedFile(nome, conteudo, content_type=content_type)
+
+
+class ProcessarFotoTest(SimpleTestCase):
+    """Manutencao 72 (RF-05) -- common/media.py::processar_foto. Unitario
+    e sem banco (SimpleTestCase): a funcao nao toca em nenhum model (RN-08
+    -- zero acoplamento com accounts/clientes/rh)."""
+
+    def test_recorta_quadrado_e_redimensiona_para_webp_rf05(self):
+        conteudo = processar_foto(_upload(_jpeg_com_quadrante()))
+        imagem = Image.open(conteudo)
+        self.assertEqual(imagem.size, (LADO_PADRAO, LADO_PADRAO))
+        self.assertEqual(imagem.format, 'WEBP')
+
+    def test_remove_todo_exif_inclusive_sem_orientacao_rn04(self):
+        conteudo = processar_foto(_upload(_jpeg_com_quadrante()))
+        imagem = Image.open(conteudo)
+        self.assertFalse(dict(imagem.getexif()))
+
+    def test_remove_todo_exif_apos_orientacao_com_rotacao_rn04(self):
+        conteudo = processar_foto(_upload(_jpeg_com_quadrante(exif_orientacao=6)))
+        imagem = Image.open(conteudo)
+        self.assertFalse(dict(imagem.getexif()))
+
+    def test_corrige_orientacao_antes_de_descartar_exif_rn04(self):
+        conteudo = processar_foto(_upload(_jpeg_com_quadrante(exif_orientacao=6)))
+        imagem = Image.open(conteudo).convert('RGB')
+        lado = imagem.size[0]
+        canto_superior_direito = imagem.getpixel((lado - 5, 5))
+        canto_superior_esquerdo = imagem.getpixel((5, 5))
+        self.assertGreater(canto_superior_direito[0], 150)  # vermelho migrou p/ direita
+        self.assertLess(canto_superior_esquerdo[0], 100)  # esquerda ficou preta
+
+    def test_arquivo_maior_que_5mb_e_rejeitado_sem_decodificar_rn02(self):
+        conteudo_grande = b'0' * (TAMANHO_MAX_BYTES + 1)
+        with self.assertRaises(ValidationError):
+            processar_foto(_upload(conteudo_grande, nome='grande.jpg'))
+
+    def test_arquivo_que_nao_e_imagem_de_verdade_e_rejeitado_rn03(self):
+        pdf_renomeado = _upload(b'%PDF-1.4 conteudo fake de pdf, nunca uma imagem real',
+                                 nome='documento.jpg', content_type='image/jpeg')
+        with self.assertRaises(ValidationError):
+            processar_foto(pdf_renomeado)
+
+    def test_nome_final_e_sempre_uuid_webp_rn05(self):
+        conteudo = processar_foto(_upload(_jpeg_com_quadrante(), nome='nome_original_do_usuario.jpg'))
+        self.assertTrue(conteudo.name.endswith('.webp'))
+        self.assertNotIn('nome_original', conteudo.name)
+        self.assertNotIn('usuario', conteudo.name)

@@ -1,14 +1,37 @@
 import importlib
+import io
+import shutil
+import tempfile
 from unittest.mock import patch
 
 from django.apps import apps as django_apps
 from django.contrib.auth.tokens import default_token_generator
-from django.test import TestCase
+from django.core.files.storage import default_storage
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import TestCase, override_settings
 from django.utils.encoding import force_bytes
 from django.utils.http import urlsafe_base64_encode
+from PIL import Image
 from rest_framework.test import APIClient
 
 from .models import PerfilUsuario, User
+
+# Manutencao 72 (RF-06/RN-05): testes que gravam ImageField (User.foto)
+# NUNCA gravam no MEDIA_ROOT real do projeto -- usam diretorio temporario
+# isolado, removido ao final da execucao do modulo (mesmo padrao de
+# pagamentos/financeiro/administrativo, ver Manutencao 71).
+_MEDIA_ROOT_TESTE = tempfile.mkdtemp()
+
+
+def tearDownModule():
+    shutil.rmtree(_MEDIA_ROOT_TESTE, ignore_errors=True)
+
+
+def _jpeg_valido():
+    buffer = io.BytesIO()
+    Image.new('RGB', (40, 40), color='blue').save(buffer, format='JPEG')
+    buffer.seek(0)
+    return buffer.getvalue()
 
 
 class AlterarSenhaViewTest(TestCase):
@@ -596,3 +619,152 @@ class PermissaoNovosPerfisUsuariosAPITest(TestCase):
         c.force_authenticate(u)
         r = c.get('/api/v1/accounts/usuarios/')
         self.assertEqual(r.status_code, 403)
+
+
+@override_settings(MEDIA_ROOT=_MEDIA_ROOT_TESTE)
+class FotoPerfilViewTest(TestCase):
+    """Manutencao 72 (RF-02/RF-03/RF-04) -- FotoPerfilView opera sempre
+    sobre request.user (RN-01); cobre os cenarios do Sentinel listados na
+    secao 6.7 da Especificacao_Hotfix.md."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='foto.m72@teste.com', password='senha123', nome_completo='Usuario Foto',
+        )
+        self.client_api = APIClient()
+        self.client_api.force_authenticate(self.user)
+
+    def test_upload_com_sucesso_rf02(self):
+        arquivo = SimpleUploadedFile('selfie.jpg', _jpeg_valido(), content_type='image/jpeg')
+        r = self.client_api.post('/api/v1/accounts/me/foto/', {'foto': arquivo}, format='multipart')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIsNotNone(r.data['foto_url'])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.foto)
+        self.assertTrue(self.user.foto.name.endswith('.webp'))
+
+    def test_sem_arquivo_e_rejeitado_rf02(self):
+        r = self.client_api.post('/api/v1/accounts/me/foto/', {}, format='multipart')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('erro', r.data)
+
+    def test_upload_de_pdf_renomeado_e_rejeitado_ca02(self):
+        pdf = SimpleUploadedFile('fake.jpg', b'%PDF-1.4 conteudo fake de pdf', content_type='image/jpeg')
+        r = self.client_api.post('/api/v1/accounts/me/foto/', {'foto': pdf}, format='multipart')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('erro', r.data)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.foto)
+
+    def test_arquivo_maior_que_5mb_e_rejeitado_ca06(self):
+        grande = SimpleUploadedFile('grande.jpg', b'0' * (5 * 1024 * 1024 + 1), content_type='image/jpeg')
+        r = self.client_api.post('/api/v1/accounts/me/foto/', {'foto': grande}, format='multipart')
+        self.assertEqual(r.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.foto)
+
+    def test_trocar_foto_apaga_arquivo_antigo_do_storage_ca03(self):
+        arquivo1 = SimpleUploadedFile('foto1.jpg', _jpeg_valido(), content_type='image/jpeg')
+        self.client_api.post('/api/v1/accounts/me/foto/', {'foto': arquivo1}, format='multipart')
+        self.user.refresh_from_db()
+        caminho_antigo = self.user.foto.name
+        self.assertTrue(default_storage.exists(caminho_antigo))
+
+        arquivo2 = SimpleUploadedFile('foto2.jpg', _jpeg_valido(), content_type='image/jpeg')
+        r2 = self.client_api.post('/api/v1/accounts/me/foto/', {'foto': arquivo2}, format='multipart')
+        self.assertEqual(r2.status_code, 200)
+        self.user.refresh_from_db()
+        caminho_novo = self.user.foto.name
+
+        self.assertNotEqual(caminho_antigo, caminho_novo)
+        self.assertFalse(default_storage.exists(caminho_antigo))
+        self.assertTrue(default_storage.exists(caminho_novo))
+
+    def test_delete_remove_foto_e_arquivo_do_storage_rf03(self):
+        arquivo = SimpleUploadedFile('foto.jpg', _jpeg_valido(), content_type='image/jpeg')
+        self.client_api.post('/api/v1/accounts/me/foto/', {'foto': arquivo}, format='multipart')
+        self.user.refresh_from_db()
+        caminho = self.user.foto.name
+        self.assertTrue(default_storage.exists(caminho))
+
+        r = self.client_api.delete('/api/v1/accounts/me/foto/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data['foto_url'])
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.foto)
+        self.assertFalse(default_storage.exists(caminho))
+
+    def test_delete_sem_foto_e_idempotente_ca07(self):
+        r = self.client_api.delete('/api/v1/accounts/me/foto/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data['foto_url'])
+
+    def test_sem_autenticacao_e_rejeitado_ca10(self):
+        c = APIClient()
+        r = c.post('/api/v1/accounts/me/foto/', {}, format='multipart')
+        self.assertEqual(r.status_code, 401)
+        r = c.delete('/api/v1/accounts/me/foto/')
+        self.assertEqual(r.status_code, 401)
+
+    def test_get_me_reflete_foto_url_apos_upload_ca05(self):
+        arquivo = SimpleUploadedFile('foto.jpg', _jpeg_valido(), content_type='image/jpeg')
+        self.client_api.post('/api/v1/accounts/me/foto/', {'foto': arquivo}, format='multipart')
+        r = self.client_api.get('/api/v1/accounts/me/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(r.data['foto_url'])
+
+    def test_usuario_sem_foto_tem_foto_url_none_rf04(self):
+        r = self.client_api.get('/api/v1/accounts/me/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data['foto_url'])
+
+    def test_rota_nunca_altera_outro_usuario_rn01(self):
+        """RN-01 -- a view opera sempre sobre request.user; nao existe
+        parametro de id na URL/body para alterar foto de outra conta."""
+        outro = User.objects.create_user(
+            email='outro.rn01.m72@teste.com', password='senha123', nome_completo='Outro',
+        )
+        arquivo = SimpleUploadedFile('foto.jpg', _jpeg_valido(), content_type='image/jpeg')
+        self.client_api.post('/api/v1/accounts/me/foto/', {'foto': arquivo, 'id': outro.id, 'usuario': outro.id},
+                              format='multipart')
+        outro.refresh_from_db()
+        self.assertFalse(outro.foto)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.foto)
+
+
+@override_settings(MEDIA_ROOT=_MEDIA_ROOT_TESTE)
+class FotoUserAdminSerializerTest(TestCase):
+    """RF-11/CA-08 -- UserAdminSerializer (tela de Usuarios) tambem expoe
+    foto_url, senao a coluna de avatar nunca teria dado para mostrar."""
+
+    def test_admin_ve_foto_url_de_outro_usuario_ca08(self):
+        admin = User.objects.create_user(
+            email='admin.foto.m72@teste.com', password='senha123', nome_completo='Admin', is_staff=True,
+        )
+        outro = User.objects.create_user(
+            email='outro.foto.m72@teste.com', password='senha123', nome_completo='Outro',
+        )
+        c_outro = APIClient()
+        c_outro.force_authenticate(outro)
+        arquivo = SimpleUploadedFile('foto.jpg', _jpeg_valido(), content_type='image/jpeg')
+        c_outro.post('/api/v1/accounts/me/foto/', {'foto': arquivo}, format='multipart')
+
+        c_admin = APIClient()
+        c_admin.force_authenticate(admin)
+        r = c_admin.get(f'/api/v1/accounts/usuarios/{outro.id}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNotNone(r.data['foto_url'])
+
+    def test_usuario_sem_foto_tem_foto_url_none_na_tela_admin(self):
+        admin = User.objects.create_user(
+            email='admin2.foto.m72@teste.com', password='senha123', nome_completo='Admin', is_staff=True,
+        )
+        sem_foto = User.objects.create_user(
+            email='semfoto.m72@teste.com', password='senha123', nome_completo='Sem Foto',
+        )
+        c_admin = APIClient()
+        c_admin.force_authenticate(admin)
+        r = c_admin.get(f'/api/v1/accounts/usuarios/{sem_foto.id}/')
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.data['foto_url'])

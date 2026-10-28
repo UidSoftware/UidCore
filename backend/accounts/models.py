@@ -3,6 +3,16 @@ from django.db import models
 from .managers import CustomUserManager
 
 
+def avatar_upload_path(instance, filename):
+    """
+    Manutencao #72 — funcao de modulo (nao lambda: migrations precisam
+    serializar a referencia). O nome aleatorio em si (<uuid4>.webp) e
+    gerado pelo helper common/media.py::processar_foto — aqui so define a
+    pasta dentro do storage configurado (local ou S3).
+    """
+    return f'avatars/{filename}'
+
+
 class PerfilUsuario(models.TextChoices):
     ADMIN = 'ADMIN', 'Admin'
     OPERACIONAL = 'OPERACIONAL', 'Operacional'
@@ -23,6 +33,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         choices=PerfilUsuario.choices, default=PerfilUsuario.OPERACIONAL,
     )
     date_joined = models.DateTimeField('data de cadastro', auto_now_add=True)
+    foto = models.ImageField(
+        'foto de perfil', upload_to=avatar_upload_path, null=True, blank=True,
+    )
 
     objects = CustomUserManager()
 

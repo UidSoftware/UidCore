@@ -5,11 +5,20 @@ from .models import PerfilUsuario, User
 
 class UserSerializer(serializers.ModelSerializer):
     tem_acesso_total = serializers.BooleanField(read_only=True)
+    foto_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
-        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'date_joined']
-        read_only_fields = ['id', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'date_joined']
+        fields = ['id', 'email', 'nome_completo', 'telefone', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'foto_url', 'date_joined']
+        read_only_fields = ['id', 'is_active', 'is_staff', 'perfil', 'tem_acesso_total', 'foto_url', 'date_joined']
+
+    def get_foto_url(self, obj):
+        # ImageFieldFile.url ja resolve path local (relativo a MEDIA_URL)
+        # ou URL assinada S3 (django-storages) sem precisar de `request`
+        # (Manutencao 72, RF-04).
+        if not obj.foto:
+            return None
+        return obj.foto.url
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -18,14 +27,23 @@ class UserAdminSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=False, allow_blank=True)
     colaborador_nome = serializers.CharField(source='colaborador.nome', read_only=True, default=None)
     tem_acesso_total = serializers.BooleanField(read_only=True)
+    foto_url = serializers.SerializerMethodField()
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'nome_completo', 'telefone', 'password',
-            'is_active', 'perfil', 'tem_acesso_total', 'date_joined', 'colaborador_nome',
+            'is_active', 'perfil', 'tem_acesso_total', 'foto_url', 'date_joined', 'colaborador_nome',
         ]
-        read_only_fields = ['id', 'date_joined', 'colaborador_nome', 'tem_acesso_total']
+        read_only_fields = ['id', 'date_joined', 'colaborador_nome', 'tem_acesso_total', 'foto_url']
+
+    def get_foto_url(self, obj):
+        # RF-11/CA-08 — tela de Usuarios (admin) tambem precisa de
+        # foto_url para a coluna de avatar; upload/remocao continua
+        # exclusivo do proprio usuario via /me/foto/ (RN-01).
+        if not obj.foto:
+            return None
+        return obj.foto.url
 
     def validate(self, attrs):
         perfil_novo = attrs.get('perfil')
