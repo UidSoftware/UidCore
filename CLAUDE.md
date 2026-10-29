@@ -104,6 +104,72 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-10-29] — Manutenção #72 — Foto de perfil do usuário
+
+**Contexto:** adiciona foto de perfil ao usuário (avatar), aproveitando a
+infraestrutura de media persistente e storage configurável introduzida na
+Manutenção #71 (volume `uidcore_media_volume` + `STORAGE_BACKEND`) — nenhum
+trabalho de infra novo foi necessário, só o campo e os endpoints.
+
+**Tarefas executadas:**
+- Backend (`accounts`+`common`+`portal`): `User.foto` (ImageField,
+  `avatars/<uuid>.webp`); migration `accounts.0006_user_foto`; helper
+  `processar_foto()` em `common/` (Pillow — redimensiona para 256x256,
+  converte para WebP, remove metadados EXIF); endpoints
+  `POST`/`DELETE /api/v1/accounts/me/foto/` (`FotoPerfilView`, registrada em
+  `backend/accounts/urls.py`); exportação LGPD (Manutenção #66) passou a
+  incluir `foto_url` no payload do titular
+- Frontend: `Avatar.jsx` (exibe foto quando existe, senão iniciais do nome);
+  `Header` passou a usar `Avatar`; modal "Alterar foto" com preview antes de
+  salvar; coluna de avatar na tela de Usuários
+- Analista/Brush atualizaram `Especificacao_Hotfix.md` e
+  `Especificacao_UI_Hotfix.md`
+
+**Nota de rota (mesmo padrão da Manutenção #44):** o briefing desta
+manutenção citava `/api/v1/auth/me/foto/` como path a validar — rota real
+confirmada é **`/api/v1/accounts/me/foto/`** (`FotoPerfilView` registrada
+dentro de `accounts.urls`, montada sob o prefixo `api/v1/accounts/` em
+`backend/core/urls.py`, mesmo padrão de `/api/v1/accounts/usuarios/` já
+documentado). `/api/v1/auth/me/foto/` retorna 404 (rota inexistente, não é
+falha da feature); `/api/v1/accounts/me/foto/` retorna 401 sem token
+(esperado, requer auth — rota nova confirmada ativa).
+
+**Arquivos alterados:**
+- backend/accounts/, backend/common/, backend/portal/ (User.foto,
+  processar_foto(), FotoPerfilView, migration accounts.0006_user_foto,
+  foto_url na exportação LGPD — commit cba6463)
+- frontend/src/ (Avatar.jsx, Header com Avatar, modal Alterar foto, coluna
+  avatar em Usuários — commit 3d0fe99)
+- Especificacao_Hotfix.md, Especificacao_UI_Hotfix.md (commit 79538e1)
+
+**Commits:**
+- cba6463 — feat(accounts+common+portal): foto de perfil - Manutencao 72
+- 3d0fe99 — feat(frontend): Avatar.jsx + modal alterar foto + coluna avatar em Usuarios - Manutencao 72
+- 79538e1 — docs: atualiza specs - Manutencao 72 (foto de perfil do usuario)
+
+**Sentinel:**
+- 556/556 testes Django passando (0 falhas)
+- 11/11 critérios de aceite verificados
+- Build frontend: 2174 módulos, 0 erros
+- 0 migrations pendentes
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-10-29T03:19:24Z UTC (00:19 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 40811484451, sucesso
+- Push confirmado: 6efcea4..79538e1 main -> main (3 commits: cba6463 e 3d0fe99 já existiam localmente + 79538e1 de docs desta execução)
+- Container uidcore-backend-1 recriado: 2026-10-29T03:19:43Z (StartedAt confirmado via docker inspect, comparado contra baseline pré-deploy de 2026-10-28T07:32:48Z); gunicorn 3 workers up sem crash (log confirmado)
+- Migration accounts.0006_user_foto aplicada em produção (showmigrations confirmado); `makemigrations --check --dry-run`: "No changes detected" — 0 pendências
+- Pillow confirmado presente e funcional no container: `pip show Pillow` → 10.4.0
+- Volume `uidcore_media_volume` confirmado montado `rw` em `/app/media` no backend (herdado da Manutenção #71, sem mudança nesta execução) — foto de perfil grava automaticamente nele
+- `nginx -t` dentro do container: "syntax is ok" / "test is successful"
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/financeiro/dashboard/ (esperado, requer auth); HTTP 401 em /api/v1/accounts/me/foto/ (esperado, requer auth — rota nova confirmada ativa, ver nota de rota acima); HTTP 404 em /api/v1/auth/me/foto/ (path citado no briefing não existe — rota real é /api/v1/accounts/me/foto/)
+- SystemD: Manutenção #72 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 72`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
+
+---
+
 ### [2026-10-28] — Manutenção #71 — Media persistente (volume Docker) + STORAGE_BACKEND configurável (local/S3)
 
 **Contexto:** até esta manutenção, `/app/media` do backend vivia só na camada
