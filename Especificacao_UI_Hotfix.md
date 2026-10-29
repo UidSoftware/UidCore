@@ -1,411 +1,193 @@
-# Especificação UI Hotfix — Manutenção #66 [NUCLEO 5/5]
-## LGPD: exportação de dados do titular + anonimização
+# Especificação UI Hotfix — UidCore (Manutenção #72)
 
-**Sistema:** UidCore
-**Data:** 2026-10-13
-**Autor:** Brush (MODO HOTFIX)
-**Base:** Especificacao_Hotfix.md (Analista, mesma data)
+**Tarefa:** Foto de perfil do usuário (Avatar.jsx + modal "Alterar foto" no Header + coluna avatar em Usuários)
+**Brush — MODO HOTFIX.** Esta especificação NÃO cria design system novo — reaproveita os tokens já documentados em `design_system.md` e os já em uso em `Header.jsx`/`Usuarios.jsx`. O `Especificacao_Hotfix.md` do Analista já incluiu bastante detalhe de implementação (inclusive trechos de JSX) — esta spec complementa com a camada visual: estados, espaçamentos, responsividade e critério de escolha de ícone, sem duplicar os RFs/RNs já escritos lá.
 
 ---
 
-## Design System do Projeto (referência)
+## 0. Design System do Projeto (referência, não redefinição)
 
-O UidCore usa dark mode com classe `dark` no root. Paleta definida em
-`frontend/tailwind.config.js` (Manutenção #31):
+⚠️ **Divergência arquitetural já documentada** (`design_system.md`): o UidCore roda em **light mode como padrão** (`bg-gray-50`), com dark mode via classe `.dark` (`darkMode: 'class'` no Tailwind) — diferente do padrão Uid (escuro por padrão). Esta spec segue o par light/dark já implementado nas Manutenções #9 e #31, não o padrão Uid genérico do CLAUDE.md global.
 
-**Superfícies (navy):**
-- `navy-950` (`#0a0f1e`) — fundo da aplicação
-- `navy-900` (`#0f1729`) — fundo de blocos secundários dentro de modal
-- `navy-800` (`#1a2540`) — cards, modais, tabelas, inputs
-- `navy-700` (`#232f4d`) — hover de linhas, bordas de separação
-- `navy-600` (`#2a3352`) — bordas de cards e inputs
-- `navy-500` (`#3d4a73`) — ícones e elementos de apoio
+| Token | Light | Dark | Uso nesta tarefa |
+|---|---|---|---|
+| Fundo do avatar (sem foto) | `bg-primary-100` (#dbeafe) | `bg-violet-900/40` | Círculo de iniciais — já em uso no Header atual, apenas migra para o componente `Avatar` |
+| Texto da inicial | `text-primary-700` (#1d4ed8) | `text-violet-300` | Idem |
+| Botão de ação secundária no Header ("Senha", "Sair") | `text-gray-500 hover:bg-gray-100 hover:text-gray-700` | `text-slate-400 hover:bg-navy-700 hover:text-slate-200` | Botão "Alterar foto" **herda exatamente esta classe** — zero cor nova |
+| Erro em modal | `bg-red-50 border-red-200 text-red-700` | `bg-red-950/40 border-red-800 text-red-300` | Bloco de erro do modal de foto — mesmo padrão do modal de senha, reaproveitado 1:1 |
+| Ação destrutiva ("Remover foto") | `text-red-600` | `text-red-400` | Ver nota 2.2/2.4 — link textual, não botão sólido |
+| Fonte | Plus Jakarta Sans (display) / DM Sans (body) | idem | Já carregada globalmente — nenhuma ação |
+| Border-radius | `rounded-full` (avatar), `rounded-lg` (modal/inputs/botões) | idem | Padrão já em uso em `Modal.jsx`/`Button.jsx`/`Input.jsx` |
+| Ícones | **lucide-react** (já é dependência do projeto — `Mail` em `Usuarios.jsx`, `ModalScannerCamera.jsx` no PDV) | — | Usar `Camera` (lucide) no botão "Alterar foto" — ver nota 1.3 |
 
-**Interação (violet):**
-- `violet-600` (`#7c3aed`) — botão primário (dark), aba ativa
-- `violet-700` (`#6d28d9`) — hover de botão primário (dark)
-- `violet-500` (`#8b5cf6`) — destaque de link, badge de ação
-- `violet-400` (`#a78bfa`) — texto de label ativo, ícone selecionado
-
-**Texto:**
-- `text-slate-100` — texto principal
-- `text-slate-400` — texto secundário / labels
-- `text-slate-500` — placeholder / muted
-
-**Feedback:**
-- Success: `text-emerald-400` / `bg-emerald-400/15`
-- Warning: `text-amber-400` / `bg-amber-400/15`
-- Error / Perigo: `text-red-400` / `bg-red-400/15` (light: `text-red-700` / `bg-red-50`)
-
-**Fontes:**
-- Títulos/labels de peso: `font-sans` (Plus Jakarta Sans), weight 600–800
-- Body / dados: `font-body` (DM Sans), weight 400–500
-
-**BorderRadius padrão:**
-- Botões: `rounded-lg` (8px)
-- Modal: `rounded-2xl`
-- Blocos de aviso/cards internos: `rounded-lg`
-- Badges: `rounded-full`
-
-**Componentes reutilizáveis a usar (nenhum componente novo de base):**
-- `Modal` (`components/ui/Modal.jsx`) — overlay centralizado, `maxW`
-  configurável, já em dark mode. Reutilizar para o modal de anonimização.
-- `Button` (`components/ui/Button.jsx`) — variantes `primary` / `secondary`
-  / `danger`, suporta `loading` e `disabled`.
-- `Input` (`components/ui/Input.jsx`) — label + input + error, dark mode
-  pronto. Reutilizar para o campo de confirmação por digitação.
-- Banner de toast local (`useState({ type, msg })` + bloco fixo) — mesmo
-  padrão já usado em `Agendamento.jsx`/`Financeiro.jsx`/`Fornecedores.jsx`.
-  **Não** introduzir lib de toast nova.
-- `extractErrorMessage` (`utils/errors.js`) — mensagem de erro da API em
-  toda falha de exportar/anonimizar.
-
-**Ícones (Lucide React) para esta feature:**
-
-| Ação/Elemento | Ícone | Tamanho |
-|---|---|---|
-| Aba/menu "LGPD" | `<Shield />` | 14px |
-| Exportar dados | `<Download />` | 14–16px |
-| Formato PDF | `<FileText />` | 14px (dentro do dropdown/botão) |
-| Formato JSON | `<FileJson />` | 14px (dentro do dropdown/botão) |
-| Anonimizar titular | `<UserX />` | 14–16px |
-| Aviso de irreversibilidade (modal) | `<AlertTriangle />` | 20px, cor de perigo |
-| Linha do histórico de exportação | `<History />` | 12px, `text-slate-400` |
-| Status "já anonimizado" | `<ShieldCheck />` | 12px, `text-slate-400` |
+**Componentes existentes a reutilizar (não recriar):** `Modal.jsx`, `Button.jsx` (variants `primary`/`secondary`, prop `loading`), bloco de erro do modal de senha (classe pronta, só copiar), `ResourceCrud.jsx` (extensão, não substituição).
 
 ---
 
-## Tela 1 — Aba "LGPD" na ficha do Cliente (`Clientes.jsx`)
+## 1. `Avatar.jsx` — componente novo (`frontend/src/components/ui/Avatar.jsx`)
 
-### Integração na tela existente
+### 1.1 Tamanhos
 
-O modal de edição do Cliente (`Clientes.jsx`, ~linha 524) já tem abas
-condicionadas a `editingId` (só aparecem quando o cliente já existe, nunca
-em "Novo Cliente"):
+| Size | Classe | Diâmetro | Fonte da inicial | Onde usa |
+|---|---|---|---|---|
+| `sm` | `w-8 h-8 text-xs` | 32px | `font-semibold text-xs` | Header (substitui o círculo atual `w-8 h-8`) e coluna "Foto" do `ResourceCrud` (linha de tabela) |
+| `md` | `w-10 h-10 text-sm` | 40px | `font-semibold text-sm` | Reserva para uso futuro (ex.: card de perfil, listagem mais espaçosa) — não usado nesta manutenção, mas o componente já nasce com a variante pronta |
+| `lg` | `w-24 h-24 text-2xl` | 96px | `font-semibold text-2xl` | Preview grande dentro do modal "Alterar foto" (seção 2.2) |
 
-```
-Dados | Assinaturas
-```
+Regra de implementação: tamanhos ficam num dict interno do componente (`{ sm: '...', md: '...', lg: '...' }`), nunca via prop `className` de fora sobrescrevendo dimensão — evita avatar com proporção quebrada (retangular) em algum ponto de uso futuro.
 
-Adicionar uma terceira aba na sequência, **visível somente quando
-`selectTemAcessoTotal(usuarioLogado)` for `true`** (mesma guarda já usada
-desde a Manutenção #60 — perfis sem acesso total não devem nem ver a aba,
-pois o backend (RF-05/RF-06) também exige `IsAdmin`/`tem_acesso_total`):
+### 1.2 Cor por inicial
 
-```
-Dados | Assinaturas | LGPD
-```
+**Decisão de Brush:** manter **uma única cor fixa** (`bg-primary-100`/`text-primary-700` claro, `bg-violet-900/40`/`text-violet-300` escuro) para todos os usuários sem foto — **não** gerar cor variável por hash do nome/e-mail nesta manutenção.
 
-Mesmo padrão visual das abas existentes — reutilizar a classe condicional
-já escrita no componente, só adicionando o terceiro `<button>`:
+Motivo: o pedido original ("cores por inicial") sugere paleta rotativa (estilo Gmail/Slack, uma cor por pessoa), mas isso não está no `Especificacao_Hotfix.md` do Analista — o RF-08 especifica exatamente `bg-primary-100/dark:bg-violet-900/40` fixo, "mesmo padrão de cor hoje hardcoded no Header". São os RFs que governam o escopo do Forge/Loom; introduzir paleta rotativa aqui seria o Brush discordando do RF sem ADR. Fica **registrado como sugestão de UX para ciclo futuro** (seção 5), não implementado agora.
 
-```
-ativa:   border-violet-500 text-violet-600 dark:text-violet-400
-inativa: border-transparent text-gray-400 dark:text-slate-500
-         hover:text-gray-600 dark:hover:text-slate-300
-comum:   px-3 py-2 text-sm font-medium border-b-2 transition-colors
-```
+### 1.3 Ícone do botão "Alterar foto"
 
-Label da aba: `<Shield size={14} className="inline mr-1 -mt-0.5" /> LGPD`
-— único item do conjunto de abas com ícone, para sinalizar visualmente
-que é uma área sensível (dado pessoal), diferente do CRUD comum das
-outras duas.
+Duas opções válidas; Brush recomenda a opção A por consistência local:
 
-### Conteúdo da aba "LGPD" (`AbaLgpdCliente`)
+- **Opção A (recomendada):** ícone de câmera via **lucide-react** (`import { Camera } from 'lucide-react'`), `className="w-4 h-4"` — mesma dimensão dos ícones SVG inline já usados nos botões "Senha" (`w-4 h-4`) e "Sair" ao lado dele. `lucide-react` já é dependência do projeto (`Usuarios.jsx`, `ModalScannerCamera.jsx` do PDV) — não é biblioteca nova.
+- **Opção B** (alternativa, se Loom preferir zero import novo no arquivo): inline SVG com o mesmo `strokeWidth={2}` dos ícones vizinhos, path de câmera simples. Visualmente equivalente, só evita um import adicional em `Header.jsx` (que hoje usa só SVG inline, nenhum lucide).
 
-Componente novo, mesmo padrão de `AbaAssinaturasCliente` já existente
-(função isolada recebendo `clienteId` e o `cliente` corrente como props,
-sem compartilhar estado com o form de edição de "Dados").
+Qualquer uma das duas deve ter o **mesmo peso visual** (viewBox 24x24, stroke 2, 16px renderizado) dos ícones de "Senha"/"Sair" ao lado — não introduzir ícone preenchido (filled) num Header que usa só outline.
 
-**Layout (mobile-first — coluna única sempre; a aba nunca precisa de 2
-colunas mesmo em desktop, pois o modal já é `max-w-2xl`):**
+### 1.4 Estados do Avatar
 
-```
-┌──────────────────────────────────────────────────────────┐
-│ Exportação e eliminação de dados (LGPD)                   │  ← título
-│ Direitos do titular previstos no art. 18 da LGPD.          │  ← subtítulo
-│                                                              │
-│ ┌──────────────────────────────────────────────────────┐ │
-│ │ [Download] Exportar dados do titular                    │ │  ← card 1
-│ │ Gera um relatório completo (cadastro, financeiro,       │ │
-│ │ vendas, agendamentos) para entregar ao titular.          │ │
-│ │                                                           │ │
-│ │  [Button secondary: PDF]   [Button secondary: JSON]     │ │
-│ └──────────────────────────────────────────────────────┘ │
-│                                                              │
-│ ┌──────────────────────────────────────────────────────┐ │
-│ │ [UserX] Anonimizar titular         [badge se já feito]  │ │  ← card 2
-│ │ Remove dados pessoais permanentemente. Exige             │ │
-│ │ exportação prévia. Ação irreversível.                      │ │
-│ │                                                           │ │
-│ │  [Button danger: Anonimizar titular]                     │ │
-│ └──────────────────────────────────────────────────────┘ │
-│                                                              │
-│ Histórico de exportações                                   │  ← título h4
-│ [History] 13/10/2026 14:02 — PDF — por Ana Souza            │  ← lista
-│ [History] 10/10/2026 09:15 — JSON — por Luiz Eduardo         │
-└──────────────────────────────────────────────────────────┘
-```
-
-**Título da seção:**
-`text-sm font-semibold text-gray-700 dark:text-slate-200` — "Exportação e
-eliminação de dados (LGPD)"
-
-**Subtítulo:**
-`text-xs text-gray-400 dark:text-slate-500` — "Direitos do titular
-previstos no art. 18 da LGPD (acesso, portabilidade, eliminação)."
-
-**Espaçamento entre blocos:** `space-y-4` no container da aba, mesmo
-padrão usado nos demais formulários do projeto.
-
-#### Card "Exportar dados do titular"
-
-```
-bg-gray-50 dark:bg-navy-900/50
-border border-gray-200 dark:border-navy-700
-rounded-lg p-4
-```
-
-- Cabeçalho do card: `flex items-center gap-2` —
-  `<Download size={16} className="text-primary-600 dark:text-violet-400" />`
-  + título `text-sm font-semibold text-gray-700 dark:text-slate-200`
-- Descrição: `text-xs text-gray-500 dark:text-slate-400 mt-1 mb-3`
-- Botões: `flex gap-2 flex-wrap` (quebra naturalmente em telas estreitas —
-  suficiente para mobile, já que o modal tem largura controlada e os dois
-  botões cabem lado a lado em ~320px)
-  - `<Button variant="secondary" size="sm"><FileText size={14}/> PDF</Button>`
-  - `<Button variant="secondary" size="sm"><FileJson size={14}/> JSON</Button>`
-- Ação de cada botão: dispara `GET /api/v1/clientes/{id}/exportar/?formato=pdf|json`
-  via `api.get(..., { responseType: 'blob' })`, cria link temporário
-  (`URL.createObjectURL` + `<a download>`) e dispara o download —
-  **nenhum conteúdo renderizado na tela**, conforme RF-08. Enquanto a
-  requisição está em voo, apenas o botão clicado entra em `loading`
-  (spinner já embutido no `Button`); o outro permanece clicável.
-- Erro: toast vermelho padrão do projeto com `extractErrorMessage(err)`.
-
-#### Card "Anonimizar titular"
-
-```
-bg-red-50 dark:bg-red-950/20
-border border-red-200 dark:border-red-900/40
-rounded-lg p-4
-```
-
-Único card com fundo de alerta (vermelho claro/escuro) em toda a ficha do
-cliente — destaque deliberado por ser a única ação irreversível da tela.
-O restante da ficha usa superfícies neutras (`navy-900`/`gray-50`); este
-card precisa "gritar" mais que os outros.
-
-- Cabeçalho: `flex items-center justify-between`
-  - Esquerda: `<UserX size={16} className="text-red-600 dark:text-red-400" />`
-    + título `text-sm font-semibold text-red-700 dark:text-red-300` —
-    "Anonimizar titular"
-  - Direita (somente quando `cliente.anonimizado === true`): badge
-    `bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400
-    rounded-full px-2 py-0.5 text-xs font-medium flex items-center gap-1`
-    — `<ShieldCheck size={12}/> Já anonimizado`
-- Descrição: `text-xs text-red-600/80 dark:text-red-400/80 mt-1 mb-3` —
-  "Remove nome, documento, contato e observações do titular de forma
-  permanente. Requer uma exportação prévia (é o backup exigido antes da
-  eliminação). Registros financeiros e fiscais são mantidos por
-  obrigação legal."
-- Botão: `<Button variant="danger" size="sm" disabled={cliente.anonimizado}>
-  <UserX size={14}/> Anonimizar titular</Button>` — abre o Modal de
-  confirmação (Tela 2). Quando `cliente.anonimizado` já é `true`, o botão
-  fica **desabilitado**, não escondido — o usuário precisa entender que a
-  ação já foi feita, não que ela desapareceu da tela.
-
-#### Histórico de exportações
-
-Lista simples, sem paginação (poucos registros por cliente na prática).
-Fonte de dados: endpoint/campo que o Forge decidir expor para leitura das
-`ExportacaoTitular` do cliente (ex.: incluso no detalhe do `Cliente` ou
-endpoint próprio) — a UI só precisa de uma lista
-`[{formato, created_at, created_by_nome}]`.
-
-- Título: `text-xs font-semibold text-gray-500 dark:text-slate-400
-  uppercase tracking-wide mt-2` — "Histórico de exportações"
-- Item: `flex items-center gap-2 text-xs text-slate-400 py-1` —
-  `<History size={12}/>` + `{data formatada} — {formato} — por
-  {created_by_nome}`
-- Estado vazio: `text-xs text-gray-400 dark:text-slate-500 text-center
-  py-3` — "Nenhuma exportação registrada ainda."
-- Ordenação: mais recente primeiro.
-
----
-
-## Tela 2 — Modal de confirmação de anonimização
-
-Reutiliza o componente `Modal` existente (`components/ui/Modal.jsx`),
-**não criar modal novo do zero**.
-
-```jsx
-<Modal title="Anonimizar titular" onClose={fecharModalAnonimizar} maxW="max-w-md">
-  ...
-</Modal>
-```
-
-### Layout interno do modal
-
-```
-┌─────────────────────────────────────────────────┐
-│ Anonimizar titular                           [×] │  ← título do Modal (já existe)
-│                                                    │
-│ ┌────────────────────────────────────────────┐  │
-│ │ [AlertTriangle] Esta ação é irreversível.     │  │  ← bloco de aviso
-│ │ Nome, documento, telefone, e-mail e           │  │
-│ │ observações de "{nome atual}" serão            │  │
-│ │ removidos permanentemente. Registros          │  │
-│ │ financeiros e fiscais continuam vinculados    │  │
-│ │ ao cliente, por obrigação legal (LGPD          │  │
-│ │ art. 16, I).                                   │  │
-│ └────────────────────────────────────────────┘  │
-│                                                    │
-│ Para confirmar, digite o nome completo do          │
-│ titular:                                           │
-│ "{nome_razao_social atual}"                        │
-│                                                    │
-│ [Input: __________________________]               │
-│                                                    │
-│ [Button secondary: Cancelar]  [Button danger:      │
-│                                 Confirmar            │
-│                                 anonimização]        │
-└─────────────────────────────────────────────────┘
-```
-
-**Bloco de aviso (topo do modal, antes de qualquer input):**
-```
-bg-red-50 dark:bg-red-950/30
-border border-red-200 dark:border-red-900/50
-rounded-lg p-3
-flex gap-2 items-start
-```
-- Ícone: `<AlertTriangle size={20} className="text-red-600 dark:text-red-400 shrink-0 mt-0.5" />`
-- Texto: `text-sm text-red-700 dark:text-red-300` — negrito só na primeira
-  frase (`<strong>Esta ação é irreversível.</strong>`), resto peso normal.
-  Interpolar o nome atual do cliente dentro do texto (entre aspas, igual
-  ao wireframe) para reforçar qual registro será afetado.
-
-**Campo de confirmação por digitação:**
-- Label: `text-sm text-gray-700 dark:text-slate-300 mb-1` — "Para
-  confirmar, digite o nome completo do titular:"
-- Abaixo do label, o nome atual em destaque:
-  `text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2` —
-  `"{cliente.nome_razao_social}"` (entre aspas, cor neutra — não é erro,
-  é referência)
-- `<Input placeholder="Digite o nome exatamente como mostrado acima" />`
-  — comparação **estritamente local** (`valorDigitado === nomeAtual`,
-  sem `trim()` nem case-insensitive — fricção deliberada, conforme RF-08:
-  comparar string local, sem chamar a API a cada tecla)
-- Enquanto o valor não bate, **não** usar a prop `error` do `Input` (não é
-  erro de validação de campo, é estado incompleto da confirmação) — em
-  vez disso, o botão de confirmar simplesmente permanece `disabled`. Não
-  exibir mensagem de erro embaixo do campo enquanto o usuário ainda está
-  digitando.
-
-**Botões (footer do modal):**
-`flex justify-end gap-2 mt-5 flex-wrap`
-- `<Button variant="secondary" onClick={fechar}>Cancelar</Button>`
-- `<Button variant="danger" disabled={valorDigitado !== nomeAtual} loading={enviando}>
-  Confirmar anonimização</Button>`
-  — ao clicar, `POST /api/v1/clientes/{id}/anonimizar/` com
-  `{ confirmo: true }`. Erro (400 sem exportação prévia, 400 já
-  anonimizado) exibido como banner de erro **dentro do próprio modal**
-  (acima dos botões, mesmo padrão `bg-red-50`/`text-red-700` já usado em
-  outros formulários do projeto), usando `extractErrorMessage(err)` — o
-  modal **não fecha** em caso de erro, para o usuário poder ler a
-  orientação (ex.: "exporte os dados antes de anonimizar") e agir (trocar
-  para a aba/card "Exportar", sem perder o contexto do que estava fazendo).
-- Sucesso: fecha o modal, atualiza o `cliente` em memória na ficha
-  (`anonimizado: true`, `nome_razao_social` com o novo valor retornado
-  pela API), dispara o toast de sucesso padrão do projeto
-  (`bg-accent-600 dark:bg-violet-600`) com a mensagem "Titular anonimizado
-  com sucesso." Ao reabrir a ficha/voltar para a aba "Dados", o nome já
-  aparece atualizado, sem precisar recarregar a listagem inteira.
-
-### Mobile (375px)
-
-- `Modal` já é responsivo (`w-full` com `px-4` no overlay) — nada
-  específico a ajustar na estrutura do componente em si.
-- Botões do footer: `flex-wrap` evita que "Cancelar" e "Confirmar
-  anonimização" espremam o texto em telas muito estreitas — testar em
-  375px; se o texto do botão `danger` cortar, aplicar `flex-col` abaixo
-  de `sm:` apenas nesse footer (decisão de implementação do Loom).
-- Cards da aba "LGPD" (Tela 1): botões PDF/JSON com `flex-wrap` já
-  cobrem o caso mobile sem precisar de `flex-col` forçado.
-
----
-
-## Resumo de ícones novos usados nesta manutenção (import único em `Clientes.jsx`)
-
-```js
-import { Shield, Download, FileText, FileJson, UserX, AlertTriangle, History, ShieldCheck } from 'lucide-react'
-```
-
-Nenhum ícone fora do catálogo Lucide já em uso no projeto — consistente
-com a regra de ícones Lucide em todo o sistema (nunca emoji, exceto a
-exceção já documentada da Sidebar, que não se aplica aqui).
-
----
-
-## O que NÃO fazer (armadilhas desta tela)
-
-```
-❌ NÃO renderizar o conteúdo exportado na tela — exportar é download
-   direto (blob + <a download>), nunca abrir o PDF/JSON embutido na página
-❌ NÃO comparar o campo de confirmação com debounce/chamada à API —
-   é comparação de string 100% local, sem round-trip de rede
-❌ NÃO usar trim()/lowercase na comparação do nome digitado — fricção
-   deliberada, igual aos demais padrões de confirmação crítica do projeto
-❌ NÃO esconder o botão "Anonimizar titular" quando já anonimizado —
-   desabilitar e mostrar o badge "Já anonimizado", nunca remover da tela
-❌ NÃO fechar o modal de anonimização em caso de erro da API — usuário
-   precisa ler a mensagem (ex: "exporte antes") sem perder o contexto
-❌ NÃO criar um componente de modal novo — reutilizar Modal/Button/Input
-   já existentes, mesmo padrão usado em Assinaturas/Agendamento
-❌ NÃO introduzir lib de toast nova — usar o banner local já padronizado
-❌ NÃO mostrar a aba "LGPD" para usuário sem tem_acesso_total — ela some
-   da UI da mesma forma que outras áreas sensíveis desde a Manutenção #60
-```
-
----
-
-## Componentes existentes a reutilizar (mapa explícito)
-
-| Componente | Onde reutilizar |
+| Estado | Comportamento |
 |---|---|
-| `Modal` | Modal de confirmação de anonimização (`maxW="max-w-md"`) |
-| `Input` | Campo de confirmação por digitação do nome |
-| `Button` | Botões PDF/JSON, Anonimizar titular, Cancelar/Confirmar |
-| Banner de toast local | Sucesso/erro de exportar e anonimizar |
-| `extractErrorMessage` | Toda mensagem de erro da API nesta feature |
+| `foto` presente | `<img>` com `object-cover`, `rounded-full`, fundo `bg-primary-100 dark:bg-violet-900/40` visível durante o carregamento da imagem (evita "flash" transparente) |
+| `foto` ausente | Círculo com inicial (ver 1.2) |
+| `foto` com URL que falha ao carregar (404/erro de rede) | **Não especificado no RF do Analista — Brush define:** `onError` do `<img>` deve cair para o estado "sem foto" (iniciais), nunca deixar ícone de imagem quebrada do navegador. Implementação sugerida: estado local `erroCarregamento` no próprio `Avatar.jsx`, setado `true` no `onError`, renderizando o bloco de iniciais quando `true` mesmo com `foto` preenchido |
+| Avatar clicável (Header) | `cursor-pointer`, `hover:opacity-80` — sem necessidade de anel de foco adicional além do que o elemento clicável-pai já fornece |
+| Avatar não-clicável (tabela de Usuários) | Sem `cursor-pointer`, sem `onClick` — é só visualização (RN-01 do Analista: essa tela não edita foto de terceiro) |
 
-Nenhum componente de base foi alterado — apenas consumido como já existe.
-A aba "Dados" e a aba "Assinaturas" do mesmo modal permanecem com zero
-alteração visual. A tela de listagem de Clientes (tabela, filtros,
-paginação) também é inalterada — a aba LGPD vive inteiramente dentro do
-modal de edição já existente.
+---
+
+## 2. Modal "Alterar foto" (Header)
+
+### 2.1 Gatilho e posicionamento
+
+- Mesmo padrão visual do botão "Senha" já existente: `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm`, cores conforme tabela da seção 0.
+- Ordem no Header (grupo da direita, esquerda→direita): toggle tema → avatar + nome (clicável, abre o mesmo modal) → botão "Alterar foto" → botão "Senha" → botão "Sair". Avatar clicável e botão "Alterar foto" abrindo o **mesmo modal** é intencional — redundância de affordance é aceitável aqui, já que o botão com label explícito cobre o caso do usuário não perceber que o avatar é clicável.
+- Label do botão: **"Foto"** (não "Alterar foto" por extenso) — segue a convenção de label curta já usada ao lado ("Senha", "Sair"), visível só em `sm:` e acima (`hidden sm:block`, igual aos vizinhos). Em mobile (<640px), só o ícone aparece — mesmo comportamento dos botões vizinhos.
+
+### 2.2 Layout do modal (`<Modal title="Foto de perfil">`)
+
+Largura/padding seguem o `Modal.jsx` genérico (não alterar o componente). Conteúdo interno, de cima para baixo:
+
+```
+┌─────────────────────────────────────┐
+│  Foto de perfil                  ×  │  ← título do Modal (padrão)
+├─────────────────────────────────────┤
+│                                      │
+│          [Avatar lg, 96px]           │  ← foto atual OU preview local OU iniciais
+│         centralizado, mx-auto        │
+│                                      │
+│   [Remover foto]  (só se tem foto    │  ← texto link/secundário, abaixo do avatar,
+│    E nenhum arquivo novo escolhido)  │     text-red-600 dark:text-red-400, sem
+│                                      │     borda (link destrutivo, não botão
+│                                      │     sólido — ação pouco frequente)
+│                                      │
+│   [input file: "Escolher foto"]      │  ← Button variant="secondary" cobrindo um
+│                                      │     <input type="file" accept="image/*"
+│                                      │     className="hidden"> — padrão de "botão
+│                                      │     disfarçado de input file" já usado no
+│                                      │     upload de extrato em Conciliação
+│                                      │
+│   [bloco de erro, se houver]         │  ← bg-red-50/border-red-200, mesmo padrão
+│                                      │     do modal de senha
+│                                      │
+│              [Cancelar] [Salvar]     │  ← mesmo rodapé do modal de senha:
+│                                      │     justify-end gap-3 pt-2
+└─────────────────────────────────────┘
+```
+
+Espaçamento vertical interno: `space-y-4` entre os blocos (avatar+remover / input / erro / rodapé) — igual ao `space-y-4` já usado no `<form>` do modal de senha, nenhum espaçamento novo inventado.
+
+### 2.3 Estados do modal
+
+| Estado | O que muda visualmente |
+|---|---|
+| **Sem foto, nenhum arquivo escolhido** (quem nunca teve foto) | Avatar `lg` com iniciais. Sem "Remover foto" (RF-09: só aparece se `user.foto_url` existir). Botão "Escolher foto" visível. |
+| **Com foto, nenhum arquivo novo escolhido** | Avatar `lg` mostra a foto atual (`user.foto_url`). "Remover foto" visível, abaixo do avatar. "Escolher foto" visível (permite trocar). |
+| **Arquivo novo escolhido (preview local, ainda não enviado)** | Avatar `lg` passa a mostrar o **preview local** (`URL.createObjectURL`), não mais a foto antiga nem a inicial. "Remover foto" **esconde** nesse momento (ação não faz sentido para um arquivo que ainda nem foi salvo — evita ambiguidade "remover o quê, o antigo ou o novo?"). Nome do arquivo escolhido aparece como texto pequeno (`text-xs text-gray-500 dark:text-slate-400`) abaixo do botão "Escolher foto" (ex.: "foto-perfil.jpg selecionada"). "Salvar" passa a ficar habilitado (antes, sem arquivo escolhido, "Salvar" deve estar desabilitado — só "Cancelar" faz sentido sozinho). |
+| **Enviando (loading)** | `Button` com prop `loading` no "Salvar" (spinner já padrão do componente, igual ao modal de senha) — desabilita "Cancelar" e "Escolher foto" durante o envio, para não trocar de arquivo no meio do upload. |
+| **Erro** (RF-02/RN-02/RN-03 do backend: arquivo >5MB ou não é imagem) | Bloco vermelho acima do rodapé com a mensagem exata devolvida pela API (`error?.response?.data?.erro`) — nunca texto genérico tipo "Erro ao enviar". Preview local permanece visível (usuário pode trocar o arquivo sem perder o modal aberto). |
+| **Sucesso** | Fecha o modal imediatamente (RF-10). Diferente do modal de senha (que mostra uma tela de confirmação intermediária), para foto Brush recomenda fechar direto — o resultado já é visualmente confirmado na hora pelo Avatar do Header mudando. Menos um clique que no fluxo de senha, intencional, não é inconsistência. |
+| **Removendo foto (loading)** | Mesmo spinner, no link "Remover foto" em vez do botão "Salvar". |
+
+### 2.4 Confirmação de remoção
+
+RF-09 não especifica se "Remover foto" exige confirmação extra. Brush define: **sim**, `window.confirm('Remover sua foto de perfil?')` antes de disparar o `DELETE` — mesmo padrão já usado em `Usuarios.jsx::onBeforeSubmit` para o autobloqueio de acesso. É ação destrutiva sem "desfazer", então pede confirmação mesmo sendo de baixo impacto (alinhado à regra global "Ações destrutivas sem confirmação" como armadilha a evitar).
+
+---
+
+## 3. Integração no Header (visual, complementando RF-09/seção 7.2 do Analista)
+
+- O avatar `sm` (32px) substitui exatamente o círculo de iniciais atual nas mesmas coordenadas (`gap-2` com o nome ao lado, nome em `<span className="hidden sm:block">`) — nenhuma mudança de espaçamento no Header fora da troca do próprio círculo.
+- Área clicável do avatar: o `<div className="flex items-center gap-2">` que hoje envolve avatar+nome deve virar um elemento interativo (`<button>` ou `<div role="button" tabIndex={0}>` com handler de `Enter`/`Space`) para abrir o modal — hoje é `<div>` estático, sem affordance de clique nenhum. Precisa de `cursor-pointer` + `hover:opacity-80` para sinalizar que é interativo; sem isso, o usuário não tem pista visual de que pode clicar ali.
+
+---
+
+## 4. Integração em `Usuarios.jsx` / `ResourceCrud` (CA-08)
+
+- Nova coluna **primeira da tabela**, `label: ''` (sem texto no cabeçalho — é só o avatar) — já especificado assim no RF-11/seção 7.4 do Analista; Brush confirma e detalha o visual:
+  - Avatar `size="sm"` (32px) — mesma dimensão do Header, consistência entre os dois únicos pontos de avatar do sistema nesta manutenção.
+  - Largura da coluna: só o círculo + padding de célula padrão da tabela (`px-4 py-3`, já usado nas demais colunas) — não alargar a coluna além do necessário; ela não deve competir por espaço com "Nome"/"E-mail" em telas estreitas.
+  - Mobile (<640px): manter o comportamento de scroll horizontal padrão já existente no `ResourceCrud` para tabelas com várias colunas — avatar rola junto com o resto. Column-pinning é melhoria separada, fora de escopo (ver seção 5).
+
+---
+
+## 5. Sugestões para ciclo futuro (não implementar agora — fora de escopo desta manutenção)
+
+```
+- Paleta de cores rotativa por hash do nome/e-mail para o círculo de iniciais
+  (estilo Gmail/Slack), em vez da cor fixa atual — mencionado no pedido original
+  ("cores por inicial"), mas RF-08 do Analista já fixou cor única; mudar isso
+  exigiria realinhar com Analista/Planner antes de implementar, não é decisão
+  unilateral do Brush.
+- Avatar de rh.Colaborador e clientes.Cliente — RN-10 do Analista já deixa isso
+  fora de escopo; quando vier, o Avatar.jsx criado aqui é reaproveitável sem
+  nenhuma mudança (props genéricas foto/nome/size, zero acoplamento a User).
+- Column-pinning da coluna "Foto" na tabela de Usuários em viewport mobile.
+```
+
+---
+
+## 6. Checklist de consistência visual (Sentinel pode usar para validar)
+
+```
+[ ] Avatar sm no Header tem exatamente 32px (w-8 h-8), igual ao círculo que substituiu
+[ ] Cores do avatar sem foto idênticas nos dois modos (light/dark) às já usadas
+    hoje no Header antes da mudança — nenhuma cor nova introduzida
+[ ] Botão "Foto" no Header tem o mesmo padding/hover/cor dos botões "Senha"/"Sair"
+    (comparar classes Tailwind, não só "parecido visualmente")
+[ ] Modal "Alterar foto" usa o componente Modal.jsx genérico, não um modal customizado
+[ ] Bloco de erro do modal de foto é idêntico (classes) ao bloco de erro do modal de senha
+[ ] Botão "Salvar" desabilitado quando nenhum arquivo foi escolhido
+[ ] "Remover foto" só aparece quando há foto_url E nenhum arquivo novo em preview
+[ ] Avatar na tabela de Usuários tem o mesmo tamanho (sm) do Avatar do Header
+[ ] onError da <img> do Avatar cai para iniciais, nunca ícone de imagem quebrada
+[ ] Fontes seguem Plus Jakarta Sans/DM Sans já carregadas — nenhum import de fonte novo
+[ ] Nenhuma biblioteca de componente nova introduzida (Avatar é inline Tailwind,
+    igual ao resto do projeto)
+```
 
 ---
 
 ## Passagem de bastão
 
 ```
-Especificacao UI concluida — UidCore [NUCLEO 5/5]
-Telas especificadas: 2
-  1. Aba "LGPD" na ficha do Cliente (Clientes.jsx) — exportar PDF/JSON +
-     card de anonimização + histórico de exportações
-  2. Modal de confirmação forte de anonimização (digitar nome atual)
+✅ Especificação UI concluída — UidCore (Manutenção #72)
+   Telas analisadas: 2 (Header.jsx, Usuarios.jsx) + 1 componente novo (Avatar.jsx)
+   Componentes reutilizados: Modal.jsx, Button.jsx, ResourceCrud.jsx (extensão),
+     padrão "botão disfarçado de input file" já usado em Conciliação
+   Novos padrões: Avatar.jsx (3 tamanhos sm/md/lg), estado onError com fallback
+     para iniciais, confirmação window.confirm() para "Remover foto"
 
-Componentes reutilizados: Modal, Input, Button, banner de toast local,
-                          extractErrorMessage
-Novos componentes:        AbaLgpdCliente (função isolada, mesmo padrão de
-                          AbaAssinaturasCliente)
-Modo: Padrão Uid (dark mode navy/violet já estabelecido, Manutenção #31)
+📁 Arquivo: Especificacao_UI_Hotfix.md (salvo em /var/www/uidcore/)
 
-Arquivo: /var/www/uidcore/Especificacao_UI_Hotfix.md
-
--> Loom le Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md
-   antes de implementar a aba LGPD e o modal de anonimizacao em
-   Clientes.jsx.
+➡️ Loom lê Especificacao_Hotfix.md (Analista, RFs/RNs/código de referência)
+   + Especificacao_UI_Hotfix.md (este arquivo, camada visual/estados/espaçamento)
+   antes de implementar Avatar.jsx, o modal do Header e a coluna do ResourceCrud
 ```
