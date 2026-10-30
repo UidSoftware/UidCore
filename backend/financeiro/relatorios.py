@@ -44,6 +44,10 @@ def _divida_cartao_credito():
     return abs(saldo_cartao) if saldo_cartao < Decimal('0') else Decimal('0')
 
 
+def margem_percentual(valor, base):
+    return round(valor / base * 100, 2) if base else Decimal('0')
+
+
 def calcular_dre_mes(ano, mes):
     rec_qs = Receita.objects.filter(
         recebimento__year=ano, recebimento__month=mes,
@@ -81,8 +85,19 @@ def calcular_dre_mes(ano, mes):
     total_despesas = fixas + variaveis + prolabore + impostos + outros
     resultado = receita_liquida - total_despesas
 
-    # EBITDA = resultado + impostos + prolabore (sem D&A modelado)
-    ebitda = resultado + impostos + prolabore
+    # EBITDA padrao (corrigido em 29/10/2026; antes era resultado + impostos
+    # + prolabore): resultado operacional antes do resultado financeiro e de
+    # D&A (D&A nao modelado = 0). Pro-labore e custo operacional e Impostos/DAS
+    # (Simples, sobre o faturamento) e deducao da receita: os dois ficam
+    # descontados. Receita financeira fica fora. EBITDA ajustado = EBITDA +
+    # pro-labore, referencia usual pra microempresa.
+    descontos_operacionais = rec_qs.exclude(tipo='RECEITA_FINANCEIRA').aggregate(
+        v=Sum('desconto'))['v'] or Decimal('0')
+    receita_liquida_operacional = receita_operacional - descontos_operacionais - impostos
+    ebitda = receita_liquida_operacional - (fixas + variaveis + prolabore + outros)
+    ebitda_ajustado = ebitda + prolabore
+    resultado_financeiro = resultado - ebitda
+    margem_ebitda = margem_percentual(ebitda, receita_liquida_operacional)
 
     receitas_por_cat = list(
         rec_qs.filter(categoria__isnull=False)
@@ -110,7 +125,11 @@ def calcular_dre_mes(ano, mes):
         'outros': outros,
         'total_despesas': total_despesas,
         'resultado': resultado,
+        'receita_liquida_operacional': receita_liquida_operacional,
         'ebitda': ebitda,
+        'ebitda_ajustado': ebitda_ajustado,
+        'margem_ebitda': margem_ebitda,
+        'resultado_financeiro': resultado_financeiro,
         'receitas_por_categoria': {r['categoria__nome']: r['total'] for r in receitas_por_cat},
         'despesas_por_categoria': {d['categoria__nome']: d['total'] for d in despesas_por_cat},
     }
@@ -351,6 +370,8 @@ def calcular_indicadores_cfo():
         'resultado_mes': resultado,
         'receita_liquida_mes': receita_liq,
         'ebitda_mes': dre_mes['ebitda'],
+        'ebitda_ajustado_mes': dre_mes['ebitda_ajustado'],
+        'margem_ebitda_mes': dre_mes['margem_ebitda'],
         'var_mes_anterior': round(var_mes_anterior, 1),
         'var_ano_anterior': round(var_ano_anterior, 1),
     }

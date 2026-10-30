@@ -1148,7 +1148,9 @@ const DRE_LINHAS = [
   { key: 'outros', label: '(-) Outros', bold: false, negative: true },
   { key: 'total_despesas', label: 'Total Despesas', bold: true, negative: true },
   { key: 'resultado', label: 'Resultado Líquido', bold: true, highlight: true },
+  { key: 'resultado_financeiro', label: 'Resultado Financeiro', bold: false },
   { key: 'ebitda', label: 'EBITDA', bold: true, highlight: true },
+  { key: 'ebitda_ajustado', label: 'EBITDA ajustado (sem pró-labore)', bold: false },
 ]
 
 function DreTab() {
@@ -1293,11 +1295,13 @@ function DreTab() {
           </div>
 
           {data.totais_ano && (
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               <KpiCard label="Receita Líquida (Ano)" value={BRL(data.totais_ano.receita_liquida)} color="green" />
               <KpiCard label="Total Despesas (Ano)" value={BRL(data.totais_ano.total_despesas)} color="red" />
               <KpiCard label="Resultado (Ano)" value={BRL(data.totais_ano.resultado)} color={Number(data.totais_ano.resultado) >= 0 ? 'green' : 'red'} />
               <KpiCard label="EBITDA (Ano)" value={BRL(data.totais_ano.ebitda)} color={Number(data.totais_ano.ebitda) >= 0 ? 'green' : 'red'} />
+              <KpiCard label="EBITDA ajustado (Ano)" value={BRL(data.totais_ano.ebitda_ajustado)} color={Number(data.totais_ano.ebitda_ajustado) >= 0 ? 'green' : 'red'} />
+              <KpiCard label="Margem EBITDA (Ano)" value={`${data.totais_ano.margem_ebitda}%`} color={Number(data.totais_ano.margem_ebitda) >= 0 ? 'green' : 'red'} />
             </div>
           )}
         </>
@@ -1435,6 +1439,7 @@ function IndicadoresTab() {
           <div className="space-y-1">
             <p className="text-xs text-gray-500 dark:text-slate-500">EBITDA (mês)</p>
             <p className="text-lg font-bold text-gray-900 dark:text-slate-100">{BRL(indicadores.ebitda_mes)}</p>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Margem {indicadores.margem_ebitda_mes}% · ajustado {BRL(indicadores.ebitda_ajustado_mes)}</p>
           </div>
           <div className="space-y-1">
             <p className="text-xs text-gray-500 dark:text-slate-500">vs. Mês Anterior</p>

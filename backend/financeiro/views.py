@@ -26,7 +26,7 @@ from .serializers import (
 )
 from .relatorios import (
     calcular_balanco, calcular_dre_mes, calcular_fluxo_projetado,
-    calcular_indicadores_cfo, inferir_categoria_descricao,
+    calcular_indicadores_cfo, inferir_categoria_descricao, margem_percentual,
 )
 
 
@@ -424,8 +424,10 @@ def dre(request):
         'receita_bruta': Decimal('0'), 'descontos': Decimal('0'),
         'receita_liquida': Decimal('0'), 'despesas_fixas': Decimal('0'),
         'despesas_variaveis': Decimal('0'), 'prolabore': Decimal('0'),
-        'impostos': Decimal('0'), 'total_despesas': Decimal('0'),
-        'resultado': Decimal('0'), 'ebitda': Decimal('0'),
+        'impostos': Decimal('0'), 'outros': Decimal('0'),
+        'total_despesas': Decimal('0'), 'resultado': Decimal('0'),
+        'receita_liquida_operacional': Decimal('0'), 'ebitda': Decimal('0'),
+        'ebitda_ajustado': Decimal('0'), 'resultado_financeiro': Decimal('0'),
     }
 
     for mes in range(1, 13):
@@ -436,6 +438,8 @@ def dre(request):
         for k in totais:
             totais[k] += dados.get(k, Decimal('0'))
 
+    # margem do ano sai dos totais, nunca da soma das margens mensais
+    totais['margem_ebitda'] = margem_percentual(totais['ebitda'], totais['receita_liquida_operacional'])
     return Response({'ano': ano, 'meses': meses, 'totais_ano': totais})
 
 

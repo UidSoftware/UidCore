@@ -1261,3 +1261,56 @@ class PermissaoFinanceiroAPITest(APITestCase):
         self.client.force_authenticate(_make_operacional())
         resp = self.client.get('/api/v1/financeiro/dashboard/')
         self.assertEqual(resp.status_code, status.HTTP_200_OK)
+
+
+class EbitdaFormulaTest(APITestCase):
+    """EBITDA padrao (29/10/2026): pro-labore e Impostos/DAS descontados,
+    receita financeira fora; EBITDA ajustado = EBITDA + pro-labore."""
+
+    def test_ebitda_padrao_ajustado_e_margem(self):
+        from .relatorios import calcular_dre_mes
+        conta = _make_conta(nome='Conta EBITDA')
+        dia = date(2026, 3, 15)
+        Receita.objects.create(
+            tipo='SERVICO', descricao='Servico', valor_bruto=Decimal('1000.00'),
+            desconto=Decimal('100.00'), conta=conta, status='RECEBIDO', recebimento=dia,
+        )
+        Receita.objects.create(
+            tipo='RECEITA_FINANCEIRA', descricao='Rendimento', valor_bruto=Decimal('50.00'),
+            conta=conta, status='RECEBIDO', recebimento=dia,
+        )
+        for tipo, valor in [('FIXA', '200.00'), ('VARIAVEL', '100.00'), ('PROLABORE', '300.00'),
+                            ('IMPOSTO', '60.00'), ('OUTRO', '40.00')]:
+            Despesa.objects.create(
+                tipo=tipo, descricao=tipo, valor_bruto=Decimal(valor),
+                conta=conta, status='PAGO', pagamento=dia,
+            )
+
+        d = calcular_dre_mes(2026, 3)
+
+        # 1000 - 100 de desconto - 60 de DAS
+        self.assertEqual(d['receita_liquida_operacional'], Decimal('840.00'))
+        # 840 - (200 + 100 + 300 + 40)
+        self.assertEqual(d['ebitda'], Decimal('200.00'))
+        self.assertEqual(d['ebitda_ajustado'], Decimal('500.00'))
+        # resultado = 950 - 700 = 250 = EBITDA + 50 de receita financeira
+        self.assertEqual(d['resultado'], Decimal('250.00'))
+        self.assertEqual(d['resultado_financeiro'], Decimal('50.00'))
+        self.assertEqual(d['margem_ebitda'], Decimal('23.81'))
+
+    def test_dre_anual_margem_vem_dos_totais(self):
+        conta = _make_conta(nome='Conta EBITDA Ano')
+        Receita.objects.create(
+            tipo='SERVICO', descricao='Mar', valor_bruto=Decimal('1000.00'),
+            conta=conta, status='RECEBIDO', recebimento=date(2026, 3, 10),
+        )
+        Despesa.objects.create(
+            tipo='FIXA', descricao='Abr', valor_bruto=Decimal('500.00'),
+            conta=conta, status='PAGO', pagamento=date(2026, 4, 10),
+        )
+        self.client.force_authenticate(_make_user(email='ebitda-ano@teste.com'))
+        resp = self.client.get('/api/v1/financeiro/dre/', {'ano': 2026})
+        self.assertEqual(resp.status_code, 200)
+        totais = resp.json()['totais_ano']
+        self.assertEqual(Decimal(str(totais['ebitda'])), Decimal('500.00'))
+        self.assertEqual(Decimal(str(totais['margem_ebitda'])), Decimal('50.00'))
