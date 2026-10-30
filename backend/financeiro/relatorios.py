@@ -49,12 +49,16 @@ def margem_percentual(valor, base):
 
 
 def calcular_dre_mes(ano, mes):
+    # DRE e regime de COMPETENCIA (referencia_mes), nao de caixa — regra da
+    # fabrica (30/10/2026; antes lia recebimento/pagamento). Aluguel pago
+    # adiantado ou imposto anual concentrado nao distorcem o mes. Fluxo de
+    # caixa, Livro Caixa e conciliacao continuam pela data real do dinheiro.
     rec_qs = Receita.objects.filter(
-        recebimento__year=ano, recebimento__month=mes,
+        referencia_mes__year=ano, referencia_mes__month=mes,
         status='RECEBIDO', is_active=True,
     )
     desp_qs = Despesa.objects.filter(
-        pagamento__year=ano, pagamento__month=mes,
+        referencia_mes__year=ano, referencia_mes__month=mes,
         status='PAGO', is_active=True, estornado=False,
     )
 
@@ -82,14 +86,15 @@ def calcular_dre_mes(ano, mes):
     prolabore = desp_qs.filter(tipo='PROLABORE').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
     impostos = desp_qs.filter(tipo='IMPOSTO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
     outros = desp_qs.filter(tipo='OUTRO').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
-    total_despesas = fixas + variaveis + prolabore + impostos + outros
+    financeiras = desp_qs.filter(tipo='FINANCEIRA').aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
+    total_despesas = fixas + variaveis + prolabore + impostos + outros + financeiras
     resultado = receita_liquida - total_despesas
 
     # EBITDA padrao (corrigido em 29/10/2026; antes era resultado + impostos
     # + prolabore): resultado operacional antes do resultado financeiro e de
     # D&A (D&A nao modelado = 0). Pro-labore e custo operacional e Impostos/DAS
     # (Simples, sobre o faturamento) e deducao da receita: os dois ficam
-    # descontados. Receita financeira fica fora. EBITDA ajustado = EBITDA +
+    # descontados. Receita e despesa financeira (juros/tarifas) ficam fora. EBITDA ajustado = EBITDA +
     # pro-labore, referencia usual pra microempresa.
     descontos_operacionais = rec_qs.exclude(tipo='RECEITA_FINANCEIRA').aggregate(
         v=Sum('desconto'))['v'] or Decimal('0')
@@ -123,6 +128,7 @@ def calcular_dre_mes(ano, mes):
         'prolabore': prolabore,
         'impostos': impostos,
         'outros': outros,
+        'despesas_financeiras': financeiras,
         'total_despesas': total_despesas,
         'resultado': resultado,
         'receita_liquida_operacional': receita_liquida_operacional,
@@ -314,14 +320,14 @@ def calcular_indicadores_cfo():
 
     clientes_distintos = Receita.objects.filter(
         is_active=True, status='RECEBIDO',
-        recebimento__gte=primeiro_dia, recebimento__lte=ultimo_dia,
+        referencia_mes__gte=primeiro_dia, referencia_mes__lte=ultimo_dia,
         cliente__isnull=False,
     ).values('cliente').distinct().count()
     ticket_medio = (receita_liq / clientes_distintos) if clientes_distintos else Decimal('0')
 
     mrr = Receita.objects.filter(
         is_active=True, tipo='MENSALIDADE', status='RECEBIDO',
-        recebimento__gte=primeiro_dia, recebimento__lte=ultimo_dia,
+        referencia_mes__gte=primeiro_dia, referencia_mes__lte=ultimo_dia,
     ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
 
     saldo_total = _saldo_total_contas()
@@ -334,7 +340,7 @@ def calcular_indicadores_cfo():
             m += 12
             y -= 1
         total_desp = Despesa.objects.filter(
-            pagamento__year=y, pagamento__month=m,
+            referencia_mes__year=y, referencia_mes__month=m,  # burn rate: competencia
             status='PAGO', is_active=True, estornado=False,
         ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
         despesas_3m.append(total_desp)

@@ -425,6 +425,7 @@ def dre(request):
         'receita_liquida': Decimal('0'), 'despesas_fixas': Decimal('0'),
         'despesas_variaveis': Decimal('0'), 'prolabore': Decimal('0'),
         'impostos': Decimal('0'), 'outros': Decimal('0'),
+        'despesas_financeiras': Decimal('0'),
         'total_despesas': Decimal('0'), 'resultado': Decimal('0'),
         'receita_liquida_operacional': Decimal('0'), 'ebitda': Decimal('0'),
         'ebitda_ajustado': Decimal('0'), 'resultado_financeiro': Decimal('0'),
@@ -497,7 +498,7 @@ def dashboard_financeiro(request):
 
     mrr = Receita.objects.filter(
         is_active=True, tipo='MENSALIDADE', status='RECEBIDO',
-        recebimento__gte=primeiro_dia, recebimento__lte=ultimo_dia,
+        referencia_mes__gte=primeiro_dia, referencia_mes__lte=ultimo_dia,
     ).aggregate(v=Sum('valor_liquido'))['v'] or Decimal('0')
 
     prox_30 = hoje + timedelta(days=30)

@@ -1314,3 +1314,58 @@ class EbitdaFormulaTest(APITestCase):
         totais = resp.json()['totais_ano']
         self.assertEqual(Decimal(str(totais['ebitda'])), Decimal('500.00'))
         self.assertEqual(Decimal(str(totais['margem_ebitda'])), Decimal('50.00'))
+
+
+class CompetenciaDespesaFinanceiraTest(APITestCase):
+    """DRE por competencia + despesa financeira fora do EBITDA (30/10/2026)."""
+
+    def setUp(self):
+        self.conta = _make_conta(nome='Conta Competencia')
+
+    def test_referencia_mes_preenchida_pelo_vencimento(self):
+        r = Receita.objects.create(
+            descricao='Mensal', valor_bruto=Decimal('100.00'), conta=self.conta,
+            vencimento=date(2026, 3, 28), recebimento=date(2026, 4, 2), status='RECEBIDO',
+        )
+        self.assertEqual(r.referencia_mes, date(2026, 3, 1))
+        d = Despesa.objects.create(
+            descricao='Paga', valor_bruto=Decimal('10.00'), conta=self.conta,
+            pagamento=date(2026, 5, 9), status='PAGO',
+        )
+        self.assertEqual(d.referencia_mes, date(2026, 5, 1))
+
+    def test_dre_le_competencia_nao_caixa(self):
+        from .relatorios import calcular_dre_mes
+        # aluguel de marco pago adiantado em fevereiro
+        Despesa.objects.create(
+            tipo='FIXA', descricao='Aluguel marco', valor_bruto=Decimal('500.00'), conta=self.conta,
+            referencia_mes=date(2026, 3, 1), pagamento=date(2026, 2, 20), status='PAGO',
+        )
+        self.assertEqual(calcular_dre_mes(2026, 2)['despesas_fixas'], Decimal('0'))
+        self.assertEqual(calcular_dre_mes(2026, 3)['despesas_fixas'], Decimal('500.00'))
+
+    def test_despesa_financeira_fora_do_ebitda(self):
+        from .relatorios import calcular_dre_mes
+        dia = date(2026, 6, 10)
+        Receita.objects.create(
+            tipo='SERVICO', descricao='Servico', valor_bruto=Decimal('1000.00'),
+            conta=self.conta, status='RECEBIDO', recebimento=dia,
+        )
+        Despesa.objects.create(
+            tipo='FINANCEIRA', descricao='Juros', valor_bruto=Decimal('30.00'),
+            conta=self.conta, status='PAGO', pagamento=dia,
+        )
+        d = calcular_dre_mes(2026, 6)
+        self.assertEqual(d['despesas_financeiras'], Decimal('30.00'))
+        self.assertEqual(d['ebitda'], Decimal('1000.00'))
+        self.assertEqual(d['resultado'], Decimal('970.00'))
+        self.assertEqual(d['resultado_financeiro'], Decimal('-30.00'))
+
+    def test_api_aceita_mes_no_formato_aaaa_mm(self):
+        self.client.force_authenticate(_make_user(email='competencia@teste.com'))
+        resp = self.client.post('/api/v1/financeiro/despesas/', {
+            'tipo': 'FINANCEIRA', 'descricao': 'Tarifa', 'valor_bruto': '12.00',
+            'conta': self.conta.pk, 'referencia_mes': '2026-07',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(Despesa.objects.get(pk=resp.data['id']).referencia_mes, date(2026, 7, 1))

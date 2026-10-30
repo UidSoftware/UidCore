@@ -53,6 +53,10 @@ class ReceitaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     cliente_nome = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
+    # aceita 'AAAA-MM' (input type=month) alem da data completa; vazio = model preenche
+    referencia_mes = serializers.DateField(
+        required=False, allow_null=True, input_formats=['%Y-%m', 'iso-8601'],
+    )
 
     class Meta:
         model = Receita
@@ -85,6 +89,10 @@ class DespesaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
+    # aceita 'AAAA-MM' (input type=month) alem da data completa; vazio = model preenche
+    referencia_mes = serializers.DateField(
+        required=False, allow_null=True, input_formats=['%Y-%m', 'iso-8601'],
+    )
 
     class Meta:
         model = Despesa

@@ -18,6 +18,7 @@ const TABS = [
   { key: 'contas', label: 'Contas' },
   { key: 'livro', label: 'Livro Caixa' },
   { key: 'dre', label: 'DRE' },
+  { key: 'ebitda', label: 'EBITDA' },
   { key: 'balanco', label: 'Balanço' },
   { key: 'indicadores', label: 'Indicadores' },
 ]
@@ -35,6 +36,7 @@ const TIPO_DESPESA = [
   { value: 'VARIAVEL', label: 'Despesa Variável' },
   { value: 'PROLABORE', label: 'Pró-labore' },
   { value: 'IMPOSTO', label: 'Imposto / DAS' },
+  { value: 'FINANCEIRA', label: 'Despesa Financeira (juros/tarifas)' },
   { value: 'OUTRO', label: 'Outro' },
 ]
 
@@ -145,6 +147,7 @@ export default function Financeiro() {
       {tab === 'contas' && <ContasTab showToast={showToast} />}
       {tab === 'livro' && <LivroCaixaTab contasOptions={contasOptions} />}
       {tab === 'dre' && <DreTab />}
+      {tab === 'ebitda' && <EbitdaTab />}
       {tab === 'balanco' && <BalancoTab />}
       {tab === 'indicadores' && <IndicadoresTab />}
     </div>
@@ -513,6 +516,7 @@ function ReceitasTab({ showToast, contasOptions }) {
       cliente: item.cliente || '', categoria: item.categoria || '',
       valor_bruto: item.valor_bruto || '', desconto: item.desconto || '0',
       conta: item.conta || '', vencimento: item.vencimento || '',
+      referencia_mes: (item.referencia_mes || '').slice(0, 7),
       observacoes: item.observacoes || '',
     })
     setEditingId(item.id); setModalOpen(true)
@@ -657,6 +661,8 @@ function ReceitasTab({ showToast, contasOptions }) {
               <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
               <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} />
             </div>
+            <Input label="Mês de referência (competência)" name="referencia_mes" type="month" value={form.referencia_mes} onChange={handleChange} />
+            <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Mês em que o lançamento entra no DRE. Vazio = mês do vencimento.</p>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observações</label>
               <textarea name="observacoes" value={form.observacoes} onChange={handleChange} rows={2}
@@ -676,7 +682,7 @@ function ReceitasTab({ showToast, contasOptions }) {
 
 const EMPTY_RECEITA = {
   tipo: 'SERVICO', descricao: '', cliente: '', categoria: '',
-  valor_bruto: '', desconto: '0', conta: '', vencimento: '', observacoes: '',
+  valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '', observacoes: '',
 }
 
 function DespesasTab({ showToast, contasOptions }) {
@@ -715,6 +721,7 @@ function DespesasTab({ showToast, contasOptions }) {
       fornecedor: item.fornecedor || '', categoria: item.categoria || '',
       valor_bruto: item.valor_bruto || '', desconto: item.desconto || '0',
       conta: item.conta || '', vencimento: item.vencimento || '',
+      referencia_mes: (item.referencia_mes || '').slice(0, 7),
       forma_pagamento: item.forma_pagamento || '', observacoes: item.observacoes || '',
     })
     setEditingId(item.id); setModalOpen(true)
@@ -861,6 +868,8 @@ function DespesasTab({ showToast, contasOptions }) {
               <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
               <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} />
             </div>
+            <Input label="Mês de referência (competência)" name="referencia_mes" type="month" value={form.referencia_mes} onChange={handleChange} />
+            <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Mês em que o lançamento entra no DRE. Vazio = mês do vencimento.</p>
             <Select label="Forma de Pagamento" name="forma_pagamento" options={FORMA_PAGAMENTO} value={form.forma_pagamento} onChange={handleChange} />
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Observações</label>
@@ -881,7 +890,7 @@ function DespesasTab({ showToast, contasOptions }) {
 
 const EMPTY_DESPESA = {
   tipo: 'VARIAVEL', descricao: '', fornecedor: '', categoria: '',
-  valor_bruto: '', desconto: '0', conta: '', vencimento: '',
+  valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '',
   forma_pagamento: '', observacoes: '',
 }
 
@@ -1146,6 +1155,7 @@ const DRE_LINHAS = [
   { key: 'prolabore', label: '(-) Pró-labore', bold: false, negative: true },
   { key: 'impostos', label: '(-) Impostos/DAS', bold: false, negative: true },
   { key: 'outros', label: '(-) Outros', bold: false, negative: true },
+  { key: 'despesas_financeiras', label: '(-) Despesas Financeiras', bold: false, negative: true },
   { key: 'total_despesas', label: 'Total Despesas', bold: true, negative: true },
   { key: 'resultado', label: 'Resultado Líquido', bold: true, highlight: true },
   { key: 'resultado_financeiro', label: 'Resultado Financeiro', bold: false },
@@ -1305,6 +1315,109 @@ function DreTab() {
             </div>
           )}
         </>
+      )}
+    </div>
+  )
+}
+
+function EbitdaTab() {
+  const currentYear = new Date().getFullYear()
+  const [ano, setAno] = useState(String(currentYear))
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  const anoOpts = Array.from({ length: 4 }, (_, i) => ({
+    value: String(currentYear - 2 + i), label: String(currentYear - 2 + i),
+  }))
+
+  useEffect(() => {
+    setLoading(true)
+    api.get('/financeiro/dre/', { params: { ano } })
+      .then((r) => setData(r.data))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false))
+  }, [ano])
+
+  if (loading) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Carregando...</div>
+  if (!data?.totais_ano) return <div className="text-center py-12 text-gray-400 dark:text-slate-500">Sem dados para o ano.</div>
+
+  const t = data.totais_ano
+  const n = (k) => Number(t[k] || 0)
+  const receitaBruta = n('receita_operacional')
+  const impostos = n('impostos')
+  const receitaLiquida = n('receita_liquida_operacional')
+  // descontos so da receita operacional: o que sobra entre bruta, DAS e liquida
+  const descontos = receitaBruta - impostos - receitaLiquida
+  const despesasOperacionais = n('despesas_fixas') + n('despesas_variaveis') + n('outros')
+  const ebitda = n('ebitda')
+  const pct = (v) => (receitaLiquida ? `${((v / receitaLiquida) * 100).toFixed(1)}%` : '')
+  const cor = (v) => (v >= 0 ? 'green' : 'red')
+
+  // Mesma base do DRE (competencia); D&A nao modelado, entao EBIT = EBITDA.
+  const linhas = [
+    { label: '(+) Receita Bruta Operacional', valor: receitaBruta, nota: 'Sem receita financeira' },
+    { label: '(−) Descontos', valor: -descontos },
+    { label: '(−) Impostos sobre o faturamento', valor: -impostos, nota: 'DAS / Simples' },
+    { label: '(=) Receita Líquida', valor: receitaLiquida, bold: true },
+    { label: '(−) Despesas Operacionais', valor: -despesasOperacionais, nota: 'Fixas + Variáveis + Outros' },
+    { label: '(−) Pró-labore', valor: -n('prolabore') },
+    { label: '(=) EBITDA', valor: ebitda, bold: true, highlight: true },
+    { label: '(−) Depreciação e Amortização', valor: null, nota: 'Não modelado no sistema' },
+    { label: '(=) EBIT', valor: ebitda, bold: true },
+    { label: '(±) Resultado Financeiro', valor: n('resultado_financeiro'), nota: 'Rendimentos − juros e tarifas' },
+    { label: '(=) Lucro Líquido', valor: n('resultado'), bold: true, highlight: true },
+  ]
+  const mesesComMovimento = (data.meses || []).filter((m) => Number(m.receita_bruta || 0) || Number(m.total_despesas || 0))
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">EBITDA — {ano}</h2>
+        <div className="w-28">
+          <Select options={anoOpts} value={ano} onChange={(e) => setAno(e.target.value)} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="EBITDA" value={BRL(ebitda)} color={cor(ebitda)} />
+        <KpiCard label="Margem EBITDA" value={`${n('margem_ebitda')}%`} color={cor(n('margem_ebitda'))} />
+        <KpiCard label="EBITDA ajustado (sem pró-labore)" value={BRL(n('ebitda_ajustado'))} color={cor(n('ebitda_ajustado'))} />
+        <KpiCard label="Lucro Líquido" value={BRL(n('resultado'))} color={cor(n('resultado'))} />
+      </div>
+
+      <Card title="Demonstração">
+        <div className="space-y-1">
+          {linhas.map((l) => (
+            <div key={l.label} className={`flex justify-between gap-3 py-1.5 px-2 rounded ${l.highlight ? 'bg-gray-50 dark:bg-navy-900/50' : ''}`}>
+              <div className="min-w-0">
+                <span className={`text-sm ${l.bold ? 'font-bold text-gray-900 dark:text-slate-100' : 'text-gray-600 dark:text-slate-400'} ${l.valor === null ? 'italic' : ''}`}>{l.label}</span>
+                {l.nota && <p className="text-xs text-gray-400 dark:text-slate-500">{l.nota}</p>}
+              </div>
+              <div className="flex items-baseline gap-3 shrink-0">
+                {l.valor !== null && <span className="text-xs text-gray-400 dark:text-slate-500">{pct(l.valor)}</span>}
+                <span className={`text-sm font-mono ${l.bold ? 'font-bold' : ''} ${l.highlight ? (l.valor >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400') : 'text-gray-800 dark:text-slate-200'}`}>
+                  {l.valor === null ? '—' : BRL(l.valor)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      {mesesComMovimento.length > 0 && (
+        <Card title="EBITDA por mês">
+          <div className="space-y-1">
+            {mesesComMovimento.map((m) => (
+              <div key={m.mes} className="flex justify-between gap-3 py-1 px-2 text-sm">
+                <span className="text-gray-600 dark:text-slate-400">{m.mes}</span>
+                <span className="flex gap-3 font-mono">
+                  <span className="text-xs text-gray-400 dark:text-slate-500">{m.margem_ebitda}%</span>
+                  <span className={Number(m.ebitda) >= 0 ? 'text-green-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}>{BRL(m.ebitda)}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        </Card>
       )}
     </div>
   )

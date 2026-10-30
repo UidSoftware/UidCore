@@ -71,6 +71,22 @@ class Categoria(BaseModel):
         return f'{self.nome} ({self.tipo})'
 
 
+def mes_competencia(*datas):
+    """Competencia padrao de um lancamento: 1o dia do mes da primeira data
+    informada (na ordem recebida); sem nenhuma, o mes corrente."""
+    from datetime import date, datetime
+
+    from django.utils import timezone
+    for d in datas:
+        if d:
+            if isinstance(d, str):  # ex.: compras.signals passa a data como texto ISO
+                d = date.fromisoformat(d[:10])
+            elif isinstance(d, datetime):
+                d = timezone.localtime(d).date() if timezone.is_aware(d) else d.date()
+            return d.replace(day=1)
+    return timezone.localdate().replace(day=1)
+
+
 class TipoReceita(models.TextChoices):
     SERVICO = 'SERVICO', 'Serviço'
     PRODUTO = 'PRODUTO', 'Produto'
@@ -134,6 +150,10 @@ class Receita(BaseModel):
 
     def save(self, *args, **kwargs):
         self.valor_liquido = self.valor_bruto - (self.desconto or Decimal('0'))
+        # Competencia (DRE/Balanco/burn rate leem referencia_mes): quem nao
+        # informa assume o mes do vencimento (ou do recebimento, ou o atual).
+        if not self.referencia_mes:
+            self.referencia_mes = mes_competencia(self.vencimento, self.recebimento, self.created_at)
         super().save(*args, **kwargs)
 
     @property
@@ -181,6 +201,8 @@ class TipoDespesa(models.TextChoices):
     VARIAVEL = 'VARIAVEL', 'Despesa Variável'
     PROLABORE = 'PROLABORE', 'Pró-labore'
     IMPOSTO = 'IMPOSTO', 'Imposto / DAS'
+    # juros, multas, IOF e tarifas bancarias: fora do EBITDA (resultado financeiro)
+    FINANCEIRA = 'FINANCEIRA', 'Despesa Financeira (juros/tarifas)'
     OUTRO = 'OUTRO', 'Outro'
 
 
@@ -236,6 +258,10 @@ class Despesa(BaseModel):
 
     def save(self, *args, **kwargs):
         self.valor_liquido = self.valor_bruto - (self.desconto or Decimal('0'))
+        # Competencia (DRE/Balanco/burn rate leem referencia_mes): quem nao
+        # informa assume o mes do vencimento (ou do pagamento, ou o atual).
+        if not self.referencia_mes:
+            self.referencia_mes = mes_competencia(self.vencimento, self.pagamento, self.created_at)
         super().save(*args, **kwargs)
 
     def __str__(self):
