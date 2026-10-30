@@ -104,6 +104,58 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-10-30] — Manutenção #87 — APP_NAME configurável via .env
+
+**Contexto:** centraliza o nome do sistema em variável de ambiente, em vez
+de "UidCore" hardcoded em múltiplos pontos (e-mails, admin Django, PDFs/
+relatórios no backend; título, manifest/PWA no frontend) — prepara o núcleo
+para forks com nome próprio sem precisar tocar em código.
+
+**Tarefas executadas:**
+- Backend: `APP_NAME = config('APP_NAME', default='UidCore')` em
+  `backend/core/settings.py`, consumido em e-mails, admin Django e
+  PDFs/relatórios
+- Frontend: `VITE_APP_NAME` lido via `import.meta.env`, com fallback
+  `'UidCore'`; `frontend/.env.example` documentando a variável; manifest/PWA
+  também passou a usar `VITE_APP_NAME`
+- Analista/Brush atualizaram `Especificacao_Hotfix.md` e
+  `Especificacao_UI_Hotfix.md`
+
+**Arquivos alterados:**
+- backend/core/settings.py (+ pontos de consumo de APP_NAME em e-mails,
+  admin, PDFs/relatórios — commit e96646e)
+- frontend/ (VITE_APP_NAME com fallback 'UidCore', manifest/PWA,
+  .env.example — commit b30eabf)
+- Especificacao_Hotfix.md, Especificacao_UI_Hotfix.md (commit 0e9fd7c)
+
+**Commits:**
+- e96646e — feat(backend): APP_NAME configuravel via .env - Manutencao 87
+- b30eabf — feat(frontend): VITE_APP_NAME configuravel via .env - Manutencao 87
+- 0e9fd7c — docs: atualiza specs - Manutencao 87 (APP_NAME configuravel via .env)
+
+**Sentinel:**
+- 562/562 testes Django passando (0 falhas)
+- 10/10 critérios de aceite verificados
+- Build frontend: 2175 módulos, 0 erros
+- 0 migrations pendentes
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-10-30T07:14:57Z UTC (04:14 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 41018856465, sucesso em 38s
+- Push confirmado: f8def38..0e9fd7c main -> main (3 commits: e96646e e b30eabf já existiam localmente + 0e9fd7c de docs desta execução)
+- Nota: a run anterior (40996880201, commit f8def38 "DRE por competencia") havia falhado com "fatal: Need to specify how to reconcile divergent branches" no `git pull origin main` da VPS — estado já estava consistente (fast-forward limpo) no início desta execução, sem necessidade de intervenção; a run desta Manutenção #87 (que inclui o mesmo commit f8def38 na cadeia) completou sem erro
+- Container uidcore-backend-1 recriado: 2026-10-30T07:14:57Z (StartedAt confirmado via docker inspect); gunicorn 3 workers up sem crash (log confirmado)
+- `makemigrations --check --dry-run`: "No changes detected" — 0 pendências (esperado, sem migration nesta manutenção)
+- `APP_NAME` confirmado via Django shell: `settings.APP_NAME` → `"UidCore"` (fallback default, variável não setada no `.env.prod` — comportamento esperado e correto)
+- Frontend rebuildado: bundle novo `index-BW5gNJFL.js` (686 KB), mtime 2026-10-30 07:14 UTC batendo exatamente com a recriação do backend; referenciado em `index.html`; confirmado contendo string "UidCore" (fallback do `VITE_APP_NAME`)
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/financeiro/dashboard/ (esperado, requer auth)
+- SystemD: Manutenção #87 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 87`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
+
+---
+
 ### [2026-10-29] — Manutenção #72 — Foto de perfil do usuário
 
 **Contexto:** adiciona foto de perfil ao usuário (avatar), aproveitando a
