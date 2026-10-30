@@ -1,6 +1,14 @@
+from django.conf import settings
 from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from .models import User
+
+# Manutencao 87: nome do Django admin configuravel via APP_NAME (.env),
+# ao inves do default do Django ("Django administration") — lido 1x na
+# definicao, nao por request (RN-03 da Especificacao_Hotfix).
+admin.site.site_header = settings.APP_NAME
+admin.site.site_title = settings.APP_NAME
+admin.site.index_title = f'Painel administrativo — {settings.APP_NAME}'
 
 
 @admin.register(User)

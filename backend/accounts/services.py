@@ -24,7 +24,7 @@ def enviar_primeiro_acesso(usuario):
 
     corpo_html = f"""
     <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0a0e1a;color:#f1f5f9;border-radius:12px;">
-      <h2 style="color:#7c3aed;margin-bottom:8px;">UidCore</h2>
+      <h2 style="color:#7c3aed;margin-bottom:8px;">{settings.APP_NAME}</h2>
       <p style="margin-bottom:24px;color:#94a3b8;">Acesso ao sistema</p>
       <p>Ola, <strong>{usuario.nome_completo}</strong>!</p>
       <p>Voce recebeu acesso ao sistema da <strong>Uid Software</strong>.<br>
@@ -39,7 +39,7 @@ def enviar_primeiro_acesso(usuario):
     </div>
     """
 
-    enviar_email_sistema(usuario.email, 'Acesso ao UidCore — defina sua senha', corpo_html)
+    enviar_email_sistema(usuario.email, f'Acesso ao {settings.APP_NAME} — defina sua senha', corpo_html)
 
 
 def enviar_email_sistema(destinatario, assunto, corpo_html):

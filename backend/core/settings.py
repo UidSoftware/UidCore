@@ -190,6 +190,12 @@ SYSTEM_EMAIL_CONTA = config('SYSTEM_EMAIL_CONTA', default='administrativo@uidsof
 SYSTEM_EMAIL_SENHA = config('SYSTEM_EMAIL_SENHA', default='')
 FRONTEND_URL = config('FRONTEND_URL', default='https://uidcore.uidsoftware.com.br')
 
+# Nome/descricao do sistema, configuravel por .env para cada fork do
+# template (ver CLAUDE.md, secao Fluxo 1) sem precisar editar codigo —
+# Manutencao 87.
+APP_NAME = config('APP_NAME', default='UidCore')
+APP_DESCRIPTION = config('APP_DESCRIPTION', default='UidCore — Template Financeiro Multi-Nicho')
+
 # Token de "definir senha" (default_token_generator) expira em 24h — bate
 # com o texto do email enviado. Sem isso o default do Django e 3 dias
 # (259200s), inconsistente com a mensagem (achado ao replicar do SystemD,
