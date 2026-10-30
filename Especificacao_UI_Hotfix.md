@@ -1,193 +1,293 @@
-# Especificação UI Hotfix — UidCore (Manutenção #72)
+# Especificação UI Hotfix — UidCore (Manutenção #87)
 
-**Tarefa:** Foto de perfil do usuário (Avatar.jsx + modal "Alterar foto" no Header + coluna avatar em Usuários)
-**Brush — MODO HOTFIX.** Esta especificação NÃO cria design system novo — reaproveita os tokens já documentados em `design_system.md` e os já em uso em `Header.jsx`/`Usuarios.jsx`. O `Especificacao_Hotfix.md` do Analista já incluiu bastante detalhe de implementação (inclusive trechos de JSX) — esta spec complementa com a camada visual: estados, espaçamentos, responsividade e critério de escolha de ícone, sem duplicar os RFs/RNs já escritos lá.
+## Modo
 
----
+**MODO HOTFIX.** Esta manutenção é puramente de parametrização de nome —
+não há tela nova, não há componente novo, não há mudança de layout,
+cor, espaçamento ou ícone. A UI existente permanece **visualmente
+idêntica**; o único efeito observável é a origem do texto: de string
+`'UidCore'` escrita à mão em 7 arquivos `.jsx` + `index.html` para uma
+única fonte de configuração (`APP_NAME`/`APP_DESCRIPTION`, lidos de
+`frontend/src/utils/appConfig.js`). Com `.env` atual (sem as variáveis
+novas), nada muda — RNF-01 da `Especificacao_Hotfix.md` exige paridade
+visual 1:1 antes/depois.
 
-## 0. Design System do Projeto (referência, não redefinição)
+## Design System do Projeto (referência — não alterado)
 
-⚠️ **Divergência arquitetural já documentada** (`design_system.md`): o UidCore roda em **light mode como padrão** (`bg-gray-50`), com dark mode via classe `.dark` (`darkMode: 'class'` no Tailwind) — diferente do padrão Uid (escuro por padrão). Esta spec segue o par light/dark já implementado nas Manutenções #9 e #31, não o padrão Uid genérico do CLAUDE.md global.
+- **Cores primárias:** `primary-600`/`primary-50` (light) e `violet-600`/
+  `violet-400` (dark) — accent do produto (logo, título, badges de ação).
+- **Cores de fundo:** `gray-50`/`white` (light) e `navy-950`/`navy-900`/
+  `navy-800` (dark) — gradiente `from-primary-50 to-primary-100` (light) /
+  `from-navy-950 to-navy-900` (dark) nas telas de autenticação.
+- **Texto:** `text-gray-900`/`text-gray-500` (light), `text-slate-100`/
+  `text-slate-400`/`text-slate-500` (dark).
+- **Fonte:** Plus Jakarta Sans (display/headings) + DM Sans (body) — já
+  carregadas via Google Fonts em `index.html` (`<link>` de preconnect +
+  stylesheet, linhas 15-17). **Não tocar** — fora do escopo desta
+  manutenção.
+- **BorderRadius padrão:** `rounded-2xl` (cards de auth, avatar-badge),
+  `rounded-lg` (inputs, botões de ícone).
+- **Padrão de card:** `bg-white dark:bg-navy-800 border border-gray-200
+  dark:border-navy-600 rounded-2xl shadow-sm dark:shadow-none`.
+- **Dark mode:** classe `dark` no `<html>`, controlada por
+  `localStorage['uidcore-theme']` + script anti-FOUC inline no `<head>`
+  do `index.html` (linhas 5-9) — **não tocar**, não faz parte desta
+  manutenção e é o mesmo padrão que o `transformIndexHtml` novo do
+  `vite.config.js` precisa respeitar (RN-02: edição cirúrgica, só
+  `<title>` e `<meta name="description">`).
 
-| Token | Light | Dark | Uso nesta tarefa |
-|---|---|---|---|
-| Fundo do avatar (sem foto) | `bg-primary-100` (#dbeafe) | `bg-violet-900/40` | Círculo de iniciais — já em uso no Header atual, apenas migra para o componente `Avatar` |
-| Texto da inicial | `text-primary-700` (#1d4ed8) | `text-violet-300` | Idem |
-| Botão de ação secundária no Header ("Senha", "Sair") | `text-gray-500 hover:bg-gray-100 hover:text-gray-700` | `text-slate-400 hover:bg-navy-700 hover:text-slate-200` | Botão "Alterar foto" **herda exatamente esta classe** — zero cor nova |
-| Erro em modal | `bg-red-50 border-red-200 text-red-700` | `bg-red-950/40 border-red-800 text-red-300` | Bloco de erro do modal de foto — mesmo padrão do modal de senha, reaproveitado 1:1 |
-| Ação destrutiva ("Remover foto") | `text-red-600` | `text-red-400` | Ver nota 2.2/2.4 — link textual, não botão sólido |
-| Fonte | Plus Jakarta Sans (display) / DM Sans (body) | idem | Já carregada globalmente — nenhuma ação |
-| Border-radius | `rounded-full` (avatar), `rounded-lg` (modal/inputs/botões) | idem | Padrão já em uso em `Modal.jsx`/`Button.jsx`/`Input.jsx` |
-| Ícones | **lucide-react** (já é dependência do projeto — `Mail` em `Usuarios.jsx`, `ModalScannerCamera.jsx` no PDV) | — | Usar `Camera` (lucide) no botão "Alterar foto" — ver nota 1.3 |
+## Especificação Visual por Componente/Tela
 
-**Componentes existentes a reutilizar (não recriar):** `Modal.jsx`, `Button.jsx` (variants `primary`/`secondary`, prop `loading`), bloco de erro do modal de senha (classe pronta, só copiar), `ResourceCrud.jsx` (extensão, não substituição).
+Para cada ponto, a regra geral é a mesma: **nenhuma classe Tailwind,
+nenhuma estrutura de layout, nenhum ícone muda** — só a fonte do texto.
+Todo `.jsx` passa a `import { APP_NAME } from '../utils/appConfig.js'`
+(ou `'../../utils/appConfig.js'`/`'./utils/appConfig.js'` conforme a
+profundidade real da pasta de cada arquivo — Loom confere o caminho
+relativo correto por arquivo, não copiar literalmente) e usa `{APP_NAME}`
+no JSX exatamente onde hoje está a string `'UidCore'`.
 
----
+### `index.html` (`<title>` + `<meta name="description">`)
 
-## 1. `Avatar.jsx` — componente novo (`frontend/src/components/ui/Avatar.jsx`)
+- **Elemento:** `<title>UidCore</title>` (linha 14) e
+  `<meta name="description" content="UidCore — Template Financeiro
+  Multi-Nicho">` (linha 13).
+- **Fonte do texto:** não é importado em JS (é HTML estático lido antes
+  do React montar) — resolvido pelo `transformIndexHtml` do
+  `vite.config.js`, que lê `process.env.VITE_APP_NAME`/
+  `VITE_APP_DESCRIPTION` em build/dev e substitui o conteúdo dessas duas
+  tags. `appConfig.js` continua sendo a fonte de verdade conceitual
+  (mesmos nomes de variável, mesmos fallbacks), só que consumida pelo
+  Vite config, não por um componente React.
+- **Considerações:** o `<title>`/`<meta>` literal no arquivo-fonte
+  permanece como `UidCore` (fallback visível em `view-source` antes do
+  JS/build processar) — comportamento aceitável, equivalente ao flash
+  inicial que o próprio script anti-FOUC do tema já tem hoje. Nenhuma
+  outra tag do `<head>` (preconnect de fontes, favicon, script do tema)
+  é tocada — RN-02.
+- **Dark mode/responsivo/espaçamento:** não aplicável (tag de documento,
+  sem renderização visual própria).
+- **Ícones Lucide:** nenhum.
 
-### 1.1 Tamanhos
+### Sidebar (`Sidebar.jsx`, logo expandida)
 
-| Size | Classe | Diâmetro | Fonte da inicial | Onde usa |
-|---|---|---|---|---|
-| `sm` | `w-8 h-8 text-xs` | 32px | `font-semibold text-xs` | Header (substitui o círculo atual `w-8 h-8`) e coluna "Foto" do `ResourceCrud` (linha de tabela) |
-| `md` | `w-10 h-10 text-sm` | 40px | `font-semibold text-sm` | Reserva para uso futuro (ex.: card de perfil, listagem mais espaçosa) — não usado nesta manutenção, mas o componente já nasce com a variante pronta |
-| `lg` | `w-24 h-24 text-2xl` | 96px | `font-semibold text-2xl` | Preview grande dentro do modal "Alterar foto" (seção 2.2) |
+- **Elemento:** `<span className="text-lg font-bold text-white
+  tracking-tight">UidCore</span>` (linha 47), dentro do header da
+  sidebar (`flex items-center justify-between px-4 py-5 ...`),
+  renderizado só quando `!collapsed`.
+- **Fonte do texto:** `{APP_NAME}` via `import { APP_NAME } from
+  '../../utils/appConfig.js'` (Sidebar.jsx está em
+  `src/components/layout/`, dois níveis abaixo de `src/`).
+- **Considerações:** classe `text-lg font-bold text-white tracking-tight`
+  preservada sem alteração — nomes mais longos que "UidCore" quebram
+  linha naturalmente dentro do `flex` existente (sem `truncate`/
+  `overflow-hidden` hoje); se um fork futuro usar um nome muito longo, a
+  sidebar expandida (`w-64`) tem espaço suficiente para a maioria dos
+  nomes de produto razoáveis — não é requisito desta manutenção
+  acomodar nome arbitrariamente longo, só documentar que não há
+  `truncate` aplicado caso o fork precise ajustar depois.
+- **Dark mode:** sem mudança — `text-white` já funciona em ambos os
+  temas (fundo da sidebar é `bg-gray-900 dark:bg-navy-900`, sempre
+  escuro).
+- **Responsivo:** span só aparece com `!collapsed` — comportamento
+  inalterado (colapsar a sidebar já esconde o nome hoje, independente
+  do texto).
+- **Ícones Lucide:** nenhum — a sidebar usa emojis nos itens de menu
+  (padrão intencional da fábrica, CLAUDE.md global) e não tem ícone ao
+  lado do nome do produto.
 
-Regra de implementação: tamanhos ficam num dict interno do componente (`{ sm: '...', md: '...', lg: '...' }`), nunca via prop `className` de fora sobrescrevendo dimensão — evita avatar com proporção quebrada (retangular) em algum ponto de uso futuro.
+### Header (`Header.jsx`, nome no header desktop)
 
-### 1.2 Cor por inicial
+- **Elemento:** `<span className="hidden md:block text-sm font-semibold
+  text-primary-600 dark:text-violet-400 tracking-wide">UidCore</span>`
+  (linha 127).
+- **Fonte do texto:** `{APP_NAME}` via `import { APP_NAME } from
+  '../../utils/appConfig.js'` (mesma profundidade de pasta que
+  Sidebar.jsx).
+- **Considerações:** `hidden md:block` preservado — span só aparece em
+  telas ≥768px (md breakpoint), mesmo comportamento de hoje, qualquer
+  que seja o nome.
+- **Dark mode:** `text-primary-600 dark:text-violet-400` preservado —
+  cor de destaque (accent) já adaptada aos dois temas, sem mudança.
+- **Responsivo:** inalterado (classe `hidden md:block` já cobre mobile).
+- **Ícones Lucide:** nenhum.
 
-**Decisão de Brush:** manter **uma única cor fixa** (`bg-primary-100`/`text-primary-700` claro, `bg-violet-900/40`/`text-violet-300` escuro) para todos os usuários sem foto — **não** gerar cor variável por hash do nome/e-mail nesta manutenção.
+### Login (`Login.jsx`)
 
-Motivo: o pedido original ("cores por inicial") sugere paleta rotativa (estilo Gmail/Slack, uma cor por pessoa), mas isso não está no `Especificacao_Hotfix.md` do Analista — o RF-08 especifica exatamente `bg-primary-100/dark:bg-violet-900/40` fixo, "mesmo padrão de cor hoje hardcoded no Header". São os RFs que governam o escopo do Forge/Loom; introduzir paleta rotativa aqui seria o Brush discordando do RF sem ADR. Fica **registrado como sugestão de UX para ciclo futuro** (seção 5), não implementado agora.
+- **Elemento 1 (título):** `<h1 className="text-2xl font-bold
+  text-gray-900 dark:text-slate-100">UidCore</h1>` (linha 42).
+- **Elemento 2 (rodapé):** `<p className="text-center text-xs
+  text-gray-400 dark:text-slate-500 mt-6">UidCore &copy; {new
+  Date().getFullYear()} — Uid Software</p>` (linha 83).
+- **Fonte do texto:** `{APP_NAME}` via `import { APP_NAME } from
+  '../utils/appConfig.js'` (Login.jsx está em `src/pages/`, um nível
+  abaixo de `src/`) em ambos os pontos — o rodapé troca só o trecho
+  `UidCore` por `{APP_NAME}`, mantendo literal ` &copy; {new
+  Date().getFullYear()} — Uid Software` (atribuição à Uid Software é
+  institucional, não faz parte do nome do produto e não está no escopo
+  do RF-01/RF-03).
+- **Considerações (fora do escopo, só observação para registro):** o
+  badge circular acima do título (`<div className="inline-flex ...
+  rounded-2xl bg-primary-600 dark:bg-violet-600 ..."><span
+  className="text-3xl font-bold text-white">U</span></div>`, linha ~39)
+  usa a letra **"U" hardcoded** (inicial de "UidCore"), sem vínculo com
+  `APP_NAME`. A `Especificacao_Hotfix.md` não lista esse ponto entre os
+  8 pontos de UI em escopo (RF-03) — **não alterar nesta manutenção**.
+  Registrado aqui só para o próximo fork saber que a letra do badge
+  precisa ser trocada manualmente (ou numa manutenção futura, derivando
+  a 1ª letra de `APP_NAME`) se o nome do produto mudar de verdade — o
+  mesmo vale para `DefinirSenha.jsx`, que repete este badge idêntico.
+- **Dark mode:** `dark:text-slate-100` (título) e `dark:text-slate-500`
+  (rodapé) preservados, sem mudança.
+- **Responsivo:** container `max-w-sm` centralizado, inalterado.
+- **Ícones Lucide:** nenhum.
 
-### 1.3 Ícone do botão "Alterar foto"
+### DefinirSenha (`DefinirSenha.jsx`)
 
-Duas opções válidas; Brush recomenda a opção A por consistência local:
+- **Elemento 1 (título):** `<h1 className="text-2xl font-bold
+  text-gray-900 dark:text-slate-100">UidCore</h1>` (linha 63) — estrutura
+  idêntica ao título do Login.jsx (mesmo padrão de tela de autenticação).
+- **Elemento 2 (rodapé):** `<p className="text-center text-xs
+  text-gray-400 dark:text-slate-500 mt-6">UidCore &copy; {new
+  Date().getFullYear()} — Uid Software</p>` (linha 106) — idêntico ao
+  rodapé do Login.jsx.
+- **Fonte do texto:** `{APP_NAME}` via `import { APP_NAME } from
+  '../utils/appConfig.js'`, mesmo caminho relativo do Login.jsx (mesma
+  pasta `src/pages/`).
+- **Considerações:** mesma observação do badge "U" hardcoded do
+  Login.jsx acima (linha ~61 do DefinirSenha.jsx) — fora de escopo,
+  registrado só para referência futura.
+- **Dark mode/responsivo:** idêntico ao Login.jsx — mesmo padrão visual
+  de tela de autenticação, nenhuma classe tocada.
+- **Ícones Lucide:** nenhum.
 
-- **Opção A (recomendada):** ícone de câmera via **lucide-react** (`import { Camera } from 'lucide-react'`), `className="w-4 h-4"` — mesma dimensão dos ícones SVG inline já usados nos botões "Senha" (`w-4 h-4`) e "Sair" ao lado dele. `lucide-react` já é dependência do projeto (`Usuarios.jsx`, `ModalScannerCamera.jsx` do PDV) — não é biblioteca nova.
-- **Opção B** (alternativa, se Loom preferir zero import novo no arquivo): inline SVG com o mesmo `strokeWidth={2}` dos ícones vizinhos, path de câmera simples. Visualmente equivalente, só evita um import adicional em `Header.jsx` (que hoje usa só SVG inline, nenhum lucide).
+### Dashboard (`Dashboard.jsx` — saudação, 3 variantes)
 
-Qualquer uma das duas deve ter o **mesmo peso visual** (viewBox 24x24, stroke 2, 16px renderizado) dos ícones de "Senha"/"Sair" ao lado — não introduzir ícone preenchido (filled) num Header que usa só outline.
+- **Elementos (3 ocorrências do mesmo texto, estados diferentes da
+  mesma tela):**
+  - Linha 40 — estado `loading`: `<h1 className="text-2xl font-bold
+    text-gray-900 dark:text-slate-100">Bem-vindo ao UidCore,
+    {firstName}!</h1>`
+  - Linha 56 — estado `erro`: mesma estrutura.
+  - Linha 101 — estado normal (dados carregados): mesma estrutura.
+- **Fonte do texto:** `{APP_NAME}` via `import { APP_NAME } from
+  '../utils/appConfig.js'`, substituindo só o trecho `UidCore` dentro
+  da string — resultado: `Bem-vindo ao {APP_NAME}, {firstName}!` nas
+  3 ocorrências. **Importar uma única vez no topo do arquivo** e
+  reusar nas 3 — não duplicar o import nem criar 3 constantes locais.
+- **Considerações:** as 3 ocorrências precisam ficar sincronizadas —
+  Loom deve trocar as 3, não só a do estado "normal" (RF-03 exige
+  paridade nos 3 estados: loading, erro, dados carregados). `h1`
+  mantém `text-2xl font-bold text-gray-900 dark:text-slate-100` sem
+  alteração nas 3.
+- **Dark mode:** `dark:text-slate-100` preservado nas 3 ocorrências.
+- **Responsivo:** `h1` dentro de `<div className="space-y-6">`, sem
+  classe responsiva própria — inalterado.
+- **Ícones Lucide:** nenhum (os cards de métrica abaixo usam emoji —
+  `📈`/`📉`/`💰`/`📊` — fora do escopo desta manutenção, não tocados).
 
-### 1.4 Estados do Avatar
+### AgendamentoPublico (`AgendamentoPublico.jsx` — rodapé da página pública)
 
-| Estado | Comportamento |
-|---|---|
-| `foto` presente | `<img>` com `object-cover`, `rounded-full`, fundo `bg-primary-100 dark:bg-violet-900/40` visível durante o carregamento da imagem (evita "flash" transparente) |
-| `foto` ausente | Círculo com inicial (ver 1.2) |
-| `foto` com URL que falha ao carregar (404/erro de rede) | **Não especificado no RF do Analista — Brush define:** `onError` do `<img>` deve cair para o estado "sem foto" (iniciais), nunca deixar ícone de imagem quebrada do navegador. Implementação sugerida: estado local `erroCarregamento` no próprio `Avatar.jsx`, setado `true` no `onError`, renderizando o bloco de iniciais quando `true` mesmo com `foto` preenchido |
-| Avatar clicável (Header) | `cursor-pointer`, `hover:opacity-80` — sem necessidade de anel de foco adicional além do que o elemento clicável-pai já fornece |
-| Avatar não-clicável (tabela de Usuários) | Sem `cursor-pointer`, sem `onClick` — é só visualização (RN-01 do Analista: essa tela não edita foto de terceiro) |
+- **Elemento:** `<footer className="text-center py-6 mt-8 border-t
+  border-navy-800"><p className="text-xs text-slate-700">Powered by
+  UidCore</p></footer>` (linha 513).
+- **Fonte do texto:** `{APP_NAME}` via `import { APP_NAME } from
+  '../utils/appConfig.js'` (mesma pasta `src/pages/`), resultado:
+  `Powered by {APP_NAME}`.
+- **Considerações:** esta é a **única tela pública sem autenticação**
+  entre os 8 pontos (visitante final agendando, Manutenção #65) — o
+  tom "Powered by X" é institucional (atribuição de quem fez o
+  sistema, não nome da tela em si); ao trocar `APP_NAME` num fork
+  futuro, o texto passa a refletir o nome do produto do cliente, o que
+  é o comportamento esperado (RF-03). Layout de página pública (fundo
+  escuro `navy-950`-like, sem toggle de tema visível) não é alterado.
+- **Dark mode:** página pública já é fixa em tema escuro (`border-navy-800`,
+  `text-slate-700`), sem alternância — nenhuma classe tocada.
+- **Responsivo:** `footer` centralizado, `py-6 mt-8`, inalterado.
+- **Ícones Lucide:** nenhum no rodapé em si — a tela usa `AlertTriangle`
+  (Lucide) em mensagens de erro acima, não relacionado a esta mudança.
 
----
+### Django Admin (`backend/accounts/admin.py` ou `backend/core/urls.py`)
 
-## 2. Modal "Alterar foto" (Header)
+- **Elemento:** `site_header`/`site_title` do Django admin, hoje no
+  default ("Django administration") — **não é UI React**, é o template
+  padrão do Django admin (`admin/base_site.html`), fora da camada que o
+  Loom controla.
+- **Fonte do texto:** `settings.APP_NAME` (Python/backend), não
+  `appConfig.js` — documentado aqui só para registro cruzado, já que a
+  `Especificacao_Hotfix.md` pede `admin.site.site_header =
+  settings.APP_NAME` e `admin.site.site_title = settings.APP_NAME`
+  (RF-04, RN-03).
+- **Considerações visuais:** o Django admin usa o tema visual padrão do
+  próprio Django (não o design system Uid/Tailwind do frontend) — isso
+  é esperado e não faz parte do escopo visual desta manutenção; nenhuma
+  customização de CSS/template do admin é necessária ou desejada aqui.
+- **Dark mode/responsivo:** não aplicável — admin não segue o dark mode
+  do app React.
+- **Ícones Lucide:** não aplicável (admin não usa Lucide).
 
-### 2.1 Gatilho e posicionamento
+### Email de primeiro acesso (`backend/accounts/services.py`)
 
-- Mesmo padrão visual do botão "Senha" já existente: `flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm`, cores conforme tabela da seção 0.
-- Ordem no Header (grupo da direita, esquerda→direita): toggle tema → avatar + nome (clicável, abre o mesmo modal) → botão "Alterar foto" → botão "Senha" → botão "Sair". Avatar clicável e botão "Alterar foto" abrindo o **mesmo modal** é intencional — redundância de affordance é aceitável aqui, já que o botão com label explícito cobre o caso do usuário não perceber que o avatar é clicável.
-- Label do botão: **"Foto"** (não "Alterar foto" por extenso) — segue a convenção de label curta já usada ao lado ("Senha", "Sair"), visível só em `sm:` e acima (`hidden sm:block`, igual aos vizinhos). Em mobile (<640px), só o ícone aparece — mesmo comportamento dos botões vizinhos.
+- **Elemento:** `<h2>UidCore</h2>` no corpo HTML do email (linha 27) +
+  assunto `'Acesso ao UidCore — defina sua senha'` (linha 42) — **não é
+  tela**, é conteúdo de email transacional enviado fora do app.
+- **Fonte do texto:** `settings.APP_NAME` (backend), via
+  `f'<h2>{settings.APP_NAME}</h2>'` e `f'Acesso ao {settings.APP_NAME}
+  — defina sua senha'`.
+- **Considerações visuais:** o HTML do email não segue Tailwind/design
+  tokens do app (é HTML inline de email, compatibilidade com clientes
+  de email) — Forge mantém a estrutura/estilo inline já existente,
+  trocando só o texto. Nenhum ajuste de estilo de email é parte desta
+  manutenção.
+- **Dark mode/responsivo:** não aplicável a email transacional nesta
+  manutenção (fora de escopo — clientes de email variam, não há dark
+  mode controlado pelo sistema).
+- **Ícones Lucide:** não aplicável (HTML de email, sem Lucide).
 
-### 2.2 Layout do modal (`<Modal title="Foto de perfil">`)
+## Observação final (paridade visual obrigatória)
 
-Largura/padding seguem o `Modal.jsx` genérico (não alterar o componente). Conteúdo interno, de cima para baixo:
+Todos os 8 pontos acima devem renderizar **pixel-a-pixel idênticos** ao
+estado atual quando `VITE_APP_NAME`/`APP_NAME` estiverem ausentes ou
+vazios (RN-01 + RNF-01 da `Especificacao_Hotfix.md`) — o fallback
+`'UidCore'` (frontend, em `appConfig.js`) e `default='UidCore'`
+(backend, em `settings.py`) é o que garante isso. Loom e Forge não
+devem introduzir nenhuma classe, espaçamento, cor ou ícone novo em
+nenhum dos 8 pontos — esta é uma manutenção de **fonte do dado**, não
+de **design**.
+
+## O que NÃO foi feito (fora de escopo, confirmado)
 
 ```
-┌─────────────────────────────────────┐
-│  Foto de perfil                  ×  │  ← título do Modal (padrão)
-├─────────────────────────────────────┤
-│                                      │
-│          [Avatar lg, 96px]           │  ← foto atual OU preview local OU iniciais
-│         centralizado, mx-auto        │
-│                                      │
-│   [Remover foto]  (só se tem foto    │  ← texto link/secundário, abaixo do avatar,
-│    E nenhum arquivo novo escolhido)  │     text-red-600 dark:text-red-400, sem
-│                                      │     borda (link destrutivo, não botão
-│                                      │     sólido — ação pouco frequente)
-│                                      │
-│   [input file: "Escolher foto"]      │  ← Button variant="secondary" cobrindo um
-│                                      │     <input type="file" accept="image/*"
-│                                      │     className="hidden"> — padrão de "botão
-│                                      │     disfarçado de input file" já usado no
-│                                      │     upload de extrato em Conciliação
-│                                      │
-│   [bloco de erro, se houver]         │  ← bg-red-50/border-red-200, mesmo padrão
-│                                      │     do modal de senha
-│                                      │
-│              [Cancelar] [Salvar]     │  ← mesmo rodapé do modal de senha:
-│                                      │     justify-end gap-3 pt-2
-└─────────────────────────────────────┘
+❌ Nenhum design system novo — paleta, fontes e tokens do UidCore
+   permanecem exatamente os já documentados/implementados
+❌ Nenhuma mudança de identidade visual (cores, logo, ícones)
+❌ Nenhuma implementação de código — isso é Forge (backend) e Loom
+   (frontend)
+❌ Nenhum ajuste no badge "U" hardcoded de Login.jsx/DefinirSenha.jsx —
+   fora do escopo do pedido original, só registrado como observação
+❌ Nenhum manifest.json/ícone PWA — não existe ainda, não criado aqui
+❌ Nenhuma alteração em comentários/docstrings mencionando "UidCore"
 ```
-
-Espaçamento vertical interno: `space-y-4` entre os blocos (avatar+remover / input / erro / rodapé) — igual ao `space-y-4` já usado no `<form>` do modal de senha, nenhum espaçamento novo inventado.
-
-### 2.3 Estados do modal
-
-| Estado | O que muda visualmente |
-|---|---|
-| **Sem foto, nenhum arquivo escolhido** (quem nunca teve foto) | Avatar `lg` com iniciais. Sem "Remover foto" (RF-09: só aparece se `user.foto_url` existir). Botão "Escolher foto" visível. |
-| **Com foto, nenhum arquivo novo escolhido** | Avatar `lg` mostra a foto atual (`user.foto_url`). "Remover foto" visível, abaixo do avatar. "Escolher foto" visível (permite trocar). |
-| **Arquivo novo escolhido (preview local, ainda não enviado)** | Avatar `lg` passa a mostrar o **preview local** (`URL.createObjectURL`), não mais a foto antiga nem a inicial. "Remover foto" **esconde** nesse momento (ação não faz sentido para um arquivo que ainda nem foi salvo — evita ambiguidade "remover o quê, o antigo ou o novo?"). Nome do arquivo escolhido aparece como texto pequeno (`text-xs text-gray-500 dark:text-slate-400`) abaixo do botão "Escolher foto" (ex.: "foto-perfil.jpg selecionada"). "Salvar" passa a ficar habilitado (antes, sem arquivo escolhido, "Salvar" deve estar desabilitado — só "Cancelar" faz sentido sozinho). |
-| **Enviando (loading)** | `Button` com prop `loading` no "Salvar" (spinner já padrão do componente, igual ao modal de senha) — desabilita "Cancelar" e "Escolher foto" durante o envio, para não trocar de arquivo no meio do upload. |
-| **Erro** (RF-02/RN-02/RN-03 do backend: arquivo >5MB ou não é imagem) | Bloco vermelho acima do rodapé com a mensagem exata devolvida pela API (`error?.response?.data?.erro`) — nunca texto genérico tipo "Erro ao enviar". Preview local permanece visível (usuário pode trocar o arquivo sem perder o modal aberto). |
-| **Sucesso** | Fecha o modal imediatamente (RF-10). Diferente do modal de senha (que mostra uma tela de confirmação intermediária), para foto Brush recomenda fechar direto — o resultado já é visualmente confirmado na hora pelo Avatar do Header mudando. Menos um clique que no fluxo de senha, intencional, não é inconsistência. |
-| **Removendo foto (loading)** | Mesmo spinner, no link "Remover foto" em vez do botão "Salvar". |
-
-### 2.4 Confirmação de remoção
-
-RF-09 não especifica se "Remover foto" exige confirmação extra. Brush define: **sim**, `window.confirm('Remover sua foto de perfil?')` antes de disparar o `DELETE` — mesmo padrão já usado em `Usuarios.jsx::onBeforeSubmit` para o autobloqueio de acesso. É ação destrutiva sem "desfazer", então pede confirmação mesmo sendo de baixo impacto (alinhado à regra global "Ações destrutivas sem confirmação" como armadilha a evitar).
-
----
-
-## 3. Integração no Header (visual, complementando RF-09/seção 7.2 do Analista)
-
-- O avatar `sm` (32px) substitui exatamente o círculo de iniciais atual nas mesmas coordenadas (`gap-2` com o nome ao lado, nome em `<span className="hidden sm:block">`) — nenhuma mudança de espaçamento no Header fora da troca do próprio círculo.
-- Área clicável do avatar: o `<div className="flex items-center gap-2">` que hoje envolve avatar+nome deve virar um elemento interativo (`<button>` ou `<div role="button" tabIndex={0}>` com handler de `Enter`/`Space`) para abrir o modal — hoje é `<div>` estático, sem affordance de clique nenhum. Precisa de `cursor-pointer` + `hover:opacity-80` para sinalizar que é interativo; sem isso, o usuário não tem pista visual de que pode clicar ali.
-
----
-
-## 4. Integração em `Usuarios.jsx` / `ResourceCrud` (CA-08)
-
-- Nova coluna **primeira da tabela**, `label: ''` (sem texto no cabeçalho — é só o avatar) — já especificado assim no RF-11/seção 7.4 do Analista; Brush confirma e detalha o visual:
-  - Avatar `size="sm"` (32px) — mesma dimensão do Header, consistência entre os dois únicos pontos de avatar do sistema nesta manutenção.
-  - Largura da coluna: só o círculo + padding de célula padrão da tabela (`px-4 py-3`, já usado nas demais colunas) — não alargar a coluna além do necessário; ela não deve competir por espaço com "Nome"/"E-mail" em telas estreitas.
-  - Mobile (<640px): manter o comportamento de scroll horizontal padrão já existente no `ResourceCrud` para tabelas com várias colunas — avatar rola junto com o resto. Column-pinning é melhoria separada, fora de escopo (ver seção 5).
-
----
-
-## 5. Sugestões para ciclo futuro (não implementar agora — fora de escopo desta manutenção)
-
-```
-- Paleta de cores rotativa por hash do nome/e-mail para o círculo de iniciais
-  (estilo Gmail/Slack), em vez da cor fixa atual — mencionado no pedido original
-  ("cores por inicial"), mas RF-08 do Analista já fixou cor única; mudar isso
-  exigiria realinhar com Analista/Planner antes de implementar, não é decisão
-  unilateral do Brush.
-- Avatar de rh.Colaborador e clientes.Cliente — RN-10 do Analista já deixa isso
-  fora de escopo; quando vier, o Avatar.jsx criado aqui é reaproveitável sem
-  nenhuma mudança (props genéricas foto/nome/size, zero acoplamento a User).
-- Column-pinning da coluna "Foto" na tabela de Usuários em viewport mobile.
-```
-
----
-
-## 6. Checklist de consistência visual (Sentinel pode usar para validar)
-
-```
-[ ] Avatar sm no Header tem exatamente 32px (w-8 h-8), igual ao círculo que substituiu
-[ ] Cores do avatar sem foto idênticas nos dois modos (light/dark) às já usadas
-    hoje no Header antes da mudança — nenhuma cor nova introduzida
-[ ] Botão "Foto" no Header tem o mesmo padding/hover/cor dos botões "Senha"/"Sair"
-    (comparar classes Tailwind, não só "parecido visualmente")
-[ ] Modal "Alterar foto" usa o componente Modal.jsx genérico, não um modal customizado
-[ ] Bloco de erro do modal de foto é idêntico (classes) ao bloco de erro do modal de senha
-[ ] Botão "Salvar" desabilitado quando nenhum arquivo foi escolhido
-[ ] "Remover foto" só aparece quando há foto_url E nenhum arquivo novo em preview
-[ ] Avatar na tabela de Usuários tem o mesmo tamanho (sm) do Avatar do Header
-[ ] onError da <img> do Avatar cai para iniciais, nunca ícone de imagem quebrada
-[ ] Fontes seguem Plus Jakarta Sans/DM Sans já carregadas — nenhum import de fonte novo
-[ ] Nenhuma biblioteca de componente nova introduzida (Avatar é inline Tailwind,
-    igual ao resto do projeto)
-```
-
----
 
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #72)
-   Telas analisadas: 2 (Header.jsx, Usuarios.jsx) + 1 componente novo (Avatar.jsx)
-   Componentes reutilizados: Modal.jsx, Button.jsx, ResourceCrud.jsx (extensão),
-     padrão "botão disfarçado de input file" já usado em Conciliação
-   Novos padrões: Avatar.jsx (3 tamanhos sm/md/lg), estado onError com fallback
-     para iniciais, confirmação window.confirm() para "Remover foto"
+✅ Especificação UI concluída — UidCore (Manutenção #87)
+   Telas/componentes analisados: 8 pontos (index.html, Sidebar, Header,
+   Login, DefinirSenha, Dashboard x3, AgendamentoPublico, Django Admin,
+   email de primeiro acesso)
+   Componentes reutilizados: 100% (nenhum componente novo — só fonte
+   do texto trocada: appConfig.js no frontend, settings.APP_NAME no
+   backend)
+   Novos padrões: nenhum — appConfig.js segue o mesmo princípio já
+   usado em selectTemAcessoTotal (authStore.js, Manutenção #60):
+   único ponto de leitura, consumido por import em todo o resto
 
-📁 Arquivo: Especificacao_UI_Hotfix.md (salvo em /var/www/uidcore/)
+📁 Arquivo: Especificacao_UI_Hotfix.md (neste diretório)
 
-➡️ Loom lê Especificacao_Hotfix.md (Analista, RFs/RNs/código de referência)
-   + Especificacao_UI_Hotfix.md (este arquivo, camada visual/estados/espaçamento)
-   antes de implementar Avatar.jsx, o modal do Header e a coluna do ResourceCrud
+➡️ Loom lê Especificacao_Hotfix.md + Especificacao_UI_Hotfix.md antes
+   de implementar frontend/src/utils/appConfig.js, vite.config.js e os
+   7 arquivos .jsx
+➡️ Forge lê Especificacao_Hotfix.md para settings.py, services.py e
+   admin.py/urls.py (esta spec de UI serve só de referência cruzada
+   para os pontos de admin/email, que não são componente React)
 ```
