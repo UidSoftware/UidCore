@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '../hooks/useAuth.js'
 import Card from '../components/ui/Card.jsx'
 import client from '../api/client.js'
+import { APP_NAME } from '../utils/appConfig.js'
 
 function formatCurrency(value) {
   return parseFloat(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -37,7 +38,7 @@ export default function Dashboard() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
-            Bem-vindo ao UidCore, {firstName}!
+            Bem-vindo ao {APP_NAME}, {firstName}!
           </h1>
           <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
             Visão geral do seu negócio — tudo em um lugar.
@@ -53,7 +54,7 @@ export default function Dashboard() {
       <div className="space-y-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
-            Bem-vindo ao UidCore, {firstName}!
+            Bem-vindo ao {APP_NAME}, {firstName}!
           </h1>
         </div>
         <div className="text-center py-12 text-red-600 dark:text-red-400 text-sm">{erro}</div>
@@ -98,7 +99,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
-          Bem-vindo ao UidCore, {firstName}!
+          Bem-vindo ao {APP_NAME}, {firstName}!
         </h1>
         <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
           Visão geral do seu negócio — tudo em um lugar.

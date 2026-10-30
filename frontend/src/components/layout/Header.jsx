@@ -5,6 +5,7 @@ import { useTheme } from '../../hooks/useTheme.js'
 import api from '../../api/client.js'
 import { extractErrorMessage } from '../../utils/errors.js'
 import useAuthStore from '../../stores/authStore.js'
+import { APP_NAME } from '../../utils/appConfig.js'
 import Modal from '../ui/Modal.jsx'
 import Input from '../ui/Input.jsx'
 import Button from '../ui/Button.jsx'
@@ -124,7 +125,7 @@ export default function Header({ onMenuOpen }) {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
           </svg>
         </button>
-        <span className="hidden md:block text-sm font-semibold text-primary-600 dark:text-violet-400 tracking-wide">UidCore</span>
+        <span className="hidden md:block text-sm font-semibold text-primary-600 dark:text-violet-400 tracking-wide">{APP_NAME}</span>
       </div>
 
       <div className="flex items-center gap-4">

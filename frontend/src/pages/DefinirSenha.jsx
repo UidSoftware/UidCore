@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import api from '../api/client.js'
 import { extractErrorMessage } from '../utils/errors.js'
+import { APP_NAME } from '../utils/appConfig.js'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
 
@@ -60,7 +61,7 @@ export default function DefinirSenha() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-600 dark:bg-violet-600 mb-4">
             <span className="text-3xl font-bold text-white">U</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">UidCore</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{APP_NAME}</h1>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-200 p-8 dark:bg-navy-800 dark:border-navy-600 dark:shadow-none">
@@ -103,7 +104,7 @@ export default function DefinirSenha() {
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-slate-500 mt-6">
-          UidCore &copy; {new Date().getFullYear()} — Uid Software
+          {APP_NAME} &copy; {new Date().getFullYear()} — Uid Software
         </p>
       </div>
     </div>

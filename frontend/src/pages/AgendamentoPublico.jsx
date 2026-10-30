@@ -10,6 +10,7 @@ import {
   ChevronLeft, ChevronRight, Users, Clock,
   CheckCircle, AlertTriangle, CalendarCheck,
 } from 'lucide-react'
+import { APP_NAME } from '../utils/appConfig.js'
 
 // Cliente público sem token (axios direto, sem interceptor de auth)
 const publicApi = axios.create({
@@ -510,7 +511,7 @@ export default function AgendamentoPublico() {
       )}
 
       <footer className="text-center py-6 mt-8 border-t border-navy-800">
-        <p className="text-xs text-slate-700">Powered by UidCore</p>
+        <p className="text-xs text-slate-700">Powered by {APP_NAME}</p>
       </footer>
     </div>
   )

@@ -4,6 +4,7 @@ import useAuthStore, {
   selectPodeAcessarMarketing,
   selectPodeAcessarFinanceiro,
 } from '../../stores/authStore.js'
+import { APP_NAME } from '../../utils/appConfig.js'
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '📊' },
@@ -44,7 +45,7 @@ export default function Sidebar({ collapsed, onToggle }) {
     >
       <div className="flex items-center justify-between px-4 py-5 border-b border-gray-700 dark:border-navy-600 min-h-[64px]">
         {!collapsed && (
-          <span className="text-lg font-bold text-white tracking-tight">UidCore</span>
+          <span className="text-lg font-bold text-white tracking-tight">{APP_NAME}</span>
         )}
         <button
           onClick={onToggle}

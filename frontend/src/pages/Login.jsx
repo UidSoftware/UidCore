@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth.js'
+import { APP_NAME } from '../utils/appConfig.js'
 import Button from '../components/ui/Button.jsx'
 import Input from '../components/ui/Input.jsx'
 
@@ -39,7 +40,7 @@ export default function Login() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary-600 dark:bg-violet-600 mb-4">
             <span className="text-3xl font-bold text-white">U</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">UidCore</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">{APP_NAME}</h1>
           <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">Acesse sua conta para continuar</p>
         </div>
 
@@ -80,7 +81,7 @@ export default function Login() {
         </div>
 
         <p className="text-center text-xs text-gray-400 dark:text-slate-500 mt-6">
-          UidCore &copy; {new Date().getFullYear()} — Uid Software
+          {APP_NAME} &copy; {new Date().getFullYear()} — Uid Software
         </p>
       </div>
     </div>
