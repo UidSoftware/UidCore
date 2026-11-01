@@ -53,11 +53,6 @@ class ReceitaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     cliente_nome = serializers.CharField(source='cliente.nome_razao_social', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
-    # aceita 'AAAA-MM' (input type=month) alem da data completa; vazio = model preenche
-    referencia_mes = serializers.DateField(
-        required=False, allow_null=True, input_formats=['%Y-%m', 'iso-8601'],
-    )
-
     class Meta:
         model = Receita
         fields = [
@@ -76,6 +71,10 @@ class ReceitaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
         # serializer). Exposto so para leitura (ex: aba Assinaturas na
         # ficha do Cliente, RF-11).
         read_only_fields = ['valor_liquido', 'created_at', 'assinatura']
+        # aceita 'AAAA-MM' (input type=month); campo auto-gerado mantido de
+        # proposito: o UniqueConstraint condicional (assinatura, referencia_mes)
+        # depende do tratamento que o DRF da ao campo gerado.
+        extra_kwargs = {'referencia_mes': {'input_formats': ['%Y-%m', 'iso-8601']}}
 
     def validate(self, data):
         bruto = data.get('valor_bruto', getattr(self.instance, 'valor_bruto', Decimal('0')))
@@ -89,11 +88,6 @@ class DespesaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
-    # aceita 'AAAA-MM' (input type=month) alem da data completa; vazio = model preenche
-    referencia_mes = serializers.DateField(
-        required=False, allow_null=True, input_formats=['%Y-%m', 'iso-8601'],
-    )
-
     class Meta:
         model = Despesa
         fields = [
@@ -108,6 +102,10 @@ class DespesaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
             'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
         ]
         read_only_fields = ['valor_liquido', 'estornado', 'data_estorno', 'motivo_estorno', 'created_at']
+        # aceita 'AAAA-MM' (input type=month); campo auto-gerado mantido de
+        # proposito: o UniqueConstraint condicional (assinatura, referencia_mes)
+        # depende do tratamento que o DRF da ao campo gerado.
+        extra_kwargs = {'referencia_mes': {'input_formats': ['%Y-%m', 'iso-8601']}}
 
     def validate(self, data):
         bruto = data.get('valor_bruto', getattr(self.instance, 'valor_bruto', Decimal('0')))
