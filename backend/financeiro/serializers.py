@@ -1,10 +1,10 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from rest_framework import serializers
 
 from common.serializers import AuditFieldsMixin
 
-from .models import Aporte, Categoria, Conta, Despesa, EstornoReceita, LivroCaixa, Receita
+from .models import Aporte, Categoria, Conta, Despesa, EstornoReceita, LivroCaixa, Receita, TipoDesconto
 
 
 class CategoriaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
@@ -133,13 +133,23 @@ class DespesaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
     conta_nome = serializers.CharField(source='conta.nome', read_only=True)
     categoria_nome = serializers.CharField(source='categoria.nome', read_only=True)
+    # Manutencao 89 (RF-05): fornecedor_fk/subcategoria convivem com os
+    # campos legados (fornecedor texto, categoria) — nunca os substituem.
+    fornecedor_fk_nome = serializers.CharField(
+        source='fornecedor_fk.nome_razao_social', read_only=True, default='', allow_null=True,
+    )
+    subcategoria_nome = serializers.CharField(
+        source='subcategoria.nome', read_only=True, default='', allow_null=True,
+    )
+
     class Meta:
         model = Despesa
         fields = [
             'id', 'tipo', 'descricao', 'fornecedor',
-            'valor_bruto', 'desconto', 'valor_liquido',
+            'fornecedor_fk', 'fornecedor_fk_nome',
+            'valor_bruto', 'desconto', 'tipo_desconto', 'percentual_desconto', 'valor_liquido',
             'conta', 'conta_nome',
-            'categoria', 'categoria_nome',
+            'categoria', 'categoria_nome', 'subcategoria', 'subcategoria_nome',
             'vencimento', 'pagamento', 'forma_pagamento', 'status',
             'referencia_mes', 'comprovante', 'observacoes',
             'recorrente', 'frequencia', 'quantidade',
@@ -153,7 +163,50 @@ class DespesaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
         extra_kwargs = {'referencia_mes': {'input_formats': ['%Y-%m', 'iso-8601']}}
 
     def validate(self, data):
+        # RF-03/RN-04 (Manutencao 89): subcategoria so e aceita se tiver
+        # pai (e' de fato uma subcategoria) e, se categoria tambem vier no
+        # payload, o pai da subcategoria tem que ser essa categoria.
+        subcategoria = data.get(
+            'subcategoria', getattr(self.instance, 'subcategoria', None) if self.instance else None,
+        )
+        if subcategoria is not None:
+            if subcategoria.pai_id is None:
+                raise serializers.ValidationError(
+                    {'subcategoria': 'A categoria informada não é uma subcategoria (não possui categoria-pai).'}
+                )
+            categoria = data.get(
+                'categoria', getattr(self.instance, 'categoria', None) if self.instance else None,
+            )
+            if categoria is not None and subcategoria.pai_id != categoria.id:
+                raise serializers.ValidationError(
+                    {'subcategoria': 'A subcategoria informada não pertence à categoria selecionada.'}
+                )
+
+        # RF-04/RN-03 (Manutencao 89): desconto em % resolvido em Decimal,
+        # sobrescrevendo o `desconto` em R$ que vier no payload — a % manda.
+        tipo_desconto = data.get(
+            'tipo_desconto', getattr(self.instance, 'tipo_desconto', TipoDesconto.VALOR) if self.instance else TipoDesconto.VALOR,
+        )
         bruto = data.get('valor_bruto', getattr(self.instance, 'valor_bruto', Decimal('0')))
+
+        if tipo_desconto == TipoDesconto.PERCENTUAL:
+            percentual = data.get(
+                'percentual_desconto',
+                getattr(self.instance, 'percentual_desconto', Decimal('0')) if self.instance else Decimal('0'),
+            )
+            if percentual is None:
+                percentual = Decimal('0')
+            if percentual < 0 or percentual > 100:
+                raise serializers.ValidationError(
+                    {'percentual_desconto': 'Percentual de desconto deve estar entre 0 e 100.'}
+                )
+            data['percentual_desconto'] = percentual
+            data['desconto'] = (bruto * percentual / Decimal('100')).quantize(
+                Decimal('0.01'), rounding=ROUND_HALF_UP,
+            )
+        else:
+            data['percentual_desconto'] = Decimal('0')
+
         desconto = data.get('desconto', getattr(self.instance, 'desconto', Decimal('0')))
         if desconto > bruto:
             raise serializers.ValidationError({'desconto': 'Desconto não pode ser maior que o valor bruto.'})

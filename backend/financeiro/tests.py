@@ -16,6 +16,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
+from fornecedores.models import Fornecedor
 
 from . import parsers
 from .conciliacao_service import auto_processar, criar_conciliacao, executar_matching
@@ -1527,3 +1528,263 @@ class CarregarCategoriasPadraoCommandTest(TestCase):
         total_antes = Categoria.objects.count()
         call_command('carregar_categorias_padrao', '--dry-run')
         self.assertEqual(Categoria.objects.count(), total_antes)
+
+
+# --- Manutencao 89: fornecedor_fk + subcategoria + desconto R$/% ---------
+
+class _AppsStub:
+    """Stub minimo de `apps` do RunPython -- a funcao de backfill so usa
+    apps.get_model(app, modelo), entao devolver os models reais (ja
+    migrados no banco de teste) e suficiente para testar a logica real
+    sem precisar de django-test-migrations."""
+
+    def get_model(self, app_label, model_name):
+        return {'despesa': Despesa, 'fornecedor': Fornecedor}[model_name.lower()]
+
+
+class DespesaFornecedorFkBackfillTest(TestCase):
+    """RF-02/RN-02/CA-02 -- migration 0015, testada chamando a funcao real."""
+
+    def setUp(self):
+        self.conta = _make_conta(nome='Conta Backfill89')
+
+    def _rodar_backfill(self):
+        import importlib
+        mod = importlib.import_module(
+            'financeiro.migrations.0015_despesa_fornecedor_fk_backfill'
+        )
+        mod.backfill_fornecedor_fk(_AppsStub(), None)
+
+    def test_match_exato_unico_vincula_fornecedor_fk(self):
+        fornecedor = Fornecedor.objects.create(nome_razao_social='Fornecedor Alfa Ltda')
+        despesa = Despesa.objects.create(
+            descricao='Compra alfa', fornecedor='  fornecedor alfa ltda  ',
+            valor_bruto=Decimal('100.00'), conta=self.conta,
+        )
+        self._rodar_backfill()
+        despesa.refresh_from_db()
+        self.assertEqual(despesa.fornecedor_fk_id, fornecedor.id)
+        self.assertEqual(despesa.fornecedor, '  fornecedor alfa ltda  ')  # legado intacto
+
+    def test_match_ambiguo_nao_vincula(self):
+        Fornecedor.objects.create(nome_razao_social='Fornecedor Beta')
+        Fornecedor.objects.create(nome_razao_social='fornecedor beta')
+        despesa = Despesa.objects.create(
+            descricao='Compra beta', fornecedor='Fornecedor Beta',
+            valor_bruto=Decimal('50.00'), conta=self.conta,
+        )
+        self._rodar_backfill()
+        despesa.refresh_from_db()
+        self.assertIsNone(despesa.fornecedor_fk_id)
+        self.assertEqual(despesa.fornecedor, 'Fornecedor Beta')
+
+    def test_sem_match_nao_vincula(self):
+        despesa = Despesa.objects.create(
+            descricao='Compra gama', fornecedor='Fornecedor Inexistente',
+            valor_bruto=Decimal('30.00'), conta=self.conta,
+        )
+        self._rodar_backfill()
+        despesa.refresh_from_db()
+        self.assertIsNone(despesa.fornecedor_fk_id)
+
+    def test_despesa_sem_fornecedor_texto_e_ignorada(self):
+        despesa = Despesa.objects.create(
+            descricao='Sem fornecedor', fornecedor='',
+            valor_bruto=Decimal('10.00'), conta=self.conta,
+        )
+        self._rodar_backfill()
+        despesa.refresh_from_db()
+        self.assertIsNone(despesa.fornecedor_fk_id)
+
+    def test_backfill_e_idempotente(self):
+        fornecedor = Fornecedor.objects.create(nome_razao_social='Fornecedor Delta')
+        despesa = Despesa.objects.create(
+            descricao='Compra delta', fornecedor='Fornecedor Delta',
+            valor_bruto=Decimal('20.00'), conta=self.conta,
+        )
+        self._rodar_backfill()
+        self._rodar_backfill()
+        despesa.refresh_from_db()
+        self.assertEqual(despesa.fornecedor_fk_id, fornecedor.id)
+
+
+class DespesaDescontoPercentualSerializerTest(TestCase):
+    """RF-04/RN-03/CA-06/CA-07/CA-12 -- resolucao de desconto em % via serializer."""
+
+    def setUp(self):
+        self.conta = _make_conta(nome='Conta Desconto89')
+
+    def test_desconto_percentual_calcula_em_decimal(self):
+        from .serializers import DespesaSerializer
+        serializer = DespesaSerializer(data={
+            'descricao': 'Despesa com 10%', 'valor_bruto': '200.00',
+            'conta': self.conta.pk, 'tipo_desconto': '%', 'percentual_desconto': '10.00',
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        despesa = serializer.save()
+        self.assertEqual(despesa.desconto, Decimal('20.00'))
+        self.assertEqual(despesa.valor_liquido, Decimal('180.00'))
+        self.assertEqual(despesa.percentual_desconto, Decimal('10.00'))
+
+    def test_editar_despesa_percentual_reabre_com_percentual_preenchido(self):
+        from .serializers import DespesaSerializer
+        despesa = Despesa.objects.create(
+            descricao='Original', valor_bruto=Decimal('300.00'), conta=self.conta,
+            tipo_desconto='%', percentual_desconto=Decimal('5.00'), desconto=Decimal('15.00'),
+        )
+        data = DespesaSerializer(despesa).data
+        self.assertEqual(data['tipo_desconto'], '%')
+        self.assertEqual(Decimal(data['percentual_desconto']), Decimal('5.00'))
+
+    def test_desconto_em_reais_ignora_percentual(self):
+        from .serializers import DespesaSerializer
+        serializer = DespesaSerializer(data={
+            'descricao': 'Despesa R$ direto', 'valor_bruto': '100.00', 'desconto': '30.00',
+            'conta': self.conta.pk, 'tipo_desconto': 'R$', 'percentual_desconto': '99.00',
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        despesa = serializer.save()
+        self.assertEqual(despesa.desconto, Decimal('30.00'))
+        self.assertEqual(despesa.percentual_desconto, Decimal('0'))
+
+    def test_percentual_fora_do_intervalo_e_rejeitado(self):
+        from .serializers import DespesaSerializer
+        serializer = DespesaSerializer(data={
+            'descricao': 'Percentual invalido', 'valor_bruto': '100.00',
+            'conta': self.conta.pk, 'tipo_desconto': '%', 'percentual_desconto': '150.00',
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('percentual_desconto', serializer.errors)
+
+
+class DespesaSubcategoriaValidacaoTest(TestCase):
+    """RF-03/RN-04/CA-11 -- subcategoria precisa ter pai e bater com a categoria."""
+
+    def setUp(self):
+        self.conta = _make_conta(nome='Conta Subcategoria89')
+        self.categoria_pai = Categoria.objects.create(nome='Combustivel89', tipo='SAIDA')
+        self.subcategoria = Categoria.objects.create(
+            nome='Carro89', tipo='SAIDA', pai=self.categoria_pai,
+        )
+        self.outra_categoria = Categoria.objects.create(nome='Aluguel89', tipo='SAIDA')
+
+    def test_subcategoria_sem_pai_e_rejeitada(self):
+        from .serializers import DespesaSerializer
+        categoria_sem_filhos = Categoria.objects.create(nome='RaizSemFilho89', tipo='SAIDA')
+        serializer = DespesaSerializer(data={
+            'descricao': 'X', 'valor_bruto': '10.00', 'conta': self.conta.pk,
+            'subcategoria': categoria_sem_filhos.pk,
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('subcategoria', serializer.errors)
+
+    def test_subcategoria_com_categoria_divergente_e_rejeitada(self):
+        from .serializers import DespesaSerializer
+        serializer = DespesaSerializer(data={
+            'descricao': 'X', 'valor_bruto': '10.00', 'conta': self.conta.pk,
+            'categoria': self.outra_categoria.pk, 'subcategoria': self.subcategoria.pk,
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('subcategoria', serializer.errors)
+
+    def test_subcategoria_valida_e_aceita(self):
+        from .serializers import DespesaSerializer
+        serializer = DespesaSerializer(data={
+            'descricao': 'X', 'valor_bruto': '10.00', 'conta': self.conta.pk,
+            'categoria': self.categoria_pai.pk, 'subcategoria': self.subcategoria.pk,
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+
+class DespesaFornecedorFkFiltrosAPITest(APITestCase):
+    """RF-06/CA-09/CA-10 -- filtros por fornecedor_fk, categoria e subcategoria."""
+
+    def setUp(self):
+        self.user = _make_user(email='despesa89@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta Filtros89')
+        self.fornecedor = Fornecedor.objects.create(nome_razao_social='Fornecedor Filtro89')
+        self.categoria = Categoria.objects.create(nome='CategoriaFiltro89', tipo='SAIDA')
+        self.subcategoria = Categoria.objects.create(
+            nome='SubFiltro89', tipo='SAIDA', pai=self.categoria,
+        )
+        self.despesa_match = Despesa.objects.create(
+            descricao='Despesa com fornecedor', valor_bruto=Decimal('10.00'),
+            conta=self.conta, fornecedor_fk=self.fornecedor,
+            categoria=self.categoria, subcategoria=self.subcategoria,
+        )
+        Despesa.objects.create(
+            descricao='Despesa sem fornecedor', valor_bruto=Decimal('20.00'), conta=self.conta,
+        )
+
+    def test_filtro_fornecedor_fk(self):
+        resp = self.client.get('/api/v1/financeiro/despesas/', {'fornecedor_fk': self.fornecedor.pk})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = [d['id'] for d in resp.data['results']]
+        self.assertEqual(ids, [self.despesa_match.pk])
+
+    def test_filtro_categoria(self):
+        resp = self.client.get('/api/v1/financeiro/despesas/', {'categoria': self.categoria.pk})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = [d['id'] for d in resp.data['results']]
+        self.assertEqual(ids, [self.despesa_match.pk])
+
+    def test_filtro_subcategoria(self):
+        resp = self.client.get('/api/v1/financeiro/despesas/', {'subcategoria': self.subcategoria.pk})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        ids = [d['id'] for d in resp.data['results']]
+        self.assertEqual(ids, [self.despesa_match.pk])
+
+
+class SugestaoCategoriaPorFornecedorAPITest(APITestCase):
+    """RF-07/RN-05/CA (endpoint sugestao-categoria)."""
+
+    def setUp(self):
+        self.user = _make_user(email='sugestao89@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta Sugestao89')
+        self.fornecedor = Fornecedor.objects.create(nome_razao_social='Fornecedor Sugestao89')
+        self.categoria = Categoria.objects.create(nome='CategoriaSugestao89', tipo='SAIDA')
+        self.subcategoria = Categoria.objects.create(
+            nome='SubSugestao89', tipo='SAIDA', pai=self.categoria,
+        )
+
+    def test_sem_fornecedor_fk_retorna_400(self):
+        resp = self.client.get('/api/v1/financeiro/despesas/sugestao-categoria/')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_sem_despesa_anterior_retorna_nulls(self):
+        resp = self.client.get(
+            '/api/v1/financeiro/despesas/sugestao-categoria/',
+            {'fornecedor_fk': self.fornecedor.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertIsNone(resp.data['categoria'])
+        self.assertIsNone(resp.data['subcategoria'])
+
+    def test_retorna_categoria_subcategoria_da_despesa_mais_recente(self):
+        Despesa.objects.create(
+            descricao='Antiga', valor_bruto=Decimal('10.00'), conta=self.conta,
+            fornecedor_fk=self.fornecedor, categoria=self.categoria,
+            pagamento=date(2026, 1, 10),
+        )
+        mais_recente = Despesa.objects.create(
+            descricao='Recente', valor_bruto=Decimal('10.00'), conta=self.conta,
+            fornecedor_fk=self.fornecedor, categoria=self.categoria,
+            subcategoria=self.subcategoria, pagamento=date(2026, 6, 10),
+        )
+        resp = self.client.get(
+            '/api/v1/financeiro/despesas/sugestao-categoria/',
+            {'fornecedor_fk': self.fornecedor.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['categoria'], self.categoria.pk)
+        self.assertEqual(resp.data['subcategoria'], mais_recente.subcategoria_id)
+
+    def test_sem_autenticacao_401(self):
+        self.client.force_authenticate(None)
+        resp = self.client.get(
+            '/api/v1/financeiro/despesas/sugestao-categoria/',
+            {'fornecedor_fk': self.fornecedor.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)

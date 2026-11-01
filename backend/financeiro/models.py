@@ -232,17 +232,47 @@ class FormaPagamento(models.TextChoices):
     OUTRO = 'OUTRO', 'Outro'
 
 
+class TipoDesconto(models.TextChoices):
+    VALOR = 'R$', 'Valor fixo (R$)'
+    PERCENTUAL = '%', 'Percentual (%)'
+
+
 class Despesa(BaseModel):
     tipo = models.CharField(max_length=20, choices=TipoDespesa.choices, blank=True)
     descricao = models.CharField(max_length=255, blank=True)
+    # Legado (texto livre) — Manutencao 89 (RF-01) introduz fornecedor_fk
+    # ao lado, convivendo com este campo: nunca removido, nunca obrigatorio
+    # (RN-01). O backfill (migration 0015) so preenche fornecedor_fk em
+    # caso de match exato unico; ambiguo/sem match mantem este campo como
+    # unica fonte visivel (texto legado intacto).
     fornecedor = models.CharField(max_length=150, blank=True)
+    fornecedor_fk = models.ForeignKey(
+        'fornecedores.Fornecedor', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='despesas',
+    )
     valor_bruto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     desconto = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    # Manutencao 89 (RF-04): forma de preenchimento de `desconto` — o
+    # valor em R$ gravado em `desconto` continua sendo a unica fonte de
+    # verdade usada por save()/valor_liquido; estes dois campos apenas
+    # guardam COMO ele foi informado (para poder reexibir/reeditar em %).
+    tipo_desconto = models.CharField(
+        max_length=2, choices=TipoDesconto.choices, default=TipoDesconto.VALOR,
+    )
+    percentual_desconto = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     valor_liquido = models.DecimalField(max_digits=12, decimal_places=2, editable=False, default=0)
     conta = models.ForeignKey(Conta, on_delete=models.PROTECT, related_name='despesas')
     categoria = models.ForeignKey(
         'Categoria', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='despesas',
+        limit_choices_to={'tipo': 'SAIDA', 'is_active': True},
+    )
+    # Manutencao 89 (RF-03): subcategoria e so uma Categoria com pai != null
+    # (mesma tabela, hierarquia introduzida na Manutencao 88) — nao e uma
+    # FK para outro model.
+    subcategoria = models.ForeignKey(
+        'Categoria', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='despesas_subcategoria',
         limit_choices_to={'tipo': 'SAIDA', 'is_active': True},
     )
     vencimento = models.DateField(null=True, blank=True)

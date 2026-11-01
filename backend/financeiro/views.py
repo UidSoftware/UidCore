@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import connection, transaction
-from django.db.models import Sum, Q
+from django.db.models import F, Sum, Q
 from django.db.models.functions import TruncMonth
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
@@ -40,8 +40,10 @@ class CategoriaViewSet(AuditMixin, ModelViewSet):
     serializer_class = CategoriaSerializer
     permission_classes = [IsAdmin | IsFinanceiro]
     # RF-04 (Manutencao 88): busca por nome, alem do filtro por tipo ja existente.
+    # RF-09 (Manutencao 89): 'pai' adicionado para o frontend listar
+    # subcategorias de uma categoria (GET /financeiro/categorias/?pai=<id>).
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['tipo']
+    filterset_fields = ['tipo', 'pai']
     search_fields = ['nome']
 
     def perform_destroy(self, instance):
@@ -220,9 +222,44 @@ class DespesaViewSet(AuditMixin, ModelViewSet):
     serializer_class = DespesaSerializer
     permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['tipo', 'status', 'conta', 'estornado']
+    # RF-06 (Manutencao 89): adiciona 'categoria' (faltava, apesar de ja
+    # ser FK ha mais tempo), 'subcategoria' e 'fornecedor_fk'.
+    filterset_fields = ['tipo', 'status', 'conta', 'estornado', 'categoria', 'subcategoria', 'fornecedor_fk']
     search_fields = ['descricao', 'fornecedor']
     ordering_fields = ['vencimento', 'valor_liquido', 'status']
+
+    @action(detail=False, methods=['get'], url_path='sugestao-categoria')
+    def sugestao_categoria(self, request):
+        """
+        RF-07 (Manutencao 89): sugere categoria/subcategoria com base na
+        despesa mais recente (por data real de negocio: pagamento, depois
+        vencimento, depois created_at) do mesmo fornecedor_fk. Somente
+        leitura — nunca aplica nada automaticamente (RN-05, decisao do
+        frontend). Sem despesa anterior: {"categoria": null, "subcategoria": null}.
+        """
+        fornecedor_fk = request.query_params.get('fornecedor_fk')
+        if not fornecedor_fk:
+            return Response({'detail': 'fornecedor_fk é obrigatório.'}, status=400)
+
+        # nulls_last: despesa sem pagamento/vencimento preenchido nao deve
+        # "furar a fila" na frente de uma com data real so por o Postgres
+        # ordenar NULL primeiro em DESC por padrao.
+        ultima = (
+            Despesa.objects.filter(is_active=True, fornecedor_fk_id=fornecedor_fk)
+            .order_by(
+                F('pagamento').desc(nulls_last=True),
+                F('vencimento').desc(nulls_last=True),
+                F('created_at').desc(nulls_last=True),
+            )
+            .first()
+        )
+        if ultima is None:
+            return Response({'categoria': None, 'subcategoria': None})
+
+        return Response({
+            'categoria': ultima.categoria_id,
+            'subcategoria': ultima.subcategoria_id,
+        })
 
     @action(detail=True, methods=['patch'], url_path='pagar')
     def marcar_pago(self, request, pk=None):
