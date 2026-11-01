@@ -1,238 +1,293 @@
-# Especificação Hotfix — Manutenção #87
+# Especificação Hotfix — Manutenção #88
 
 **Sistema:** UidCore (OS #7)
-**Tipo:** `feature_pequena` (configuração/infra de template — sem tela nova, sem endpoint de negócio novo)
-**Requer aprovação comercial:** não
-**Caminho afetado:** `frontend/index.html`, `frontend/vite.config.js`, `frontend/src/utils/appConfig.js` (novo), `frontend/.env`/`.env.example`, 7 arquivos `.jsx`; `backend/core/settings.py`, `backend/accounts/services.py`, `backend/accounts/admin.py`, `backend/.env.example`
+**Projeto:** /var/www/uidcore
+**Data:** 2026-11-01
+**Tipo:** feature_pequena (classificação: CRUD de cadastro + ajuste em 2 telas existentes — sem novo app, sem integração externa, sem aprovação comercial)
+**Analista:** modo manutenção
+
+---
+
+## 0. Achado crítico pré-implementação (ler antes de tudo)
+
+O briefing recebido ("Contexto técnico já levantado") afirma que
+**`CategoriaViewSet` NÃO existe e precisa ser criado**. Isso está
+**desatualizado** — conferido linha a linha no código real na VPS:
+
+```
+backend/financeiro/serializers.py:10  → class CategoriaSerializer(AuditFieldsMixin, ...)  [EXISTE]
+backend/financeiro/views.py:37        → class CategoriaViewSet(AuditMixin, ModelViewSet)  [EXISTE]
+backend/financeiro/urls.py:7          → router.register('categorias', ...)                [EXISTE]
+```
+
+Rota real já ativa: **`/api/v1/financeiro/categorias/`**
+(`permission_classes = [IsAdmin | IsFinanceiro]`, `filterset_fields = ['tipo']`,
+`AuditMixin` → soft delete via `is_active`, sem busca por nome ainda —
+`search_fields` não está declarado, só `filterset_fields`).
+
+Isso veio provavelmente de um ciclo anterior (ex.: Manutenção #57, gráfico
+"Gastos por Categoria") que criou o CRUD básico sem nunca ter feito a tela
+de frontend correspondente — o que combina com o pedido real do cliente
+("tela de cadastro"): **o backend básico (sem hierarquia) já existe, falta
+pai/subcategoria + a tela**.
+
+**Impacto no escopo:** Forge não cria o ViewSet/Serializer/rota do zero —
+ele **estende** os três (adiciona `pai`, valida hierarquia, adiciona
+`search_fields`). Isso reduz risco de regressão (nenhuma breaking change
+de contrato — só campos novos, todos opcionais) mas Forge precisa ler
+`CategoriaSerializer`/`CategoriaViewSet` atuais antes de editar, não
+reescrever.
+
+**Segundo achado, também não citado no briefing:** os formulários de
+Receita e Despesa em `frontend/src/pages/Financeiro.jsx`
+(`ReceitasTab`/`DespesasTab`) **já têm `categoria` no estado do form e no
+payload enviado** (`EMPTY_RECEITA`/`EMPTY_DESPESA`, `openEdit` mapeando
+`item.categoria`), **mas não existe nenhum campo `<Select label="Categoria">`
+renderizado no modal** — confirmado via grep, zero ocorrência. Ou seja, hoje
+é impossível um usuário escolher categoria ao criar Receita/Despesa pela
+tela — o campo sempre vai vazio. O pedido "atalho + Nova categoria nos
+forms de Receita e Despesa" só faz sentido se esse campo for adicionado
+primeiro — por isso isso entra no escopo desta manutenção como RF-11
+(não é scope creep, é pré-requisito do que foi pedido).
+
+Já o form de Plano (`Assinaturas.jsx`, `AbaListaPlanos`) **já tem** o select
+de Categoria funcionando (`categoriaOptions` buscado de
+`/financeiro/categorias/?tipo=ENTRADA`) — só falta o atalho "+ Nova
+categoria" ao lado dele.
 
 ---
 
 ## 1. Contexto
 
-O UidCore é o sistema-template (núcleo/backbone) da Uid Software, replicado
-via fork para cada cliente/nicho (pilates, salão, loja, clínica etc. — ver
-`CLAUDE.md`, seção "Fluxo 1"). Hoje o nome do produto está escrito à mão
-("UidCore") em pelo menos 13 pontos do código (7 arquivos de frontend + 2
-pontos de backend), porque o template nunca teve esse nome parametrizado
-desde a criação. Cada novo fork precisaria de um `sed`/find-replace manual
-e arriscado para rebatizar o sistema para o cliente, em vez de trocar uma
-única variável de ambiente.
+Cliente quer gerenciar categorias financeiras (hoje só existem via Django
+admin ou seed manual) e organizá-las em até 1 nível de subcategoria (ex.:
+"Combustível" como categoria-pai de "Carro"/"Moto"). Hoje toda tela que usa
+categoria (Plano, e — depois desta manutenção — Receita/Despesa) depende de
+já existir categoria cadastrada; sem tela de cadastro, a única forma de
+criar uma é Django admin (acesso que o cliente final do UidCore não tem —
+só a Uid, via `is_staff`, ver RBAC Superadmin/Admin no CLAUDE.md global) ou
+`python manage.py shell`.
 
-## 2. AS-IS (como é hoje)
+## 2. AS-IS
 
-Confirmado via leitura direta dos arquivos (`grep -rn "UidCore" frontend/src
-frontend/index.html backend/accounts/services.py`):
+- `Categoria` existe (nome, tipo ENTRADA/SAIDA, soft delete), sem hierarquia.
+- CRUD via API já existe (`/api/v1/financeiro/categorias/`), mas **sem
+  tela de frontend** — único consumidor hoje é leitura (dropdown de Plano
+  e, antes desta manutenção, nenhum lugar grava categoria nova pela tela).
+- Nenhuma carga inicial de categorias — banco pode estar 100% vazio de
+  `Categoria`, travando o cadastro de `Plano` (FK obrigatória; sem opção
+  satisfazendo `limit_choices_to`, nenhuma aparece no select).
+- Receita/Despesa já têm FK `categoria` (nullable) no model e no
+  serializer, mas o campo nunca é exposto no formulário de criação/edição.
 
-| Arquivo | Linha(s) | Conteúdo hardcoded |
-|---|---|---|
-| `frontend/index.html` | 13, 14 | `<meta name="description" content="UidCore — Template Financeiro Multi-Nicho">` e `<title>UidCore</title>` |
-| `frontend/src/components/layout/Sidebar.jsx` | 47 | `<span ...>UidCore</span>` (logo expandida da sidebar) |
-| `frontend/src/components/layout/Header.jsx` | 127 | `<span ...>UidCore</span>` (nome no header desktop) |
-| `frontend/src/pages/Login.jsx` | 42, 83 | título da tela de login + rodapé `UidCore &copy; {ano} — Uid Software` |
-| `frontend/src/pages/DefinirSenha.jsx` | 63, 106 | título da tela + rodapé `UidCore &copy; {ano} — Uid Software` |
-| `frontend/src/pages/Dashboard.jsx` | 40, 56, 101 | `Bem-vindo ao UidCore, {firstName}!` (3 variantes de saudação/estado) |
-| `frontend/src/pages/AgendamentoPublico.jsx` | 513 | `Powered by UidCore` (rodapé da página pública de agendamento, Manutenção #65) |
-| `backend/accounts/services.py` | 27, 42 | `<h2>UidCore</h2>` no corpo HTML do email de primeiro acesso + assunto `'Acesso ao UidCore — defina sua senha'` |
+## 3. TO-BE
 
-⚠️ **Nota de rota (mesmo padrão já documentado nas Manutenções #44/#72):** o
-pedido citou "Sidebar.jsx linha 47 **e 127**". A linha 47 do Sidebar.jsx
-está correta (confirmado). A linha 127 com texto `UidCore` pertence, na
-verdade, a **`Header.jsx`** (`<span className="hidden md:block ...">UidCore</span>`)
-— `Sidebar.jsx` tem só 86 linhas no total e uma única ocorrência do texto
-("UidCore"). Tratado nesta especificação como os dois pontos reais
-(Sidebar.jsx:47 e Header.jsx:127), não como duas ocorrências em Sidebar.jsx.
-
-Django admin (`backend/accounts/admin.py`, `backend/core/urls.py`) não tem
-`site_header`/`site_title` customizado hoje — usa o default do Django
-("Django administration").
-
-Não existe `frontend/.env` nem variável `VITE_APP_NAME` hoje — só
-`frontend/.env.example` com `VITE_API_URL=/api/v1`. `backend/core/settings.py`
-não tem `APP_NAME`. Todas as outras configurações do projeto (DB, SMTP,
-STORAGE_BACKEND, CORS) já seguem o padrão `config('VAR', default=...)` via
-`python-decouple` (backend) — nenhum precedente de variável de ambiente
-exposta ao Vite via `import.meta.env` ainda existe no frontend.
-
-## 3. TO-BE (como será)
-
-Nome e descrição do sistema passam a ser configuráveis por variável de
-ambiente, com fallback para `UidCore`/a descrição atual quando a variável
-não estiver definida — nenhum comportamento muda para o UidCore em produção
-hoje (continua aparecendo "UidCore" em todo lugar, só que agora vindo de
-config, não mais de string literal). Isso é o que destrava o próximo fork
-do template (ex.: LifeStyle, ou um cliente futuro) a só setar uma variável
-no `.env`/`.env.prod` em vez de caçar 13 ocorrências em 10 arquivos.
-
-### Frontend
-
-- `frontend/src/utils/appConfig.js` (**novo arquivo**): único ponto de
-  leitura de `import.meta.env.VITE_APP_NAME` e `import.meta.env.VITE_APP_DESCRIPTION`,
-  exportando `APP_NAME` e `APP_DESCRIPTION` com fallback `'UidCore'` e
-  `'UidCore — Template Financeiro Multi-Nicho'` respectivamente.
-- Todos os 7 arquivos `.jsx` listados no AS-IS passam a importar `APP_NAME`
-  de `../utils/appConfig.js` (ajustar o caminho relativo conforme a pasta
-  de cada arquivo) em vez de ter a string `'UidCore'` escrita à mão.
-  `AgendamentoPublico.jsx` (`Powered by UidCore`) também usa `APP_NAME`.
-- `frontend/vite.config.js` ganha `transformIndexHtml` (hook do plugin,
-  dentro de `defineConfig`) que lê `process.env.VITE_APP_NAME` /
-  `process.env.VITE_APP_DESCRIPTION` (com os mesmos fallbacks) e substitui
-  o conteúdo de `<title>` e da `<meta name="description">` no
-  `frontend/index.html` em build/dev — **sem precisar de template
-  `%VITE_APP_NAME%` manual no HTML**, já que o `index.html` atual continua
-  com `UidCore` literal como fallback visível em `view-source` antes do JS
-  rodar (comportamento aceitável: é só o flash inicial do `<title>` estático,
-  o mesmo padrão que o app já tem com o anti-FOUC do tema escuro).
-- `frontend/.env.example` (**atualizado**): documentar
-  `VITE_APP_NAME=UidCore` e `VITE_APP_DESCRIPTION=UidCore — Template Financeiro Multi-Nicho`
-  comentados/com exemplo, junto da `VITE_API_URL` já existente.
-- `frontend/.env` (se existir na VPS/dev local, **não versionado** — ver
-  regra global ".env sempre no .gitignore") não é tocado pelo Forge/Loom;
-  cabe ao Pilot confirmar/criar conforme padrão de outras variáveis.
-
-### Backend
-
-- `backend/core/settings.py`: nova linha
-  `APP_NAME = config('APP_NAME', default='UidCore')`, no mesmo bloco de
-  outras configs simples (próximo a `FRONTEND_URL`, linha ~191).
-- `backend/accounts/services.py`: `enviar_primeiro_acesso()` passa a usar
-  `settings.APP_NAME` em vez de `'UidCore'` literal — tanto no `<h2>` do
-  corpo HTML (linha 27) quanto no assunto do email (linha 42,
-  `f'Acesso ao {settings.APP_NAME} — defina sua senha'`). Precisa de
-  `from django.conf import settings` — já importado no arquivo.
-- Django admin: `admin.site.site_header` e `admin.site.site_title`
-  configurados com `settings.APP_NAME`. Local recomendado: `backend/core/urls.py`
-  (onde `admin.site.urls` já é importado/registrado, logo após o import de
-  `admin`) ou `backend/accounts/admin.py` (onde `UserAdmin` já vive) — Forge
-  decide o local mais natural sem duplicar a configuração nos dois lugares.
-- `backend/.env.example` (**atualizado**): adicionar `APP_NAME=UidCore`
-  junto das demais variáveis já documentadas.
-
-### Fora do escopo desta manutenção (confirmado pelo pedido)
-
-- `manifest.json`/PWA: não existe ainda, não criar agora.
-- Comentários e docstrings que mencionam "UidCore" (ex.:
-  `backend/accounts/services.py:17`, `frontend/src/hooks/useTheme.js:10`)
-  **não são alterados** — são documentação de código, não texto exibido ao
-  usuário.
-- Nome de banco de dados (`DB_NAME=uidcore`), domínio
-  (`uidcore.uidsoftware.com.br`), nome do repositório/projeto
-  (`/var/www/uidcore`), chaves de `localStorage` (`uidcore-theme`) e
-  qualquer identificador técnico/infra — fora de escopo; o pedido é só
-  sobre texto exibido ao usuário final (UI + email).
+- Tela própria "Categorias" dentro do módulo Financeiro, com hierarquia
+  visual (pai → subcategorias), CRUD completo, filtro por tipo, soft
+  delete (ativar/desativar).
+- Campo `pai` na `Categoria`, restrito a 1 nível, mesmo tipo do pai.
+- Atalho "+ Nova categoria" nos 3 forms que consomem `Categoria` (Plano,
+  Receita, Despesa) — cria sem navegar para fora do form atual.
+- Comando de carga inicial (`carregar_categorias_padrao`) rodável em
+  qualquer ambiente (novo fork/cliente) sem duplicar se rodado de novo.
 
 ## 4. Requisitos Funcionais
 
-```
-RF-01 - O sistema deve exibir o nome do produto (título da aba, sidebar,
-        header, telas de Login/DefinirSenha, saudação do Dashboard, rodapé
-        da página pública de agendamento e emails de acesso) a partir de
-        uma única fonte de configuração, nunca de string hardcoded
-        duplicada em múltiplos arquivos.
-RF-02 - Com VITE_APP_NAME e APP_NAME ausentes do .env (ou .env vazio), o
-        sistema deve continuar exibindo "UidCore" em todos os pontos
-        listados no AS-IS — fallback idêntico ao comportamento atual.
-RF-03 - Alterar VITE_APP_NAME=OutroNome no frontend deve refletir em TODOS
-        os 8 pontos de UI listados (index.html title/description, Sidebar,
-        Header, Login, DefinirSenha, Dashboard x3, AgendamentoPublico) após
-        rebuild do frontend, sem precisar editar nenhum .jsx.
-RF-04 - Alterar APP_NAME=OutroNome no backend deve refletir no corpo HTML e
-        assunto do email de primeiro acesso (accounts/services.py) e no
-        cabeçalho do Django admin (site_header/site_title), sem precisar
-        editar services.py nem admin.py.
-RF-05 - frontend/.env.example e backend/.env.example devem documentar as
-        novas variáveis (VITE_APP_NAME, VITE_APP_DESCRIPTION, APP_NAME) com
-        valor de exemplo, para o próximo fork saber que elas existem sem
-        precisar ler o código.
-```
+### Backend
 
-## 5. Requisitos Não Funcionais
+- **RF-01 (MUST)** — Adicionar campo `Categoria.pai` (FK nullable para
+  `self`, `on_delete=PROTECT` — não deixar apagar categoria-pai com
+  filhos ativos sem decisão explícita; `related_name='subcategorias'`).
+- **RF-02 (MUST)** — Validação no `CategoriaSerializer.validate()`:
+  - se `pai` informado: `pai.tipo == self.tipo` (mesmo tipo ENTRADA/SAIDA),
+    senão erro `{"pai": "A subcategoria deve ser do mesmo tipo da categoria-pai."}`.
+  - se `pai` informado: `pai.pai is None` (pai não pode já ser subcategoria —
+    trava nesting > 1 nível), senão erro
+    `{"pai": "Uma subcategoria não pode ter subcategorias (máximo 1 nível)."}`.
+  - categoria não pode ser pai de si mesma (`pai_id != self.pk` no update).
+- **RF-03 (MUST)** — Estender `CategoriaSerializer` (não recriar): adicionar
+  `pai`, `pai_nome` (`source='pai.nome'`, `read_only=True`,
+  `default=''`/`allow_null=True`), `subcategorias_count`
+  (`SerializerMethodField`, conta `subcategorias.filter(is_active=True).count()`
+  — usado pelo frontend pra decidir aviso antes de excluir).
+- **RF-04 (MUST)** — Estender `CategoriaViewSet` (não recriar):
+  adicionar `SearchFilter` com `search_fields = ['nome']` (hoje só tem
+  `DjangoFilterBackend`/`filterset_fields=['tipo']` — falta busca por
+  nome, pedida no briefing). Manter `permission_classes = [IsAdmin | IsFinanceiro]`
+  (já correto, não alterar).
+  - **RN-03**: `queryset` do ViewSet continua `is_active=True` por padrão
+    (herda o filtro já existente) — ver seção 8 (Riscos) sobre listagem de
+    inativas ficar fora do escopo desta manutenção.
+- **RF-05 (MUST)** — Soft delete: `perform_destroy` já vem de
+  `AuditMixin`/`BaseModel` padrão da fábrica — **Forge deve ler o
+  `AuditMixin` completo** (`backend/common/mixins.py`) antes de assumir que
+  ele já cobre `perform_destroy`; se não cobrir, implementar
+  `perform_destroy` custom no `CategoriaViewSet` fazendo soft delete +
+  bloqueio se tiver subcategoria ativa ou estiver em uso
+  (`.planos.exists() or .receitas.exists() or .despesas.exists()`, todos
+  filtrando `is_active=True`) — devolver 400 com mensagem clara em vez de
+  deixar órfão.
+- **RF-06 (MUST)** — Migration para o campo `pai` (`financeiro/migrations/00XX_categoria_pai.py`
+  — a última migration hoje é `0012_despesa_financeira_e_competencia.py`,
+  confirmar o próximo número livre na hora de gerar — só `AddField`, sem
+  `RunPython`).
+- **RF-07 (MUST)** — Management command `carregar_categorias_padrao`
+  (`backend/financeiro/management/commands/carregar_categorias_padrao.py`
+  — seguir o estilo de `backend/assinaturas/management/commands/gerar_cobrancas_assinaturas.py`:
+  docstring, `--dry-run` opcional, resumo no `stdout`):
+  - Idempotente via `get_or_create(nome=..., tipo=..., pai=pai_obj, defaults={...})`
+    — **nunca** `get_or_create` só por `nome` (a `unique_together` real do
+    model é `[nome, tipo]`, sem `pai` — ver RN-04 abaixo).
+  - **RN-04**: como `unique_together` atual é só `[nome, tipo]`, duas
+    subcategorias com mesmo nome e tipo mas pais diferentes colidiriam no
+    banco. Para o seed desta manutenção isso não ocorre (só "Carro"/"Moto"
+    sob um único pai "Combustível"), mas é uma lacuna de modelagem
+    preexistente. **Decisão do Analista:** não alterar `unique_together`
+    nesta manutenção (mudar constraint existente tem risco de migration de
+    dado em produção, fora do escopo pedido) — Forge deve registrar isso
+    como dívida técnica no relatório final, não resolver por conta própria.
+  - Seed exato pedido:
+    ```
+    ENTRADA (sem pai): Venda de serviços, Venda de produtos, Mensalidades, Outras receitas
+    SAIDA  (sem pai): Aluguel, Água/Luz/Internet, Salários, Pró-labore,
+                       Impostos e taxas, Marketing, Manutenção,
+                       Combustível, Outras despesas
+    SAIDA  (pai=Combustível): Carro, Moto
+    ```
+  - Rodar 2x não deve criar duplicata nem alterar `is_active`/`pai` de
+    categoria já existente que o usuário tenha editado manualmente
+    (`get_or_create` nunca sobrescreve registro já existente).
+  - Comando é chamado manualmente pelo Pilot após o deploy (não é
+    migration de dado automática).
+- **RF-08 (MUST)** — Nenhuma mudança de contrato em `Plano`/`Assinatura` —
+  já consomem `Categoria` corretamente (`Plano.categoria`,
+  `limit_choices_to={'tipo': 'ENTRADA', 'is_active': True}`).
 
-```
-RNF-01 - Nenhuma mudança visual ou de comportamento no UidCore em produção
-         hoje — com .env atual (sem as variáveis novas), toda tela deve
-         renderizar exatamente "UidCore" como renderiza hoje (validação
-         manual do Sentinel: comparar screenshot/HTML renderizado antes x
-         depois nas 5 páginas afetadas).
-RNF-02 - APP_NAME (backend) e VITE_APP_NAME/VITE_APP_DESCRIPTION (frontend)
-         seguem o padrão já existente no projeto: python-decouple
-         (config('VAR', default=...)) no backend, import.meta.env no
-         frontend — nenhum padrão novo de leitura de env introduzido.
-RNF-03 - appConfig.js é o ÚNICO arquivo do frontend que lê
-         import.meta.env.VITE_APP_NAME/VITE_APP_DESCRIPTION diretamente —
-         todo .jsx consome via import, nunca lendo import.meta.env direto
-         (evita duplicar a lógica de fallback em cada arquivo, mesmo
-         princípio já aplicado a selectTemAcessoTotal no authStore.js,
-         Manutenção #60).
-RNF-04 - Comentários/docstrings preservados literalmente — nenhuma edição
-         cosmética fora do escopo (grep "UidCore" pós-implementação deve
-         retornar SÓ ocorrências em comentários/docstrings e nos arquivos
-         .env.example/fallbacks, nunca mais em string de UI/template literal
-         fora do fallback).
-```
+### Frontend
 
-## 6. Atores e Perfis
+- **RF-09 (MUST)** — Nova tela/aba **Financeiro → Categorias** (dentro de
+  `Financeiro.jsx`, seguindo o padrão `AbaListaPlanos` já usado em
+  `Assinaturas.jsx` — Card + Modal, sem componente de biblioteca externa,
+  dark mode via tokens `navy-*`/`violet-*`):
+  - Lista agrupada por tipo (ENTRADA / SAIDA); dentro de cada tipo,
+    categorias-pai com suas subcategorias indentadas/aninhadas
+    visualmente (ex.: "Combustível" e, recuado, "↳ Carro", "↳ Moto").
+  - Filtro por tipo (select ENTRADA/SAIDA/Todas).
+  - Busca por nome (campo de texto, usa o `search_fields` novo do RF-04).
+  - CRUD: criar/editar via Modal (campos: nome, tipo, pai — select de
+    categorias do MESMO tipo e SEM pai próprio, populado dinamicamente ao
+    trocar o tipo); excluir = soft delete com confirmação (`window.confirm`,
+    padrão já usado em `handleExcluir` de `Assinaturas.jsx`).
+  - Badge visual Ativa/Inativa (mesmo padrão `plano.ativo` em
+    `Assinaturas.jsx`).
+- **RF-10 (MUST)** — Atalho **"+ Nova categoria"** no modal de Plano
+  (`AbaListaPlanos` em `Assinaturas.jsx`, ao lado do
+  `<Select label="Categoria" ...>` já existente): abre um segundo Modal
+  empilhado (ou inline — decisão do Loom, mas nunca navegar para fora do
+  form de Plano) com campos mínimos (nome; tipo pré-travado em ENTRADA,
+  já que `Plano.categoria` só aceita `tipo=ENTRADA`), salva via
+  `POST /financeiro/categorias/`, e no sucesso: refaz o fetch de
+  `categoriaOptions` e **seleciona automaticamente** a categoria recém-criada
+  no select do Plano.
+- **RF-11 (MUST)** — Mesmo atalho "+ Nova categoria" nos forms de Receita
+  e Despesa em `Financeiro.jsx` — **mas primeiro precisa existir o campo
+  Categoria nesses forms**, que hoje não existe (achado da seção 0):
+  - Adicionar `<Select label="Categoria" name="categoria" ...>` no modal
+    de `ReceitasTab` (buscando `/financeiro/categorias/?tipo=ENTRADA`) e
+    de `DespesasTab` (`?tipo=SAIDA`) — mesmo padrão já usado em
+    `AbaListaPlanos` (`categoriaOptions` com `useEffect`, opção vazia
+    "Selecione...").
+  - Campo é opcional (`Receita.categoria`/`Despesa.categoria` são
+    `null=True, blank=True` no model) — não travar submit sem categoria.
+  - Atalho "+ Nova categoria" ao lado, mesmo comportamento do RF-10 (tipo
+    pré-travado conforme a aba — ENTRADA em Receita, SAIDA em Despesa).
+- **RF-12 (SHOULD)** — Texto de ajuda no campo Categoria do form de Plano:
+  *"Categoria financeira em que as mensalidades deste plano entram nos
+  relatórios."* (`<p className="text-xs text-gray-400 ...">`, mesmo padrão
+  já usado abaixo do campo "Mês de referência" em Receita/Despesa).
+- **RF-13 (COULD)** — Texto de ajuda equivalente em Receita/Despesa (ex.:
+  *"Categoria em que este lançamento entra no relatório de DRE/Gastos por
+  Categoria."*).
 
-Não há mudança de ator/perfil nesta manutenção — é configuração de
-infraestrutura de template, sem regra de negócio ou permissão nova. Afeta
-visualmente qualquer usuário autenticado (todas as telas) e visitante não
-autenticado (Login, DefinirSenha, AgendamentoPublico).
+## 5. Regras de Negócio (RN) — consolidado
 
-## 7. Regras de Negócio
+| RN | Regra |
+|---|---|
+| RN-01 | Categoria com subcategoria ativa não pode, ela mesma, receber um `pai` (não inverte hierarquia). |
+| RN-02 | Categoria não pode ser pai de si mesma. |
+| RN-03 (já citada acima) | Subcategoria só pode ter pai do MESMO `tipo`; pai não pode ter pai (nesting limitado a 1 nível). |
+| RN-04 (já citada acima) | `unique_together` de `Categoria` continua `[nome, tipo]` nesta manutenção — lacuna de modelagem para nomes repetidos sob pais diferentes é dívida técnica registrada, não resolvida agora. |
+| RN-05 | `carregar_categorias_padrao` é idempotente — `get_or_create` por (nome, tipo, pai), nunca duplica ao rodar 2x. |
+| RN-06 | Exclusão (soft delete) de categoria com subcategoria ativa ou em uso (Plano/Receita/Despesa `is_active=True`) é bloqueada com erro 400 explicativo — nunca deixa órfão silencioso. |
+| RN-07 | Campo Categoria em Receita/Despesa é opcional — não quebra lançamento já existente sem categoria (todos os lançamentos atuais, já que o campo nunca foi exposto antes desta manutenção). |
 
-```
-RN-01 - Fallback sempre que a env var estiver ausente OU vazia (string
-        vazia), nunca só "ausente" — .env com VITE_APP_NAME= (vazio) deve
-        cair no fallback 'UidCore', mesmo comportamento de config()/
-        import.meta.env de resolver string vazia como valor "falso" para
-        esse propósito (usar `|| 'UidCore'` no JS, equivalente ao
-        default= do decouple no Python).
-RN-02 - transformIndexHtml do vite.config.js só substitui <title> e a
-        <meta name="description">, nunca introduz novo texto nem remove
-        outras tags existentes do index.html (preconnect de fontes, script
-        anti-FOUC do tema, favicon) — edição cirúrgica, não reescrita do
-        arquivo.
-RN-03 - site_header/site_title do Django admin são lidos 1x na definição
-        (admin.site.site_header = settings.APP_NAME), não por request —
-        comportamento padrão do Django admin, sem necessidade de
-        middleware ou context processor.
-```
+## 6. Critérios de Aceite
 
-## 8. Fora do Escopo
+- **CA-01**: Com o banco sem nenhuma `Categoria` de tipo ENTRADA, usuário
+  consegue: abrir tela Financeiro → Categorias (ou atalho no form de
+  Plano) → criar categoria ENTRADA pela tela → voltar ao form de Plano →
+  nova categoria aparece no select → salvar Plano com sucesso.
+- **CA-02**: Tentar criar subcategoria de tipo diferente do pai (ex.: pai
+  SAIDA, subcategoria tentando ENTRADA) é rejeitado com mensagem clara
+  (400, não 500).
+- **CA-03**: Tentar criar uma subcategoria de uma subcategoria (nesting > 1
+  nível) é rejeitado.
+- **CA-04**: `python manage.py carregar_categorias_padrao` executado 2x
+  seguidas não duplica nenhuma categoria (contagem igual nas duas rodadas,
+  conferir via `Categoria.objects.filter(is_active=True).count()`).
+- **CA-05**: Seed cria exatamente a árvore pedida — `Combustível` sem pai,
+  `Carro`/`Moto` com `pai=Combustível`, todas as demais sem pai.
+- **CA-06**: Tela de Categorias lista hierarquia corretamente (pai e
+  subcategorias visualmente distintos), filtra por tipo, busca por nome.
+- **CA-07**: Atalho "+ Nova categoria" em Plano, Receita e Despesa cria a
+  categoria sem navegar para fora do form, e a seleciona automaticamente
+  no campo de origem.
+- **CA-08**: Excluir (soft delete) categoria-pai com subcategoria ativa é
+  bloqueado com mensagem explicativa; excluir categoria sem filhos e sem
+  uso funciona normalmente.
+- **CA-09**: Receita/Despesa criadas pela tela agora persistem `categoria`
+  corretamente quando selecionada (hoje sempre vai `null`/vazio — regressão
+  zero: lançamentos antigos sem categoria continuam válidos).
+- **CA-10**: 0 migrations pendentes pós-deploy; 0 regressão nos testes
+  existentes de `financeiro`/`assinaturas`.
 
-```
-- manifest.json / ícones PWA (não existe ainda — explicitamente não criar)
-- Comentários e docstrings mencionando "UidCore" no código-fonte
-- Identificadores técnicos: nome do banco (DB_NAME), domínio, path do
-  projeto na VPS, chave de localStorage (uidcore-theme), nome do repo
-  GitHub
-- Qualquer fork/rebranding de verdade (ex.: criar o próximo cliente com
-  nome configurado) — esta manutenção só entrega a capacidade de
-  configurar, não executa nenhum rebranding
-```
+## 7. Fora do Escopo (WON'T nesta manutenção)
 
-## 9. Riscos e Dependências
+- Mudar `unique_together` de `Categoria` para incluir `pai` (ver RN-04 —
+  fica como dívida técnica documentada, não bloqueante).
+- Permitir mais de 1 nível de subcategoria.
+- Relatórios financeiros (DRE, Gastos por Categoria) agruparem
+  automaticamente subcategoria dentro do total do pai — melhoria futura.
+- Expor reativação de categoria inativa pela tela (listagem de inativas) —
+  ver seção 8; fica só via Django admin da Uid por ora.
+- Migração de dado retroativo (lançamentos antigos sem categoria não
+  precisam ser preenchidos).
 
-```
-- Risco baixo: transformIndexHtml mal configurado pode quebrar o build do
-  Vite (index.html malformado) — Sentinel deve confirmar `npm run build`
-  limpo E inspecionar o index.html gerado em dist/ antes de aprovar.
-- Dependência: nenhuma lib nova — import.meta.env é nativo do Vite,
-  python-decouple já é dependência do backend.
-- Nenhuma migration de banco — mudança é só de configuração/texto, nenhum
-  model/campo novo.
-- Validação funcional esperada pelo cliente (explicitada no pedido): com
-  VITE_APP_NAME=OutroNome / APP_NAME=OutroNome setados, TODOS os 8 pontos
-  de UI + email + admin devem mudar juntos; com .env vazio, tudo volta a
-  "UidCore". Sentinel deve testar os dois cenários (variável setada E
-  variável ausente), não só um dos dois.
-```
+## 8. Riscos e Dependências
+
+- Campo `pai` com `on_delete=PROTECT` pode gerar erro 500 não tratado se
+  o Forge não implementar o `perform_destroy` customizado do RF-05 —
+  Sentinel deve testar exclusão de categoria-pai via API real, não só
+  teste unitário de model.
+- `limit_choices_to` em `Plano.categoria`/`Receita.categoria`/
+  `Despesa.categoria` já filtra por `tipo` E `is_active=True` — o select de
+  "pai" no form de Categoria (frontend) precisa replicar esse filtro
+  manualmente (mesmo tipo, mesmo `is_active`), já que é outro endpoint
+  (`/financeiro/categorias/?tipo=X`), não há `limit_choices_to` client-side
+  automático.
+- Dívida técnica preexistente identificada (fora do escopo, só registrar):
+  `CategoriaViewSet` atual não tem forma de listar categorias inativas
+  (reativação) — se o Forge/Loom não tiverem certeza sobre expor isso,
+  **implementar o caminho mais simples (criar/editar/desativar, sem
+  reativar pela tela nesta manutenção)** e registrar a lacuna no
+  CLAUDE.md para decisão futura do Luiz Eduardo.
 
 ---
 
-## Observação para o Planner
-
-Fase única (sem fases múltiplas) — Forge (backend: settings.py, services.py,
-admin.py/urls.py, .env.example) e Loom (frontend: appConfig.js, vite.config.js,
-7 arquivos .jsx, .env.example) podem rodar em paralelo, sem dependência
-cruzada real entre as duas frentes (nenhum contrato de API novo). Sentinel
-deve validar os dois cenários de RN-01/RNF-01 antes de aprovar.
+**Observação de autoria:** `backend/financeiro/models.py`,
+`backend/financeiro/serializers.py`, `backend/financeiro/views.py`,
+`backend/financeiro/urls.py`, `backend/assinaturas/models.py`,
+`backend/assinaturas/serializers.py`, `frontend/src/pages/Financeiro.jsx`
+e `frontend/src/pages/Assinaturas.jsx` foram lidos integralmente (trechos
+relevantes) antes de escrever esta especificação — os achados da seção 0
+são baseados em código real, não no briefing recebido do Planner/Hotfix.

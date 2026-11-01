@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronUp, Edit } from 'lucide-react'
+import { ChevronDown, ChevronUp, Edit, Plus, Pencil, Trash2, CornerDownRight, Tag } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -9,6 +9,7 @@ import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
 import AuditFooter from '../components/ui/AuditFooter.jsx'
+import CriarCategoriaRapidaModal from '../components/ui/CriarCategoriaRapidaModal.jsx'
 
 const PAGE_SIZE = 20
 const TABS = [
@@ -16,11 +17,23 @@ const TABS = [
   { key: 'receitas', label: 'Contas a Receber' },
   { key: 'despesas', label: 'Contas a Pagar' },
   { key: 'contas', label: 'Contas' },
+  { key: 'categorias', label: 'Categorias' },
   { key: 'livro', label: 'Livro Caixa' },
   { key: 'dre', label: 'DRE' },
   { key: 'ebitda', label: 'EBITDA' },
   { key: 'balanco', label: 'Balanço' },
   { key: 'indicadores', label: 'Indicadores' },
+]
+
+const TIPO_CATEGORIA_FILTRO = [
+  { value: '', label: 'Todas' },
+  { value: 'ENTRADA', label: 'Entrada' },
+  { value: 'SAIDA', label: 'Saída' },
+]
+
+const TIPO_CATEGORIA = [
+  { value: 'ENTRADA', label: 'Entrada' },
+  { value: 'SAIDA', label: 'Saída' },
 ]
 
 const TIPO_RECEITA = [
@@ -145,6 +158,7 @@ export default function Financeiro() {
       {tab === 'receitas' && <ReceitasTab showToast={showToast} contasOptions={contasOptions} />}
       {tab === 'despesas' && <DespesasTab showToast={showToast} contasOptions={contasOptions} />}
       {tab === 'contas' && <ContasTab showToast={showToast} />}
+      {tab === 'categorias' && <CategoriasTab showToast={showToast} />}
       {tab === 'livro' && <LivroCaixaTab contasOptions={contasOptions} />}
       {tab === 'dre' && <DreTab />}
       {tab === 'ebitda' && <EbitdaTab />}
@@ -491,6 +505,24 @@ function ReceitasTab({ showToast, contasOptions }) {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_RECEITA)
+  const [categoriaOptions, setCategoriaOptions] = useState([])
+  const [categoriaRapidaAberta, setCategoriaRapidaAberta] = useState(false)
+
+  const fetchCategorias = useCallback(() => {
+    api.get('/financeiro/categorias/', { params: { tipo: 'ENTRADA', page_size: 200 } })
+      .then((r) => {
+        const list = (r.data.results || r.data || []).map((c) => ({ value: c.id, label: c.nome }))
+        setCategoriaOptions([{ value: '', label: 'Selecione...' }, ...list])
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { fetchCategorias() }, [fetchCategorias])
+
+  const handleCategoriaCriada = (categoriaCriada) => {
+    fetchCategorias()
+    setForm((f) => ({ ...f, categoria: categoriaCriada.id }))
+  }
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -655,6 +687,17 @@ function ReceitasTab({ showToast, contasOptions }) {
               <Select label="Tipo" name="tipo" options={TIPO_RECEITA} value={form.tipo} onChange={handleChange} />
               <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
             </div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Categoria</label>
+                <button type="button" onClick={() => setCategoriaRapidaAberta(true)}
+                  className="text-xs text-primary-600 hover:underline dark:text-violet-400 inline-flex items-center gap-1">
+                  <Plus size={12} />Nova categoria
+                </button>
+              </div>
+              <Select name="categoria" options={categoriaOptions} value={form.categoria} onChange={handleChange} />
+            </div>
+            <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Categoria em que este lançamento entra no relatório de DRE/Gastos por Categoria.</p>
             <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} />
@@ -676,6 +719,15 @@ function ReceitasTab({ showToast, contasOptions }) {
           </form>
         </Modal>
       )}
+
+      {categoriaRapidaAberta && (
+        <CriarCategoriaRapidaModal
+          tipo="ENTRADA"
+          showToast={showToast}
+          onCreated={handleCategoriaCriada}
+          onClose={() => setCategoriaRapidaAberta(false)}
+        />
+      )}
     </div>
   )
 }
@@ -696,6 +748,24 @@ function DespesasTab({ showToast, contasOptions }) {
   const [editingId, setEditingId] = useState(null)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_DESPESA)
+  const [categoriaOptions, setCategoriaOptions] = useState([])
+  const [categoriaRapidaAberta, setCategoriaRapidaAberta] = useState(false)
+
+  const fetchCategorias = useCallback(() => {
+    api.get('/financeiro/categorias/', { params: { tipo: 'SAIDA', page_size: 200 } })
+      .then((r) => {
+        const list = (r.data.results || r.data || []).map((c) => ({ value: c.id, label: c.nome }))
+        setCategoriaOptions([{ value: '', label: 'Selecione...' }, ...list])
+      })
+      .catch(() => {})
+  }, [])
+
+  useEffect(() => { fetchCategorias() }, [fetchCategorias])
+
+  const handleCategoriaCriada = (categoriaCriada) => {
+    fetchCategorias()
+    setForm((f) => ({ ...f, categoria: categoriaCriada.id }))
+  }
 
   const fetch = useCallback(async () => {
     setLoading(true)
@@ -861,6 +931,17 @@ function DespesasTab({ showToast, contasOptions }) {
               <Select label="Tipo" name="tipo" options={TIPO_DESPESA} value={form.tipo} onChange={handleChange} />
               <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
             </div>
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Categoria</label>
+                <button type="button" onClick={() => setCategoriaRapidaAberta(true)}
+                  className="text-xs text-primary-600 hover:underline dark:text-violet-400 inline-flex items-center gap-1">
+                  <Plus size={12} />Nova categoria
+                </button>
+              </div>
+              <Select name="categoria" options={categoriaOptions} value={form.categoria} onChange={handleChange} />
+            </div>
+            <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Categoria em que este lançamento entra no relatório de DRE/Gastos por Categoria.</p>
             <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} />
             <Input label="Fornecedor" name="fornecedor" value={form.fornecedor} onChange={handleChange} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -884,6 +965,15 @@ function DespesasTab({ showToast, contasOptions }) {
           </form>
         </Modal>
       )}
+
+      {categoriaRapidaAberta && (
+        <CriarCategoriaRapidaModal
+          tipo="SAIDA"
+          showToast={showToast}
+          onCreated={handleCategoriaCriada}
+          onClose={() => setCategoriaRapidaAberta(false)}
+        />
+      )}
     </div>
   )
 }
@@ -892,6 +982,220 @@ const EMPTY_DESPESA = {
   tipo: 'VARIAVEL', descricao: '', fornecedor: '', categoria: '',
   valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '',
   forma_pagamento: '', observacoes: '',
+}
+
+// --- Aba Categorias (Manutencao 88) — CRUD com hierarquia pai/subcategoria,
+// 1 nivel de nesting (backend ja bloqueia nesting>1 e tipo divergente —
+// ver Especificacao_Hotfix.md RF-01 a RF-07). Lista manual em Card (nao usa
+// ResourceCrud — hierarquia indentada nao cabe no contrato de tabela
+// generica), seguindo o padrao ja usado em AbaListaPlanos (Assinaturas.jsx).
+const EMPTY_CATEGORIA_FORM = { tipo: 'ENTRADA', nome: '', pai: '' }
+
+function buildLinhasHierarquia(items, tipo) {
+  const doTipo = items.filter((c) => c.tipo === tipo)
+  const pais = doTipo.filter((c) => !c.pai).sort((a, b) => a.nome.localeCompare(b.nome))
+  const linhas = []
+  pais.forEach((pai) => {
+    linhas.push({ ...pai, isSub: false })
+    doTipo
+      .filter((c) => c.pai === pai.id)
+      .sort((a, b) => a.nome.localeCompare(b.nome))
+      .forEach((sub) => linhas.push({ ...sub, isSub: true }))
+  })
+  return linhas
+}
+
+function CategoriasTab({ showToast }) {
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [tipoFiltro, setTipoFiltro] = useState('')
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editingId, setEditingId] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [form, setForm] = useState(EMPTY_CATEGORIA_FORM)
+  const [paiOptions, setPaiOptions] = useState([])
+
+  const fetchCategorias = useCallback(async () => {
+    setLoading(true)
+    try {
+      const params = { search, page_size: 200 }
+      if (tipoFiltro) params.tipo = tipoFiltro
+      const r = await api.get('/financeiro/categorias/', { params })
+      setItems(r.data.results || r.data || [])
+    } catch { showToast('Erro ao carregar categorias.', 'error') }
+    finally { setLoading(false) }
+  }, [search, tipoFiltro])
+
+  useEffect(() => { fetchCategorias() }, [fetchCategorias])
+
+  const fetchPaiOptions = useCallback(async (tipo, excludeId) => {
+    try {
+      const r = await api.get('/financeiro/categorias/', { params: { tipo, page_size: 200 } })
+      const lista = (r.data.results || r.data || []).filter((c) => !c.pai && c.id !== excludeId)
+      setPaiOptions([
+        { value: '', label: 'Nenhuma (categoria principal)' },
+        ...lista.map((c) => ({ value: c.id, label: c.nome })),
+      ])
+    } catch { setPaiOptions([{ value: '', label: 'Nenhuma (categoria principal)' }]) }
+  }, [])
+
+  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  const handleTipoChange = (e) => {
+    const tipo = e.target.value
+    setForm((p) => ({ ...p, tipo, pai: '' }))
+    fetchPaiOptions(tipo, editingId)
+  }
+
+  const openNovo = () => {
+    setForm(EMPTY_CATEGORIA_FORM)
+    setEditingId(null)
+    fetchPaiOptions('ENTRADA', null)
+    setModalOpen(true)
+  }
+
+  const openEdit = (cat) => {
+    setForm({ tipo: cat.tipo, nome: cat.nome, pai: cat.pai || '' })
+    setEditingId(cat.id)
+    fetchPaiOptions(cat.tipo, cat.id)
+    setModalOpen(true)
+  }
+
+  const closeModal = () => { setModalOpen(false); setEditingId(null) }
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setSaving(true)
+    try {
+      const payload = stripEmptyStrings(form)
+      if (editingId) {
+        await api.patch(`/financeiro/categorias/${editingId}/`, payload)
+        showToast('Categoria atualizada.')
+      } else {
+        await api.post('/financeiro/categorias/', payload)
+        showToast('Categoria cadastrada.')
+      }
+      closeModal(); fetchCategorias()
+    } catch (error) { showToast(extractErrorMessage(error, 'Erro ao salvar categoria.'), 'error') }
+    finally { setSaving(false) }
+  }
+
+  const handleDelete = async (cat) => {
+    if (!window.confirm(`Excluir a categoria "${cat.nome}"?`)) return
+    try { await api.delete(`/financeiro/categorias/${cat.id}/`); showToast('Categoria removida.'); fetchCategorias() }
+    catch (error) { showToast(extractErrorMessage(error, 'Erro ao excluir categoria.'), 'error') }
+  }
+
+  const entradasLinhas = buildLinhasHierarquia(items, 'ENTRADA')
+  const saidasLinhas = buildLinhasHierarquia(items, 'SAIDA')
+  const mostrarBadgeTipo = tipoFiltro === ''
+
+  const renderLinha = (cat) => (
+    <div
+      key={cat.id}
+      className={`flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0 ${cat.isSub ? 'pl-6' : ''}`}
+    >
+      <div className="min-w-0 flex items-center gap-2">
+        {cat.isSub && <CornerDownRight size={14} className="text-gray-400 dark:text-slate-500 shrink-0" />}
+        <p className={cat.isSub ? 'text-sm text-gray-600 dark:text-slate-300 truncate' : 'font-medium text-gray-800 dark:text-slate-200 truncate'}>
+          {cat.nome}
+        </p>
+        {!cat.isSub && cat.subcategorias_count > 0 && (
+          <span className="text-xs text-gray-400 dark:text-slate-500 shrink-0">
+            {cat.subcategorias_count} subcategoria{cat.subcategorias_count > 1 ? 's' : ''}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-3 shrink-0">
+        {mostrarBadgeTipo && (
+          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cat.tipo === 'ENTRADA' ? 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300'}`}>
+            {cat.tipo === 'ENTRADA' ? 'Entrada' : 'Saída'}
+          </span>
+        )}
+        <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${cat.is_active ? 'bg-green-100 text-green-800 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-600 dark:bg-navy-700 dark:text-slate-400'}`}>
+          {cat.is_active ? 'Ativa' : 'Inativa'}
+        </span>
+        <button onClick={() => openEdit(cat)} title="Editar"
+          className="text-gray-400 hover:text-primary-600 transition-colors dark:text-slate-500 dark:hover:text-violet-400">
+          <Pencil size={16} />
+        </button>
+        <button onClick={() => handleDelete(cat)} title="Excluir"
+          className="text-gray-400 hover:text-red-600 transition-colors dark:text-slate-500 dark:hover:text-red-400">
+          <Trash2 size={16} />
+        </button>
+      </div>
+    </div>
+  )
+
+  const renderGrupo = (linhas, labelGrupo, colorClass) => (
+    <Card>
+      {labelGrupo && (
+        <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${colorClass}`}>{labelGrupo}</p>
+      )}
+      <div className="divide-y divide-gray-100 dark:divide-navy-700">
+        {linhas.map(renderLinha)}
+      </div>
+    </Card>
+  )
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-gray-800 dark:text-slate-100">Categorias</h2>
+        <Button onClick={openNovo}><Plus size={16} />Nova Categoria</Button>
+      </div>
+
+      <Card>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <Input placeholder="Buscar categoria..." value={search} onChange={(e) => setSearch(e.target.value)} />
+          </div>
+          <div className="w-full sm:w-48">
+            <Select options={TIPO_CATEGORIA_FILTRO} value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} />
+          </div>
+        </div>
+      </Card>
+
+      {loading ? (
+        <div className="text-center py-12 text-gray-400 text-sm dark:text-slate-500">Carregando...</div>
+      ) : items.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-12 gap-2 text-gray-400 dark:text-slate-500">
+          <Tag size={32} className="text-gray-300 dark:text-slate-600" />
+          {search || tipoFiltro ? (
+            <p className="text-sm">Nenhuma categoria encontrada.</p>
+          ) : (
+            <>
+              <p className="text-sm">Nenhuma categoria cadastrada.</p>
+              <p className="text-xs">Crie a primeira pelo botão "Nova Categoria" acima.</p>
+            </>
+          )}
+        </div>
+      ) : tipoFiltro === '' ? (
+        <>
+          {entradasLinhas.length > 0 && renderGrupo(entradasLinhas, 'Entradas', 'text-green-700 dark:text-emerald-400')}
+          {saidasLinhas.length > 0 && renderGrupo(saidasLinhas, 'Saídas', 'text-red-700 dark:text-red-400')}
+        </>
+      ) : (
+        renderGrupo(tipoFiltro === 'ENTRADA' ? entradasLinhas : saidasLinhas, null, '')
+      )}
+
+      {modalOpen && (
+        <Modal title={editingId ? 'Editar Categoria' : 'Nova Categoria'} onClose={closeModal} maxW="max-w-lg">
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <Select label="Tipo" name="tipo" options={TIPO_CATEGORIA} value={form.tipo} onChange={handleTipoChange} />
+            <Input label="Nome" name="nome" value={form.nome} onChange={handleChange} />
+            <Select label="Categoria-pai (opcional)" name="pai" options={paiOptions} value={form.pai} onChange={handleChange} />
+            <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Deixe em branco para criar uma categoria principal. Só é possível 1 nível de subcategoria.</p>
+            {editingId && <AuditFooter item={items.find((i) => i.id === editingId)} />}
+            <div className="flex justify-end gap-3 pt-2">
+              <Button type="button" variant="secondary" onClick={closeModal}>Cancelar</Button>
+              <Button type="submit" loading={saving}>{editingId ? 'Salvar' : 'Cadastrar'}</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+    </div>
+  )
 }
 
 function ContasTab({ showToast }) {

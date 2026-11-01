@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Pencil, PauseCircle, PlayCircle, XCircle, Search, Trash2 } from 'lucide-react'
+import { Pencil, PauseCircle, PlayCircle, XCircle, Search, Trash2, Plus } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -9,6 +9,7 @@ import Select from '../components/ui/Select.jsx'
 import Modal from '../components/ui/Modal.jsx'
 import Pagination from '../components/ui/Pagination.jsx'
 import AuditFooter from '../components/ui/AuditFooter.jsx'
+import CriarCategoriaRapidaModal from '../components/ui/CriarCategoriaRapidaModal.jsx'
 
 const PAGE_SIZE = 10
 
@@ -632,6 +633,7 @@ function AbaListaPlanos({ showToast }) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(EMPTY_PLANO_FORM)
   const [editingId, setEditingId] = useState(null)
+  const [categoriaRapidaAberta, setCategoriaRapidaAberta] = useState(false)
 
   const fetchPlanos = useCallback(async () => {
     setLoading(true)
@@ -647,7 +649,7 @@ function AbaListaPlanos({ showToast }) {
 
   useEffect(() => { fetchPlanos() }, [fetchPlanos])
 
-  useEffect(() => {
+  const fetchCategorias = useCallback(() => {
     api.get('/financeiro/categorias/', { params: { tipo: 'ENTRADA', page_size: 200 } })
       .then((r) => {
         const list = (r.data.results || r.data || []).map((c) => ({ value: c.id, label: c.nome }))
@@ -655,6 +657,13 @@ function AbaListaPlanos({ showToast }) {
       })
       .catch(() => {})
   }, [])
+
+  useEffect(() => { fetchCategorias() }, [fetchCategorias])
+
+  const handleCategoriaCriada = (categoriaCriada) => {
+    fetchCategorias()
+    setForm((f) => ({ ...f, categoria: categoriaCriada.id }))
+  }
 
   const openNovo = () => {
     setForm(EMPTY_PLANO_FORM)
@@ -773,7 +782,17 @@ function AbaListaPlanos({ showToast }) {
             <Input label="Nome" name="nome" value={form.nome} onChange={handleChange} placeholder="Ex.: Plano Mensal Básico" />
             <Input label="Valor (R$)" name="valor" type="number" step="0.01" min="0" value={form.valor} onChange={handleChange} />
             <Select label="Periodicidade" name="periodicidade" options={PERIODICIDADE_OPTIONS} value={form.periodicidade} onChange={handleChange} />
-            <Select label="Categoria" name="categoria" options={categoriaOptions} value={form.categoria} onChange={handleChange} />
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Categoria</label>
+                <button type="button" onClick={() => setCategoriaRapidaAberta(true)}
+                  className="text-xs text-primary-600 hover:underline dark:text-violet-400 inline-flex items-center gap-1">
+                  <Plus size={12} />Nova categoria
+                </button>
+              </div>
+              <Select name="categoria" options={categoriaOptions} value={form.categoria} onChange={handleChange} />
+            </div>
+            <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Categoria financeira em que as mensalidades deste plano entram nos relatórios.</p>
             <div className="flex flex-col gap-1">
               <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Descrição</label>
               <textarea
@@ -797,6 +816,15 @@ function AbaListaPlanos({ showToast }) {
             </div>
           </div>
         </Modal>
+      )}
+
+      {categoriaRapidaAberta && (
+        <CriarCategoriaRapidaModal
+          tipo="ENTRADA"
+          showToast={showToast}
+          onCreated={handleCategoriaCriada}
+          onClose={() => setCategoriaRapidaAberta(false)}
+        />
       )}
     </>
   )
