@@ -61,6 +61,15 @@ class TipoCategoria(models.TextChoices):
 class Categoria(BaseModel):
     nome = models.CharField(max_length=100, blank=True)
     tipo = models.CharField(max_length=10, choices=TipoCategoria.choices, blank=True)
+    # Manutencao #88 (RF-01): hierarquia de 1 nivel. on_delete=PROTECT pois
+    # apagar (hard delete, ex.: Django admin) uma categoria-pai com filhos
+    # deixaria subcategoria.pai apontando para registro inexistente; o
+    # fluxo normal (API) usa soft delete via CategoriaViewSet.perform_destroy,
+    # que bloqueia a exclusao antes de chegar a esse ponto (RF-05/RN-06).
+    pai = models.ForeignKey(
+        'self', null=True, blank=True,
+        on_delete=models.PROTECT, related_name='subcategorias',
+    )
 
     class Meta:
         ordering = ['nome']

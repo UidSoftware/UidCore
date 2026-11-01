@@ -6,6 +6,7 @@ from django.db.models import Sum, Q
 from django.db.models.functions import TruncMonth
 from rest_framework import status
 from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.exceptions import ValidationError
 from rest_framework.filters import OrderingFilter, SearchFilter
 from rest_framework.mixins import CreateModelMixin, ListModelMixin, RetrieveModelMixin
 from rest_framework.response import Response
@@ -38,8 +39,32 @@ class CategoriaViewSet(AuditMixin, ModelViewSet):
     queryset = Categoria.objects.filter(is_active=True).order_by('nome')
     serializer_class = CategoriaSerializer
     permission_classes = [IsAdmin | IsFinanceiro]
-    filter_backends = [DjangoFilterBackend]
+    # RF-04 (Manutencao 88): busca por nome, alem do filtro por tipo ja existente.
+    filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['tipo']
+    search_fields = ['nome']
+
+    def perform_destroy(self, instance):
+        # RF-05/RN-06 (Manutencao 88): AuditMixin.perform_destroy faz o
+        # soft delete em si, mas aqui bloqueamos ANTES disso se a
+        # categoria tiver subcategoria ativa ou estiver em uso — sem essa
+        # checagem, o soft delete deixaria pai/filho ou lancamento
+        # orfao silenciosamente (o PROTECT do model só pega hard delete,
+        # que este fluxo nunca faz).
+        if instance.subcategorias.filter(is_active=True).exists():
+            raise ValidationError({
+                'erro': 'Não é possível excluir: esta categoria possui subcategorias ativas.'
+            })
+        em_uso = (
+            instance.planos.filter(is_active=True).exists()
+            or instance.receitas.filter(is_active=True).exists()
+            or instance.despesas.filter(is_active=True).exists()
+        )
+        if em_uso:
+            raise ValidationError({
+                'erro': 'Não é possível excluir: esta categoria está em uso em Plano, Receita ou Despesa.'
+            })
+        super().perform_destroy(instance)
 
 
 class ContaViewSet(AuditMixin, ModelViewSet):

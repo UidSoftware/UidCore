@@ -9,11 +9,56 @@ from .models import Aporte, Categoria, Conta, Despesa, EstornoReceita, LivroCaix
 
 class CategoriaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
+    # RF-03 (Manutencao 88): pai_nome/subcategorias_count sao leitura —
+    # frontend usa subcategorias_count para avisar antes de excluir
+    # categoria-pai (RN-06 bloqueia no backend, isso e so UX).
+    pai_nome = serializers.CharField(source='pai.nome', read_only=True, default='', allow_null=True)
+    subcategorias_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Categoria
-        fields = ['id', 'nome', 'tipo', 'is_active', 'created_at', 'created_by_nome', 'updated_by_nome']
+        fields = [
+            'id', 'nome', 'tipo', 'pai', 'pai_nome', 'subcategorias_count',
+            'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
+        ]
         read_only_fields = ['created_at']
+
+    def get_subcategorias_count(self, obj):
+        return obj.subcategorias.filter(is_active=True).count()
+
+    def validate(self, attrs):
+        # RF-02/RN-01/RN-02/RN-03: pai so pode ser resolvido olhando o
+        # estado final (tipo/pai podem nao vir os dois no PATCH parcial).
+        pai = attrs.get('pai', getattr(self.instance, 'pai', None) if self.instance else None)
+        tipo = attrs.get('tipo', getattr(self.instance, 'tipo', None) if self.instance else None)
+
+        if pai is None:
+            return attrs
+
+        # RN-02: categoria nao pode ser pai de si mesma.
+        if self.instance is not None and pai.pk == self.instance.pk:
+            raise serializers.ValidationError({'pai': 'Uma categoria não pode ser pai de si mesma.'})
+
+        # RF-02/RN-03: subcategoria deve ser do mesmo tipo do pai.
+        if tipo and pai.tipo != tipo:
+            raise serializers.ValidationError(
+                {'pai': 'A subcategoria deve ser do mesmo tipo da categoria-pai.'}
+            )
+
+        # RF-02/RN-03: pai nao pode ja ser subcategoria (nesting > 1 nivel).
+        if pai.pai_id is not None:
+            raise serializers.ValidationError(
+                {'pai': 'Uma subcategoria não pode ter subcategorias (máximo 1 nível).'}
+            )
+
+        # RN-01: categoria com subcategoria ativa nao pode, ela mesma,
+        # receber um pai (nao inverte hierarquia).
+        if self.instance is not None and self.instance.subcategorias.filter(is_active=True).exists():
+            raise serializers.ValidationError(
+                {'pai': 'Esta categoria já possui subcategorias e não pode receber um pai.'}
+            )
+
+        return attrs
 
 
 class ContaSerializer(AuditFieldsMixin, serializers.ModelSerializer):

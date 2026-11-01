@@ -1369,3 +1369,161 @@ class CompetenciaDespesaFinanceiraTest(APITestCase):
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
         self.assertEqual(Despesa.objects.get(pk=resp.data['id']).referencia_mes, date(2026, 7, 1))
+
+
+# --- Manutencao #88 — Categoria com pai/subcategoria + carregar_categorias_padrao ---
+# Cobre RF-01 a RF-07, RN-01 a RN-06 e CA-01 a CA-08 da Especificacao_Hotfix.md.
+
+class CategoriaHierarquiaTest(TestCase):
+    """Validacao de hierarquia direto no serializer/model -- RF-02/RN-01/RN-02/RN-03."""
+
+    def setUp(self):
+        self.cat_entrada = Categoria.objects.create(nome='Vendas', tipo='ENTRADA')
+        self.cat_saida = Categoria.objects.create(nome='Combustivel', tipo='SAIDA')
+
+    def test_subcategoria_tipo_diferente_do_pai_e_rejeitada(self):
+        from .serializers import CategoriaSerializer
+        serializer = CategoriaSerializer(data={
+            'nome': 'Carro', 'tipo': 'ENTRADA', 'pai': self.cat_saida.pk,
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('pai', serializer.errors)
+
+    def test_nesting_maior_que_1_nivel_e_rejeitado(self):
+        from .serializers import CategoriaSerializer
+        subcategoria = Categoria.objects.create(
+            nome='Carro', tipo='SAIDA', pai=self.cat_saida,
+        )
+        serializer = CategoriaSerializer(data={
+            'nome': 'Carro Flex', 'tipo': 'SAIDA', 'pai': subcategoria.pk,
+        })
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('pai', serializer.errors)
+
+    def test_categoria_nao_pode_ser_pai_de_si_mesma(self):
+        from .serializers import CategoriaSerializer
+        serializer = CategoriaSerializer(
+            instance=self.cat_saida,
+            data={'nome': 'Combustivel', 'tipo': 'SAIDA', 'pai': self.cat_saida.pk},
+            partial=True,
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('pai', serializer.errors)
+
+    def test_categoria_com_subcategoria_ativa_nao_pode_receber_pai(self):
+        from .serializers import CategoriaSerializer
+        Categoria.objects.create(nome='Carro', tipo='SAIDA', pai=self.cat_saida)
+        outro_pai = Categoria.objects.create(nome='Outra Raiz', tipo='SAIDA')
+        serializer = CategoriaSerializer(
+            instance=self.cat_saida,
+            data={'nome': 'Combustivel', 'tipo': 'SAIDA', 'pai': outro_pai.pk},
+            partial=True,
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('pai', serializer.errors)
+
+    def test_subcategoria_valida_e_aceita(self):
+        from .serializers import CategoriaSerializer
+        serializer = CategoriaSerializer(data={
+            'nome': 'Carro', 'tipo': 'SAIDA', 'pai': self.cat_saida.pk,
+        })
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        categoria = serializer.save()
+        self.assertEqual(categoria.pai, self.cat_saida)
+
+
+class CategoriaSoftDeleteAPITest(APITestCase):
+    """RF-05/RN-06 via API real -- exclusao bloqueada com subcategoria/uso."""
+
+    def setUp(self):
+        self.user = _make_user(email='categoria88@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta Categoria 88')
+
+    def test_excluir_categoria_pai_com_subcategoria_ativa_e_bloqueado(self):
+        pai = Categoria.objects.create(nome='Combustivel88', tipo='SAIDA')
+        Categoria.objects.create(nome='Carro88', tipo='SAIDA', pai=pai)
+
+        resp = self.client.delete(f'/api/v1/financeiro/categorias/{pai.pk}/')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertTrue(Categoria.objects.filter(pk=pai.pk, is_active=True).exists())
+
+    def test_excluir_categoria_em_uso_por_despesa_e_bloqueado(self):
+        categoria = Categoria.objects.create(nome='Aluguel88', tipo='SAIDA')
+        Despesa.objects.create(
+            descricao='Aluguel de novembro', tipo='FIXA', valor_bruto=Decimal('500.00'),
+            conta=self.conta, categoria=categoria, status='PENDENTE',
+        )
+
+        resp = self.client.delete(f'/api/v1/financeiro/categorias/{categoria.pk}/')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertTrue(Categoria.objects.filter(pk=categoria.pk, is_active=True).exists())
+
+    def test_excluir_categoria_sem_filhos_e_sem_uso_funciona(self):
+        categoria = Categoria.objects.create(nome='SemUso88', tipo='SAIDA')
+
+        resp = self.client.delete(f'/api/v1/financeiro/categorias/{categoria.pk}/')
+        self.assertEqual(resp.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Categoria.objects.filter(pk=categoria.pk, is_active=True).exists())
+        self.assertTrue(Categoria.all_objects.filter(pk=categoria.pk, is_active=False).exists())
+
+    def test_busca_por_nome(self):
+        Categoria.objects.create(nome='Impostos e taxas88', tipo='SAIDA')
+        Categoria.objects.create(nome='Marketing88', tipo='SAIDA')
+
+        resp = self.client.get('/api/v1/financeiro/categorias/', {'search': 'Impostos'})
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        nomes = [c['nome'] for c in resp.data['results']] if isinstance(resp.data, dict) and 'results' in resp.data else [c['nome'] for c in resp.data]
+        self.assertIn('Impostos e taxas88', nomes)
+        self.assertNotIn('Marketing88', nomes)
+
+
+class CarregarCategoriasPadraoCommandTest(TestCase):
+    """RF-07/RN-05/CA-04/CA-05 -- seed idempotente via management command."""
+
+    def test_comando_cria_arvore_esperada(self):
+        from django.core.management import call_command
+        call_command('carregar_categorias_padrao')
+
+        combustivel = Categoria.objects.get(nome='Combustível', tipo='SAIDA')
+        self.assertIsNone(combustivel.pai)
+
+        carro = Categoria.objects.get(nome='Carro', tipo='SAIDA')
+        moto = Categoria.objects.get(nome='Moto', tipo='SAIDA')
+        self.assertEqual(carro.pai, combustivel)
+        self.assertEqual(moto.pai, combustivel)
+
+        venda_servicos = Categoria.objects.get(nome='Venda de serviços', tipo='ENTRADA')
+        self.assertIsNone(venda_servicos.pai)
+
+    def test_comando_e_idempotente(self):
+        from django.core.management import call_command
+        call_command('carregar_categorias_padrao')
+        total_primeira = Categoria.objects.filter(is_active=True).count()
+
+        call_command('carregar_categorias_padrao')
+        total_segunda = Categoria.objects.filter(is_active=True).count()
+
+        self.assertEqual(total_primeira, total_segunda)
+
+    def test_comando_nao_sobrescreve_edicao_manual(self):
+        from django.core.management import call_command
+        call_command('carregar_categorias_padrao')
+
+        aluguel = Categoria.objects.get(nome='Aluguel', tipo='SAIDA')
+        aluguel.is_active = False
+        aluguel.save(update_fields=['is_active'])
+
+        call_command('carregar_categorias_padrao')
+
+        aluguel.refresh_from_db()
+        self.assertFalse(aluguel.is_active)
+
+    def test_comando_dry_run_nao_grava_nada(self):
+        # Nao assume banco vazio de Categoria: a migration compras.0002
+        # (seed de "Compra de Mercadoria") roda no banco de teste junto
+        # com as demais migrations, antes de qualquer teste executar.
+        from django.core.management import call_command
+        total_antes = Categoria.objects.count()
+        call_command('carregar_categorias_padrao', '--dry-run')
+        self.assertEqual(Categoria.objects.count(), total_antes)
