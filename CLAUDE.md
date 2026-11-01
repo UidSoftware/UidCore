@@ -104,6 +104,70 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-11-01] — Manutenção #88 — Categoria com pai/subcategoria + carregar_categorias_padrao
+
+**Contexto:** `Categoria` (Financeiro) ganha hierarquia de 1 nível (pai →
+subcategorias) e um management command de carga inicial idempotente,
+pensado para novo fork/cliente nascer com um conjunto padrão de
+categorias de Receita/Despesa sem precisar cadastrar manualmente. Até
+esta manutenção o campo `categoria` existia em `Receita`/`Despesa`/`Plano`
+mas nunca era exposto no formulário de criação/edição, e não existia tela
+própria de Categorias.
+
+**Tarefas executadas:**
+- Backend (`financeiro`): `Categoria.pai` (FK nullable para `self`,
+  `on_delete=PROTECT`, `related_name='subcategorias'`); migration
+  `financeiro.0013_categoria_pai` (`AddField`, sem `RunPython`);
+  `perform_destroy` custom em `CategoriaViewSet` — soft delete bloqueado
+  se houver subcategoria ativa ou uso em `Plano`/`Receita`/`Despesa`
+  (`is_active=True`), retornando 400 com mensagem clara; management
+  command `carregar_categorias_padrao` (idempotente via `get_or_create`
+  por `(nome, tipo, pai)`, nunca sobrescreve registro editado
+  manualmente, suporta `--dry-run`)
+- Frontend: nova aba/tela **Financeiro → Categorias** (Card + Modal,
+  hierarquia visual pai→subcategorias, CRUD completo, filtro por tipo,
+  ativar/desativar); atalho "+ Nova categoria" nos forms de Plano,
+  Receita e Despesa
+- Analista/Loom atualizaram `Especificacao_Hotfix.md` e
+  `Especificacao_UI_Hotfix.md` (já commitados junto do código, dentro do
+  commit de frontend — nada pendente para o Pilot commitar)
+
+**Arquivos alterados:**
+- backend/financeiro/ (Categoria.pai, migration 0013_categoria_pai,
+  perform_destroy custom, management command carregar_categorias_padrao
+  — commit a98b859)
+- frontend/src/ (tela Categorias + campo categoria em Receita/Despesa/
+  Plano — commit 46624fb)
+- Especificacao_Hotfix.md, Especificacao_UI_Hotfix.md (já incluídos no
+  commit 46624fb)
+
+**Commits:**
+- a98b859 — feat(financeiro): categoria com pai + subcategoria + carregar_categorias_padrao - Manutencao 88
+- 46624fb — feat(frontend): tela Categorias + campo categoria em Receita/Despesa/Plano - Manutencao 88
+
+**Sentinel:**
+- 575/575 testes Django passando (0 falhas)
+- 10/10 critérios de aceite verificados, incluindo CA-04 (comando rodado
+  2x sem duplicar)
+- 0 migrations pendentes
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-11-01T15:26:14Z UTC (12:26:14 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 41321181631, sucesso
+- Push confirmado: 922d93c..46624fb main -> main (os 2 commits de código já existiam localmente, prontos antes desta execução do Pilot; specs já estavam dentro do commit 46624fb, nada adicional para commitar)
+- Container uidcore-backend-1 recriado: 2026-11-01T15:26:14Z (StartedAt confirmado via docker inspect, comparado contra baseline pré-deploy anterior — Manutenção #87, 2026-10-30T07:14:57Z); gunicorn 3 workers up sem crash (log confirmado)
+- Container uidcore-nginx-1 não recriado (sem mudança de infra nesta manutenção — esperado; StartedAt ainda 2026-10-28, herdado da Manutenção #71)
+- Migration `financeiro.0013_categoria_pai` aplicada em produção (showmigrations confirmado); `makemigrations --check --dry-run`: "No changes detected" — 0 pendências
+- Management command `carregar_categorias_padrao` executado pelo Pilot após o deploy (conforme RF-07/spec — "comando é chamado manualmente pelo Pilot após o deploy, não é migration de dado automática"): `--dry-run` confirmou 15 categorias a criar; execução real criou as 15 (4 ENTRADA, 9 SAIDA sem pai, 2 SAIDA com pai=Combustível: Carro e Moto); rodado uma 2ª vez para confirmar idempotência (RN-05) — 0 criadas, 15 já existiam, nenhuma duplicata
+- Frontend rebuildado: bundle novo `index-BaURz8E3.js` (713 KB) + `index-DXx1wQGW.css`, mtime 2026-11-01 15:26 UTC batendo exatamente com a recriação do backend; referenciado em `index.html`; confirmado contendo string "Categoria"
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/financeiro/categorias/ (esperado, requer auth — rota confirmada ativa) e /api/v1/financeiro/dashboard/ (esperado)
+- SystemD: Manutenção #88 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 88`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
+
+---
+
 ### [2026-10-30] — Manutenção #87 — APP_NAME configurável via .env
 
 **Contexto:** centraliza o nome do sistema em variável de ambiente, em vez
