@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from 'react'
-import { ChevronDown, ChevronUp, Edit, Plus, Pencil, Trash2, CornerDownRight, Tag } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { ChevronDown, ChevronUp, Edit, Plus, Pencil, Trash2, CornerDownRight, Tag, Search, Building2, Info } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -85,6 +85,20 @@ const FORMA_PAGAMENTO = [
   { value: 'CARTAO_CREDITO', label: 'Cartão Crédito' },
   { value: 'DINHEIRO', label: 'Dinheiro' },
   { value: 'OUTRO', label: 'Outro' },
+]
+
+// Manutencao 89 (RF-04/RF-F04): desconto em R$ fixo ou % — mesmos values
+// do TipoDesconto.choices do backend (TextChoices com value='R$'/'%').
+const TIPO_DESCONTO = [
+  { value: 'R$', label: 'R$' },
+  { value: '%', label: '%' },
+]
+
+// Manutencao 89 (RF-F01/NovoFornecedorModal) — mesmas opcoes de
+// common.TipoPessoa ja usadas em Fornecedores.jsx, nenhum rotulo novo.
+const TIPO_PESSOA_OPTIONS = [
+  { value: 'PJ', label: 'Pessoa Jurídica' },
+  { value: 'PF', label: 'Pessoa Física' },
 ]
 
 const STATUS_BADGES = {
@@ -737,11 +751,196 @@ const EMPTY_RECEITA = {
   valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '', observacoes: '',
 }
 
+// --- Busca rapida de fornecedor (RF-F01 — Manutencao 89) ---
+// Clone adaptado de BuscaProdutoRapida (Vendas.jsx, Manutencao 32): mesmo
+// debounce 300ms, mesmo AbortController, mesma tecnica position:fixed via
+// getBoundingClientRect() para escapar o overflow-y-auto do Modal. So
+// trocam o endpoint (/fornecedores/?search=) e o conteudo de cada linha.
+function BuscaFornecedorRapida({ fornecedorFkId, fornecedorNome, onSelecionar, onTrocar, onNovo }) {
+  const [busca, setBusca] = useState('')
+  const [resultados, setResultados] = useState([])
+  const [buscando, setBuscando] = useState(false)
+  const [dropdownStyle, setDropdownStyle] = useState({})
+  const inputRef = useRef(null)
+  const wrapRef = useRef(null)
+  const debounceRef = useRef(null)
+  const abortRef = useRef(null)
+
+  const aberto = resultados.length > 0 || buscando
+
+  const calcularPosicao = useCallback(() => {
+    if (!inputRef.current) return
+    const rect = inputRef.current.getBoundingClientRect()
+    setDropdownStyle({ position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width, zIndex: 9999 })
+  }, [])
+
+  useEffect(() => { if (aberto) calcularPosicao() }, [aberto, calcularPosicao])
+
+  useEffect(() => {
+    if (!aberto) return
+    window.addEventListener('scroll', calcularPosicao, true)
+    window.addEventListener('resize', calcularPosicao)
+    return () => {
+      window.removeEventListener('scroll', calcularPosicao, true)
+      window.removeEventListener('resize', calcularPosicao)
+    }
+  }, [aberto, calcularPosicao])
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    if (!busca.trim()) { setResultados([]); setBuscando(false); return }
+    debounceRef.current = setTimeout(() => {
+      if (abortRef.current) abortRef.current.abort()
+      const controller = new AbortController()
+      abortRef.current = controller
+      setBuscando(true)
+      api.get('/fornecedores/', { params: { search: busca.trim(), page_size: 10 }, signal: controller.signal })
+        .then((r) => setResultados(r.data.results || r.data || []))
+        .catch((err) => {
+          if (err.name === 'CanceledError' || err.name === 'AbortError' || err.code === 'ERR_CANCELED') return
+          setResultados([])
+        })
+        .finally(() => setBuscando(false))
+    }, 300)
+    return () => clearTimeout(debounceRef.current)
+  }, [busca])
+
+  const handleSelecionar = (fornecedor) => {
+    if (abortRef.current) abortRef.current.abort()
+    onSelecionar(fornecedor)
+    setBusca('')
+    setResultados([])
+    setBuscando(false)
+  }
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        if (abortRef.current) abortRef.current.abort()
+        setResultados([])
+        setBuscando(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Ja vinculado -> chip, nao mostra campo de busca.
+  if (fornecedorFkId) {
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Fornecedor</label>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-navy-500 dark:bg-navy-800">
+          <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
+            <Building2 size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+            {fornecedorNome || 'Fornecedor selecionado'}
+          </span>
+          <Button type="button" variant="secondary" size="sm" onClick={onTrocar}>Trocar</Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div ref={wrapRef} className="flex flex-col gap-1">
+      <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Fornecedor</label>
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none" />
+          <input
+            ref={inputRef}
+            type="text"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar fornecedor..."
+            autoComplete="off"
+            className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
+          />
+        </div>
+        <Button type="button" variant="secondary" size="sm" onClick={onNovo}>
+          <Plus size={12} />Novo
+        </Button>
+      </div>
+      {aberto && (
+        <div
+          style={dropdownStyle}
+          className="bg-white rounded-lg shadow-lg border border-gray-200 max-h-64 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-none"
+        >
+          {buscando && (
+            <div className="px-4 py-3 text-sm text-gray-400 dark:text-slate-500 text-center">Buscando...</div>
+          )}
+          {!buscando && resultados.length === 0 && (
+            <div className="px-4 py-3 text-sm text-gray-400 dark:text-slate-500 text-center">Nenhum fornecedor encontrado.</div>
+          )}
+          {!buscando && resultados.map((f) => (
+            <button
+              key={f.id}
+              type="button"
+              onMouseDown={() => handleSelecionar(f)}
+              className="w-full flex flex-col items-start px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left transition-colors dark:hover:bg-navy-700 dark:border-navy-700"
+            >
+              <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{f.nome_razao_social}</p>
+              {f.documento && (
+                <p className="text-xs text-gray-400 dark:text-slate-500">{f.documento}</p>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// --- Modal "Novo Fornecedor" rapido/inline (RF-F01 — Manutencao 89) ---
+// Mesma estrutura de CriarCategoriaRapidaModal.jsx: modal pequeno, 1 POST,
+// toast, fecha, preenche o form-pai. Escopo local a esta pagina (so usado
+// em Despesa nesta manutencao — ver Especificacao_UI_Hotfix.md).
+function NovoFornecedorModal({ onCreated, onClose, showToast }) {
+  const [form, setForm] = useState({ nome_razao_social: '', tipo_pessoa: 'PJ', documento: '' })
+  const [saving, setSaving] = useState(false)
+
+  const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!form.nome_razao_social.trim()) return
+    setSaving(true)
+    try {
+      const { data } = await api.post('/fornecedores/', stripEmptyStrings(form))
+      showToast?.('Fornecedor cadastrado.')
+      onCreated?.(data)
+      onClose?.()
+    } catch (error) {
+      showToast?.(extractErrorMessage(error, 'Erro ao criar fornecedor.'), 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal title="Novo Fornecedor" onClose={onClose} maxW="max-w-sm">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <Input label="Nome / Razão Social" name="nome_razao_social" value={form.nome_razao_social} onChange={handleChange} autoFocus required />
+        <Select label="Tipo de Pessoa" name="tipo_pessoa" options={TIPO_PESSOA_OPTIONS} value={form.tipo_pessoa} onChange={handleChange} />
+        <Input label="Documento (CPF/CNPJ) — opcional" name="documento" value={form.documento} onChange={handleChange} />
+        <div className="flex justify-end gap-3 pt-2">
+          <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
+          <Button type="submit" loading={saving} disabled={!form.nome_razao_social.trim()}>Criar</Button>
+        </div>
+      </form>
+    </Modal>
+  )
+}
+
 function DespesasTab({ showToast, contasOptions }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
+  // RF-F05 (Manutencao 89): filtros por Categoria e Subcategoria na listagem.
+  const [categoriaFilter, setCategoriaFilter] = useState('')
+  const [subcategoriaFilter, setSubcategoriaFilter] = useState('')
+  const [subcategoriaFilterOptions, setSubcategoriaFilterOptions] = useState([{ value: '', label: 'Todas' }])
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [modalOpen, setModalOpen] = useState(false)
@@ -750,6 +949,13 @@ function DespesasTab({ showToast, contasOptions }) {
   const [form, setForm] = useState(EMPTY_DESPESA)
   const [categoriaOptions, setCategoriaOptions] = useState([])
   const [categoriaRapidaAberta, setCategoriaRapidaAberta] = useState(false)
+  // RF-F02 (Manutencao 89): subcategoria do form, filtrada por form.categoria.
+  const [subcategoriaOptions, setSubcategoriaOptions] = useState([{ value: '', label: 'Nenhuma' }])
+  // RF-F01/RF-F03 (Manutencao 89): nome do fornecedor vinculado (chip) +
+  // flag de sugestao aplicada (etiqueta "Sugerido com base no historico").
+  const [fornecedorNome, setFornecedorNome] = useState('')
+  const [sugestaoAplicada, setSugestaoAplicada] = useState(false)
+  const [novoFornecedorAberto, setNovoFornecedorAberto] = useState(false)
 
   const fetchCategorias = useCallback(() => {
     api.get('/financeiro/categorias/', { params: { tipo: 'SAIDA', page_size: 200 } })
@@ -764,36 +970,115 @@ function DespesasTab({ showToast, contasOptions }) {
 
   const handleCategoriaCriada = (categoriaCriada) => {
     fetchCategorias()
-    setForm((f) => ({ ...f, categoria: categoriaCriada.id }))
+    setForm((f) => ({ ...f, categoria: categoriaCriada.id, subcategoria: '' }))
   }
+
+  // RF-F02/RF-F05 (Manutencao 89): subcategoria = Categoria com pai=<categoriaId>
+  // (mesma tabela, hierarquia da Manutencao 88) — reaproveitado pelo form e
+  // pelo filtro da listagem, cada um com seu proprio rotulo pra opcao vazia.
+  const fetchSubcategorias = useCallback((categoriaId, setter, emptyLabel) => {
+    if (!categoriaId) { setter([{ value: '', label: emptyLabel }]); return }
+    api.get('/financeiro/categorias/', { params: { tipo: 'SAIDA', pai: categoriaId, page_size: 200 } })
+      .then((r) => {
+        const list = (r.data.results || r.data || []).map((c) => ({ value: c.id, label: c.nome }))
+        setter([{ value: '', label: emptyLabel }, ...list])
+      })
+      .catch(() => setter([{ value: '', label: emptyLabel }]))
+  }, [])
+
+  useEffect(() => {
+    fetchSubcategorias(form.categoria, setSubcategoriaOptions, 'Nenhuma')
+  }, [form.categoria, fetchSubcategorias])
+
+  useEffect(() => {
+    fetchSubcategorias(categoriaFilter, setSubcategoriaFilterOptions, 'Todas')
+  }, [categoriaFilter, fetchSubcategorias])
 
   const fetch = useCallback(async () => {
     setLoading(true)
     try {
       const params = { search, page, page_size: PAGE_SIZE }
       if (statusFilter) params.status = statusFilter
+      if (categoriaFilter) params.categoria = categoriaFilter
+      if (subcategoriaFilter) params.subcategoria = subcategoriaFilter
       const r = await api.get('/financeiro/despesas/', { params })
       setItems(r.data.results || r.data || [])
       const count = r.data.count || (r.data.results || r.data || []).length
       setTotalPages(Math.max(1, Math.ceil(count / PAGE_SIZE)))
     } catch { showToast('Erro ao carregar despesas.', 'error') }
     finally { setLoading(false) }
-  }, [search, statusFilter, page])
+  }, [search, statusFilter, categoriaFilter, subcategoriaFilter, page])
 
   useEffect(() => { fetch() }, [fetch])
 
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
-  const openNew = () => { setForm(EMPTY_DESPESA); setEditingId(null); setModalOpen(true) }
+  // Trocar/limpar Categoria reseta Subcategoria imediatamente (RF-F02) e
+  // esconde a etiqueta de sugestao — a partir daqui a escolha e manual (RN-05).
+  const handleCategoriaChange = (e) => {
+    setForm((f) => ({ ...f, categoria: e.target.value, subcategoria: '' }))
+    setSugestaoAplicada(false)
+  }
+  const handleSubcategoriaChange = (e) => {
+    setForm((f) => ({ ...f, subcategoria: e.target.value }))
+    setSugestaoAplicada(false)
+  }
+
+  // RF-F04 (Manutencao 89): trocar R$<->% limpa o valor numerico (evita
+  // interpretar um numero digitado num modo como se fosse do outro).
+  const handleTipoDescontoChange = (e) => {
+    setForm((f) => ({ ...f, tipo_desconto: e.target.value, desconto: '0', percentual_desconto: '0' }))
+  }
+  const handleDescontoValorChange = (e) => {
+    const valor = e.target.value
+    setForm((f) => (f.tipo_desconto === '%' ? { ...f, percentual_desconto: valor } : { ...f, desconto: valor }))
+  }
+
+  // RF-F03 (Manutencao 89): sugestao nunca sobrescreve escolha manual ja
+  // feita (RN-05) — so preenche se Categoria E Subcategoria ainda vazias.
+  const aplicarSugestao = async (fornecedorId) => {
+    try {
+      const { data } = await api.get('/financeiro/despesas/sugestao-categoria/', { params: { fornecedor_fk: fornecedorId } })
+      if (!data.categoria && !data.subcategoria) return
+      if (form.categoria || form.subcategoria) return
+      setForm((f) => (f.categoria || f.subcategoria ? f : { ...f, categoria: data.categoria || '', subcategoria: data.subcategoria || '' }))
+      setSugestaoAplicada(true)
+    } catch { /* dado complementar, nao bloqueia a UI */ }
+  }
+
+  const handleSelecionarFornecedor = (fornecedor) => {
+    setForm((f) => ({ ...f, fornecedor_fk: fornecedor.id }))
+    setFornecedorNome(fornecedor.nome_razao_social)
+    aplicarSugestao(fornecedor.id)
+  }
+  const handleTrocarFornecedor = () => {
+    setForm((f) => ({ ...f, fornecedor_fk: '' }))
+    setFornecedorNome('')
+    setSugestaoAplicada(false)
+  }
+  const handleFornecedorCriado = (fornecedorCriado) => {
+    setNovoFornecedorAberto(false)
+    handleSelecionarFornecedor(fornecedorCriado)
+  }
+
+  const openNew = () => {
+    setForm(EMPTY_DESPESA); setEditingId(null)
+    setFornecedorNome(''); setSugestaoAplicada(false)
+    setModalOpen(true)
+  }
   const openEdit = (item) => {
     setForm({
       tipo: item.tipo || 'VARIAVEL', descricao: item.descricao || '',
-      fornecedor: item.fornecedor || '', categoria: item.categoria || '',
+      fornecedor: item.fornecedor || '', fornecedor_fk: item.fornecedor_fk || '',
+      categoria: item.categoria || '', subcategoria: item.subcategoria || '',
       valor_bruto: item.valor_bruto || '', desconto: item.desconto || '0',
+      tipo_desconto: item.tipo_desconto || 'R$', percentual_desconto: item.percentual_desconto || '0',
       conta: item.conta || '', vencimento: item.vencimento || '',
       referencia_mes: (item.referencia_mes || '').slice(0, 7),
       forma_pagamento: item.forma_pagamento || '', observacoes: item.observacoes || '',
     })
+    setFornecedorNome(item.fornecedor_fk_nome || '')
+    setSugestaoAplicada(false)
     setEditingId(item.id); setModalOpen(true)
   }
   const closeModal = () => { setModalOpen(false); setEditingId(null) }
@@ -843,6 +1128,22 @@ function DespesasTab({ showToast, contasOptions }) {
           <div className="w-full sm:w-48">
             <Select options={STATUS_DESPESA} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1) }} />
           </div>
+          {/* RF-F05 (Manutencao 89): filtros por Categoria e Subcategoria */}
+          <div className="w-full sm:w-48">
+            <Select
+              options={[{ value: '', label: 'Todas categorias' }, ...categoriaOptions.filter((o) => o.value !== '')]}
+              value={categoriaFilter}
+              onChange={(e) => { setCategoriaFilter(e.target.value); setSubcategoriaFilter(''); setPage(1) }}
+            />
+          </div>
+          <div className="w-full sm:w-48">
+            <Select
+              options={subcategoriaFilterOptions}
+              value={subcategoriaFilter}
+              onChange={(e) => { setSubcategoriaFilter(e.target.value); setPage(1) }}
+              disabled={subcategoriaFilterOptions.length <= 1}
+            />
+          </div>
         </div>
       </Card>
 
@@ -867,7 +1168,9 @@ function DespesasTab({ showToast, contasOptions }) {
                   <span className="text-lg font-bold text-red-700 dark:text-red-400">{BRL(item.valor_liquido)}</span>
                   <span className="text-xs text-gray-400 dark:text-slate-500">{item.conta_nome}</span>
                 </div>
-                {item.fornecedor && <p className="text-xs text-gray-500 mt-1 dark:text-slate-500">{item.fornecedor}</p>}
+                {(item.fornecedor_fk_nome || item.fornecedor) && (
+                  <p className="text-xs text-gray-500 mt-1 dark:text-slate-500">{item.fornecedor_fk_nome || item.fornecedor}</p>
+                )}
                 <div className="mt-3 flex gap-2 flex-wrap">
                   {item.status === 'PENDENTE' && (
                     <Button size="sm" onClick={() => marcarPago(item)}>Pagar</Button>
@@ -903,7 +1206,7 @@ function DespesasTab({ showToast, contasOptions }) {
                         <td className="px-4 py-3 text-right font-semibold text-red-700 dark:text-red-400">{BRL(item.valor_liquido)}</td>
                         <td className="px-4 py-3 text-gray-600 dark:text-slate-400">{item.vencimento}</td>
                         <td className="px-4 py-3"><Badge status={item.status} /></td>
-                        <td className="px-4 py-3 text-gray-600 max-w-[120px] truncate dark:text-slate-400">{item.fornecedor || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600 max-w-[120px] truncate dark:text-slate-400">{item.fornecedor_fk_nome || item.fornecedor || '—'}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-2">
                             {item.status === 'PENDENTE' && (
@@ -927,6 +1230,22 @@ function DespesasTab({ showToast, contasOptions }) {
       {modalOpen && (
         <Modal title={editingId ? 'Editar Despesa' : 'Nova Despesa'} onClose={closeModal} maxW="max-w-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* RF-F01 (Manutencao 89): Fornecedor e o 1o campo do form */}
+            <BuscaFornecedorRapida
+              fornecedorFkId={form.fornecedor_fk}
+              fornecedorNome={fornecedorNome}
+              onSelecionar={handleSelecionarFornecedor}
+              onTrocar={handleTrocarFornecedor}
+              onNovo={() => setNovoFornecedorAberto(true)}
+            />
+            {/* RN-01: cadastro antigo (fornecedor texto, sem FK) nunca e escondido */}
+            {!form.fornecedor_fk && form.fornecedor && (
+              <p className="text-xs text-gray-400 dark:text-slate-500 flex items-start gap-1 -mt-2">
+                <Info size={14} className="shrink-0 mt-0.5" />
+                Cadastro antigo (texto livre): "{form.fornecedor}". Buscar e selecionar acima para vincular ao cadastro.
+              </p>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Select label="Tipo" name="tipo" options={TIPO_DESPESA} value={form.tipo} onChange={handleChange} />
               <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
@@ -939,14 +1258,54 @@ function DespesasTab({ showToast, contasOptions }) {
                   <Plus size={12} />Nova categoria
                 </button>
               </div>
-              <Select name="categoria" options={categoriaOptions} value={form.categoria} onChange={handleChange} />
+              <Select name="categoria" options={categoriaOptions} value={form.categoria} onChange={handleCategoriaChange} />
             </div>
             <p className="text-xs text-gray-400 dark:text-slate-500 -mt-2">Categoria em que este lançamento entra no relatório de DRE/Gastos por Categoria.</p>
+
+            {/* RF-F02 (Manutencao 89): Subcategoria, logo depois de Categoria */}
+            <div className="flex flex-col gap-1">
+              <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Subcategoria</label>
+              <Select
+                name="subcategoria"
+                options={subcategoriaOptions}
+                value={form.subcategoria}
+                onChange={handleSubcategoriaChange}
+                disabled={subcategoriaOptions.length <= 1}
+              />
+            </div>
+            {sugestaoAplicada && (
+              <p className="text-xs text-primary-600 dark:text-violet-400 -mt-2">✓ Sugerido com base no histórico deste fornecedor</p>
+            )}
+
             <Input label="Descrição" name="descricao" value={form.descricao} onChange={handleChange} />
-            <Input label="Fornecedor" name="fornecedor" value={form.fornecedor} onChange={handleChange} />
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <Input label="Valor Bruto (R$)" name="valor_bruto" type="number" step="0.01" min="0" value={form.valor_bruto} onChange={handleChange} />
-              <Input label="Desconto (R$)" name="desconto" type="number" step="0.01" min="0" value={form.desconto} onChange={handleChange} />
+              {/* RF-F04 (Manutencao 89): Desconto em R$ ou % — campo composto, mesma celula do grid */}
+              <div className="flex flex-col gap-1">
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Desconto</label>
+                <div className="flex">
+                  <select
+                    value={form.tipo_desconto}
+                    onChange={handleTipoDescontoChange}
+                    className="w-16 rounded-l-lg rounded-r-none border border-r-0 border-gray-300 bg-white px-1 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
+                  >
+                    {TIPO_DESCONTO.map((o) => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="number" step="0.01" min="0"
+                    value={form.tipo_desconto === '%' ? form.percentual_desconto : form.desconto}
+                    onChange={handleDescontoValorChange}
+                    className="w-full rounded-r-lg rounded-l-none border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:focus:ring-violet-500"
+                  />
+                </div>
+                {form.tipo_desconto === '%' && (
+                  <p className="text-xs text-gray-400 dark:text-slate-500">
+                    ≈ {BRL((Number(form.valor_bruto || 0) * Number(form.percentual_desconto || 0)) / 100)}
+                  </p>
+                )}
+              </div>
               <Input label="Vencimento" name="vencimento" type="date" value={form.vencimento} onChange={handleChange} />
             </div>
             <Input label="Mês de referência (competência)" name="referencia_mes" type="month" value={form.referencia_mes} onChange={handleChange} />
@@ -974,13 +1333,23 @@ function DespesasTab({ showToast, contasOptions }) {
           onClose={() => setCategoriaRapidaAberta(false)}
         />
       )}
+
+      {novoFornecedorAberto && (
+        <NovoFornecedorModal
+          showToast={showToast}
+          onCreated={handleFornecedorCriado}
+          onClose={() => setNovoFornecedorAberto(false)}
+        />
+      )}
     </div>
   )
 }
 
 const EMPTY_DESPESA = {
-  tipo: 'VARIAVEL', descricao: '', fornecedor: '', categoria: '',
-  valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '',
+  tipo: 'VARIAVEL', descricao: '', fornecedor: '', fornecedor_fk: '',
+  categoria: '', subcategoria: '',
+  valor_bruto: '', desconto: '0', tipo_desconto: 'R$', percentual_desconto: '0',
+  conta: '', vencimento: '', referencia_mes: '',
   forma_pagamento: '', observacoes: '',
 }
 
