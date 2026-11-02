@@ -170,9 +170,79 @@ class ReceitaViewSet(AuditMixin, ModelViewSet):
     serializer_class = ReceitaSerializer
     permission_classes = [IsAdmin | IsFinanceiro]  # RN08 (Manutencao #54) — antes so IsAuthenticated
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['tipo', 'status', 'cliente', 'conta', 'assinatura']
+    # 'referencia_mes' adicionado na Manutencao 90 — util para telas que
+    # consultem por mes (ex. aba Assinaturas na ficha do Cliente).
+    filterset_fields = ['tipo', 'status', 'cliente', 'conta', 'assinatura', 'referencia_mes']
     search_fields = ['descricao']
     ordering_fields = ['vencimento', 'valor_liquido', 'status']
+
+    @action(detail=False, methods=['get'], url_path='sugestao-cliente')
+    def sugestao_cliente(self, request):
+        """
+        Manutencao 90 — sugere assinatura ativa ou venda em aberto do cliente
+        para pre-preencher o form de Nova Receita no frontend (RF-03/04/05).
+        Nunca bloqueia nem falha: cliente sem nada -> 200 com listas vazias.
+        """
+        from clientes.models import Cliente
+        from assinaturas.models import Assinatura
+        from vendas.models import Orcamento, Pedido
+
+        cliente_id = request.query_params.get('cliente_id')
+        if not cliente_id:
+            return Response({'detail': 'cliente_id é obrigatório.'}, status=400)
+        if not Cliente.objects.filter(pk=cliente_id, is_active=True).exists():
+            return Response({'detail': 'Cliente não encontrado.'}, status=400)
+
+        hoje = date.today()
+        mes_atual = hoje.replace(day=1)
+
+        assinaturas = (
+            Assinatura.objects.filter(
+                cliente_id=cliente_id, status='ATIVA', is_active=True,
+            )
+            .select_related('plano', 'plano__categoria')
+        )
+        assinaturas_data = []
+        for a in assinaturas:
+            ja_tem = Receita.objects.filter(
+                assinatura_id=a.pk, referencia_mes=mes_atual, is_active=True,
+            ).exclude(status='CANCELADO').exists()
+            assinaturas_data.append({
+                'id': a.pk,
+                'plano_id': a.plano_id,
+                'plano_nome': a.plano.nome,
+                'valor': str(a.valor),
+                'categoria_id': a.plano.categoria_id,
+                'categoria_nome': a.plano.categoria.nome,
+                'referencia_mes_sugerido': mes_atual.isoformat(),
+                'descricao_sugerida': f'Mensalidade {a.plano.nome} - {mes_atual.strftime("%m/%Y")}',
+                'ja_tem_receita_mes_atual': ja_tem,
+            })
+
+        vendas_abertas = []
+        if not assinaturas_data:  # RN-11 — assinatura tem prioridade
+            orcamentos = Orcamento.objects.filter(
+                cliente_id=cliente_id, is_active=True,
+                status__in=['RASCUNHO', 'ENVIADO', 'APROVADO'],
+            )
+            for o in orcamentos:
+                vendas_abertas.append({
+                    'tipo': 'ORCAMENTO', 'id': o.pk, 'numero': o.numero,
+                    'descricao_sugerida': f'{o.numero} - {o.descricao or "Orçamento"}',
+                    'valor_total': str(o.valor_total),
+                })
+            pedidos = Pedido.objects.filter(
+                cliente_id=cliente_id, is_active=True,
+                status__in=['PENDENTE', 'CONFIRMADO', 'EM_PRODUCAO'],
+            )
+            for p in pedidos:
+                vendas_abertas.append({
+                    'tipo': 'PEDIDO', 'id': p.pk, 'numero': p.numero,
+                    'descricao_sugerida': f'{p.numero} - {p.observacoes or "Pedido"}',
+                    'valor_total': str(p.valor_total),
+                })
+
+        return Response({'assinaturas_ativas': assinaturas_data, 'vendas_abertas': vendas_abertas})
 
     @action(detail=True, methods=['patch'], url_path='receber')
     def marcar_recebido(self, request, pk=None):

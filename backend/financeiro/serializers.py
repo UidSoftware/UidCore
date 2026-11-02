@@ -110,12 +110,14 @@ class ReceitaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
             'referencia_mes', 'assinatura', 'observacoes', 'is_active', 'created_at',
             'created_by_nome', 'updated_by_nome',
         ]
-        # 'assinatura' e read_only aqui (Manutencao #64 [NUCLEO 3/5]) --
-        # o vinculo so e criado por assinaturas.services.gerar_cobrancas_mes
-        # (via Receita.objects.get_or_create, direto no ORM, nao pelo
-        # serializer). Exposto so para leitura (ex: aba Assinaturas na
-        # ficha do Cliente, RF-11).
-        read_only_fields = ['valor_liquido', 'created_at', 'assinatura']
+        # Manutencao #90 (RN-07) — 'assinatura' SAI de read_only_fields:
+        # passa a ser gravavel na CRIACAO (fluxo manual de Nova Receita
+        # vinculando a uma assinatura ativa, RF-03/06). Antes disso so
+        # assinaturas.services.gerar_cobrancas_mes gravava esse FK (via
+        # Receita.objects.get_or_create, direto no ORM, nunca pelo
+        # serializer) — esse fluxo continua intacto, nao passa por aqui.
+        # Imutabilidade pos-criacao e garantida em validate(), nao aqui.
+        read_only_fields = ['valor_liquido', 'created_at']
         # aceita 'AAAA-MM' (input type=month); campo auto-gerado mantido de
         # proposito: o UniqueConstraint condicional (assinatura, referencia_mes)
         # depende do tratamento que o DRF da ao campo gerado.
@@ -126,7 +128,90 @@ class ReceitaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
         desconto = data.get('desconto', getattr(self.instance, 'desconto', Decimal('0')))
         if desconto > bruto:
             raise serializers.ValidationError({'desconto': 'Desconto não pode ser maior que o valor bruto.'})
+
+        # RN-07: assinatura imutavel apos criacao — so pode ser definida no
+        # POST de criacao; PATCH/PUT que tenta mudar o vinculo e rejeitado.
+        if self.instance and 'assinatura' in data:
+            nova = data['assinatura']
+            atual = self.instance.assinatura
+            if (nova.pk if nova else None) != (atual.pk if atual else None):
+                raise serializers.ValidationError(
+                    {'assinatura': 'Não é possível alterar a assinatura vinculada após a criação.'}
+                )
+
+        assinatura = data.get('assinatura', getattr(self.instance, 'assinatura', None))
+        cliente = data.get('cliente', getattr(self.instance, 'cliente', None))
+        referencia_mes = data.get('referencia_mes', getattr(self.instance, 'referencia_mes', None))
+
+        if assinatura:
+            # RN-09 — assinatura informada precisa pertencer ao cliente informado.
+            if cliente and assinatura.cliente_id != cliente.pk:
+                raise serializers.ValidationError(
+                    {'assinatura': 'A assinatura informada não pertence ao cliente selecionado.'}
+                )
+            # RN-08 — nao duplicar receita da mesma assinatura no mesmo mes
+            # de referencia. Complementar (nao substitui) a UniqueConstraint
+            # uniq_assinatura_referencia_mes ja existente no model.
+            if referencia_mes:
+                conflito_qs = Receita.objects.filter(
+                    assinatura_id=assinatura.pk, referencia_mes=referencia_mes, is_active=True,
+                ).exclude(status='CANCELADO')
+                if self.instance:
+                    conflito_qs = conflito_qs.exclude(pk=self.instance.pk)
+                existente = conflito_qs.first()
+                if existente:
+                    raise serializers.ValidationError({
+                        'assinatura': (
+                            f'Já existe uma receita para esta assinatura no mês de referência '
+                            f'informado (Receita #{existente.pk}, status {existente.get_status_display()}).'
+                        )
+                    })
         return data
+
+    # Achado ao implementar a Manutencao #90: a UniqueConstraint de banco
+    # 'uniq_assinatura_referencia_mes' (Receita.Meta.constraints, desde a
+    # Manutencao #64) e INCONDICIONAL quanto a status/is_active — so
+    # exige assinatura nao-nula, nunca exclui CANCELADO. O validate()
+    # acima, seguindo RN-08 a risca, EXCLUI CANCELADO da checagem amigavel
+    # (para permitir reabrir o mes depois de cancelar) — mas isso deixa um
+    # buraco real: se a unica Receita existente para aquela
+    # assinatura+mes estiver CANCELADO, validate() nao acha conflito e
+    # deixa passar, e so então a constraint de banco (que nao sabe o que
+    # e CANCELADO) rejeita com IntegrityError puro, que sem este guard
+    # vazaria como 500. Mesmo precedente ja usado nesta fabrica
+    # (produtos/views.py, pdv/services.py: "nunca deploy com erro
+    # generico de integridade") — nunca alterar/migrar a constraint
+    # aqui, so blindar o ponto de insercao.
+    def create(self, validated_data):
+        # transaction.atomic() aqui cria um SAVEPOINT (mesmo dentro do
+        # atomic por-teste do TestCase) -- sem isso, capturar o
+        # IntegrityError deixaria a transacao inteira "precisa de
+        # rollback" para qualquer query seguinte (TransactionManagementError),
+        # tanto em teste quanto em producao com ATOMIC_REQUESTS.
+        from django.db import IntegrityError, transaction
+        try:
+            with transaction.atomic():
+                return super().create(validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({
+                'assinatura': (
+                    'Já existe uma receita para esta assinatura no mês de referência '
+                    'informado.'
+                )
+            })
+
+    def update(self, instance, validated_data):
+        from django.db import IntegrityError, transaction
+        try:
+            with transaction.atomic():
+                return super().update(instance, validated_data)
+        except IntegrityError:
+            raise serializers.ValidationError({
+                'assinatura': (
+                    'Já existe uma receita para esta assinatura no mês de referência '
+                    'informado.'
+                )
+            })
 
 
 class DespesaSerializer(AuditFieldsMixin, serializers.ModelSerializer):

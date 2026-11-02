@@ -16,7 +16,10 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
+from assinaturas.models import Assinatura, Periodicidade, Plano, StatusAssinatura
+from clientes.models import Cliente
 from fornecedores.models import Fornecedor
+from vendas.models import Orcamento, Pedido
 
 from . import parsers
 from .conciliacao_service import auto_processar, criar_conciliacao, executar_matching
@@ -1788,3 +1791,242 @@ class SugestaoCategoriaPorFornecedorAPITest(APITestCase):
             {'fornecedor_fk': self.fornecedor.pk},
         )
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# --- Manutencao #90: campo Cliente + endpoint sugestao-cliente ----------
+
+import itertools as _itertools_m90
+_contador_m90 = _itertools_m90.count(1)
+
+
+def _make_cliente_m90(nome='Cliente Sugestao90'):
+    return Cliente.objects.create(nome_razao_social=f'{nome} {next(_contador_m90)}', tipo_pessoa='PF')
+
+
+def _make_plano_m90(nome=None, valor=Decimal('199.90'), categoria=None):
+    # nome=None gera sufixo unico por chamada -- evita colisao de
+    # UniqueConstraint (nome, tipo) em Categoria quando o chamador cria
+    # mais de um Plano/Assinatura "padrao" (sem nome explicito) no mesmo teste.
+    nome = nome or f'Plano Sugestao90 {next(_contador_m90)}'
+    categoria = categoria or Categoria.objects.create(nome=f'Categoria {nome}', tipo='ENTRADA')
+    return Plano.objects.create(
+        nome=nome, valor=valor, periodicidade=Periodicidade.MENSAL, categoria=categoria,
+    )
+
+
+def _make_assinatura_m90(cliente, plano=None, conta=None, valor=None,
+                          status_=StatusAssinatura.ATIVA, data_inicio=date(2026, 1, 15)):
+    plano = plano or _make_plano_m90()
+    return Assinatura.objects.create(
+        cliente=cliente, plano=plano,
+        valor=valor if valor is not None else plano.valor,
+        dia_vencimento=10, data_inicio=data_inicio, status=status_,
+        conta=conta or _make_conta(nome=f'Conta Assinatura {cliente.pk}-{plano.pk}'),
+    )
+
+
+class SugestaoClienteAPITest(APITestCase):
+    """RF-06/RN-04/RN-05/RN-06/RN-11 (endpoint sugestao-cliente, Manutencao #90)."""
+
+    def setUp(self):
+        self.user = _make_user(email='sugestao90@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta Sugestao90')
+        self.cliente = _make_cliente_m90()
+
+    def test_sem_cliente_id_retorna_400(self):
+        resp = self.client.get('/api/v1/financeiro/receitas/sugestao-cliente/')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cliente_inexistente_retorna_400(self):
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': 999999},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cliente_soft_deletado_retorna_400(self):
+        self.cliente.is_active = False
+        self.cliente.save()
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cliente_sem_assinatura_e_sem_venda_retorna_listas_vazias(self):
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['assinaturas_ativas'], [])
+        self.assertEqual(resp.data['vendas_abertas'], [])
+
+    def test_cliente_com_uma_assinatura_ativa(self):
+        plano = _make_plano_m90(valor=Decimal('150.00'))
+        assinatura = _make_assinatura_m90(self.cliente, plano=plano, valor=Decimal('130.00'))
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['assinaturas_ativas']), 1)
+        item = resp.data['assinaturas_ativas'][0]
+        self.assertEqual(item['id'], assinatura.pk)
+        # RF-03: valor sugerido e o snapshot da Assinatura, nunca o Plano.valor "ao vivo"
+        self.assertEqual(item['valor'], '130.00')
+        self.assertEqual(item['plano_id'], plano.pk)
+        self.assertEqual(item['categoria_id'], plano.categoria_id)
+        self.assertFalse(item['ja_tem_receita_mes_atual'])
+        self.assertEqual(resp.data['vendas_abertas'], [])
+
+    def test_cliente_com_duas_assinaturas_ativas(self):
+        _make_assinatura_m90(self.cliente)
+        _make_assinatura_m90(self.cliente, plano=_make_plano_m90(nome='Plano B'))
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['assinaturas_ativas']), 2)
+
+    def test_assinatura_pausada_ou_encerrada_nao_conta_como_ativa(self):
+        _make_assinatura_m90(self.cliente, status_=StatusAssinatura.PAUSADA)
+        _make_assinatura_m90(self.cliente, status_=StatusAssinatura.ENCERRADA)
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['assinaturas_ativas'], [])
+
+    def test_assinatura_ativa_e_venda_aberta_prioriza_assinatura_rn11(self):
+        _make_assinatura_m90(self.cliente)
+        Pedido.objects.create(cliente=self.cliente, status='PENDENTE', valor_total=Decimal('80.00'))
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(resp.data['assinaturas_ativas']), 1)
+        self.assertEqual(resp.data['vendas_abertas'], [])
+
+    def test_sem_assinatura_com_orcamento_aprovado_e_pedido_confirmado(self):
+        orcamento = Orcamento.objects.create(
+            cliente=self.cliente, status='APROVADO', valor_total=Decimal('200.00'),
+        )
+        pedido = Pedido.objects.create(
+            cliente=self.cliente, status='CONFIRMADO', valor_total=Decimal('300.00'),
+        )
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['assinaturas_ativas'], [])
+        tipos_ids = {(v['tipo'], v['id']) for v in resp.data['vendas_abertas']}
+        self.assertIn(('ORCAMENTO', orcamento.pk), tipos_ids)
+        self.assertIn(('PEDIDO', pedido.pk), tipos_ids)
+
+    def test_orcamento_rejeitado_e_pedido_cancelado_nao_aparecem(self):
+        Orcamento.objects.create(cliente=self.cliente, status='REJEITADO', valor_total=Decimal('10.00'))
+        Pedido.objects.create(cliente=self.cliente, status='CANCELADO', valor_total=Decimal('10.00'))
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['vendas_abertas'], [])
+
+    def test_sem_autenticacao_401(self):
+        self.client.force_authenticate(None)
+        resp = self.client.get(
+            '/api/v1/financeiro/receitas/sugestao-cliente/', {'cliente_id': self.cliente.pk},
+        )
+        self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class ReceitaAssinaturaVinculoAPITest(APITestCase):
+    """RF-01/RN-07/RN-08/RN-09 (campo Receita.assinatura gravavel via API, Manutencao #90)."""
+
+    def setUp(self):
+        self.user = _make_user(email='receita-assinatura90@teste.com')
+        self.client.force_authenticate(self.user)
+        self.conta = _make_conta(nome='Conta ReceitaAssinatura90')
+        self.cliente = _make_cliente_m90(nome='Cliente ReceitaAssinatura90')
+        self.plano = _make_plano_m90(nome='Plano ReceitaAssinatura90')
+        self.assinatura = _make_assinatura_m90(self.cliente, plano=self.plano)
+
+    def _payload(self, **overrides):
+        payload = {
+            'tipo': 'MENSALIDADE', 'descricao': 'Mensalidade teste',
+            'cliente': self.cliente.pk, 'assinatura': self.assinatura.pk,
+            'valor_bruto': '199.90', 'desconto': '0', 'conta': self.conta.pk,
+            'referencia_mes': '2026-11', 'status': 'PENDENTE',
+        }
+        payload.update(overrides)
+        return payload
+
+    def test_post_com_assinatura_valida_grava_vinculo(self):
+        resp = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        receita = Receita.objects.get(pk=resp.data['id'])
+        self.assertEqual(receita.assinatura_id, self.assinatura.pk)
+
+    def test_post_com_assinatura_de_outro_cliente_retorna_400_rn09(self):
+        outro_cliente = _make_cliente_m90(nome='Outro Cliente90')
+        resp = self.client.post(
+            '/api/v1/financeiro/receitas/',
+            self._payload(cliente=outro_cliente.pk),
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('assinatura', resp.data)
+
+    def test_post_duplicado_mesma_assinatura_mesmo_mes_retorna_400_rn08(self):
+        primeira = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(primeira.status_code, status.HTTP_201_CREATED, primeira.data)
+
+        resp = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('assinatura', resp.data)
+        self.assertIn(str(primeira.data['id']), str(resp.data['assinatura']))
+
+    def test_post_duplicado_com_anterior_cancelada_mensagem_amigavel_rn08(self):
+        # Nota (achado ao implementar): a UniqueConstraint de banco
+        # 'uniq_assinatura_referencia_mes' (Receita.Meta.constraints) e
+        # INCONDICIONAL quanto a status/is_active -- so exige
+        # assinatura nao-nula, nunca distingue CANCELADO. Por isso, mesmo
+        # com a receita anterior CANCELADO, uma 2a tentativa de criar
+        # outra Receita para a mesma assinatura+mes SEMPRE colide no
+        # banco (constraint pre-existente, fora do escopo desta
+        # manutencao alterar/migrar). O que RN-08 garante aqui e que o
+        # 400 chega com uma mensagem amigavel (validate() nao acha
+        # conflito porque exclui CANCELADO, mas o guard de IntegrityError
+        # em create() intercepta a colisao real de banco e devolve 400
+        # tambem) em vez do IntegrityError generico de banco -- nao que a
+        # criacao tenha sucesso.
+        primeira = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(primeira.status_code, status.HTTP_201_CREATED, primeira.data)
+        receita_anterior = Receita.objects.get(pk=primeira.data['id'])
+        receita_anterior.status = 'CANCELADO'
+        receita_anterior.save()
+
+        resp = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.data)
+        self.assertIn('assinatura', resp.data)
+
+    def test_patch_tentando_trocar_assinatura_retorna_400_rn07(self):
+        criada = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(criada.status_code, status.HTTP_201_CREATED, criada.data)
+        outra_assinatura = _make_assinatura_m90(
+            self.cliente, plano=_make_plano_m90(nome='Plano B ReceitaAssinatura90'),
+        )
+        resp = self.client.patch(
+            f'/api/v1/financeiro/receitas/{criada.data["id"]}/',
+            {'assinatura': outra_assinatura.pk}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('assinatura', resp.data)
+
+    def test_patch_sem_tocar_assinatura_funciona_normalmente_rn07(self):
+        criada = self.client.post('/api/v1/financeiro/receitas/', self._payload(), format='json')
+        self.assertEqual(criada.status_code, status.HTTP_201_CREATED, criada.data)
+        resp = self.client.patch(
+            f'/api/v1/financeiro/receitas/{criada.data["id"]}/',
+            {'observacoes': 'ajustado'}, format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data['observacoes'], 'ajustado')
