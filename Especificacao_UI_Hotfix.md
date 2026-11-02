@@ -1,21 +1,22 @@
-# Especificação UI Hotfix — UidCore (Manutenção #89)
+# Especificação UI Hotfix — UidCore (Manutenção #90)
 
 ## Modo
 
-**MODO HOTFIX.** Uma FK em cadastro existente (`Despesa.fornecedor_fk`),
-dois campos novos (`subcategoria`, `tipo_desconto`/`percentual_desconto`)
-e um ajuste de layout num formulário já existente. Sem app novo, sem tela
-nova. Nenhuma mudança de identidade visual, paleta ou tipografia — tudo
-reaproveita o design system já em produção.
+**MODO HOTFIX.** Um campo novo (`cliente`) num formulário já existente
+(`ReceitasTab`, `Financeiro.jsx`) + preenchimento automático condicional
+(3 ramos: assinatura ativa → venda em aberto → nada) baseado num novo
+endpoint de sugestão. Sem app novo, sem tela nova, sem rota nova. Nenhuma
+mudança de identidade visual, paleta ou tipografia — tudo reaproveita o
+design system já em produção.
 
 Lido antes de escrever esta especificação: `Especificacao_Hotfix.md`
-(Manutenção #89, seções 0-9 completas), `frontend/src/pages/Financeiro.jsx`
-(`DespesasTab` completo, linhas 740-985), `frontend/src/pages/Vendas.jsx`
-(`BuscaProdutoRapida`, linhas 193-283 — padrão de referência explícito
-citado pelo Analista), `frontend/src/components/ui/
-CriarCategoriaRapidaModal.jsx` (padrão de "modal rápido inline" já
-existente, reaproveitado 3x no projeto), `components/ui/{Select, Input,
-Button, Modal}.jsx`.
+(Manutenção #90, seções 1-9 completas), `frontend/src/pages/Financeiro.jsx`
+(`ReceitasTab` completo, linhas 511-747; `BuscaFornecedorRapida` e
+`NovoFornecedorModal`, linhas 759-933 — padrão de referência direto da
+Manutenção #89, já no mesmo arquivo e no mesmo `Modal`),
+`frontend/src/pages/Assinaturas.jsx` (`ClienteAutocomplete`, linhas 81-167
+— citado pelo Analista como componente a clonar), `components/ui/{Input,
+Button, Select, Modal}.jsx`.
 
 ## Design System do Projeto (referência — não alterado)
 
@@ -25,383 +26,416 @@ Button, Modal}.jsx`.
   (dark) — `navy-500`/`navy-600` para bordas de input/select,
   `navy-700` para hover de linha/dropdown.
 - **Texto:** `text-gray-900`/`text-gray-700`/`text-gray-400` (light),
-  `text-slate-100`/`text-slate-300`/`text-slate-500` (dark) — escala do
-  mais forte ao mais apagado, idêntica em toda a tela.
-- **Feedback:** vermelho (`red-600`/`red-700`, dark `red-400`/`red-900`)
-  já usado para valor de Despesa/saída (`BRL(item.valor_liquido)`) e
-  erro de validação — nenhuma cor de feedback nova nesta manutenção.
+  `text-slate-100`/`text-slate-300`/`text-slate-500` (dark).
+- **Feedback:** amarelo (`yellow-100`/`yellow-800` light,
+  `amber-900/30`/`amber-300` dark — mesma classe já usada em
+  `STATUS_BADGES.PAUSADA` de `Assinaturas.jsx`) para o aviso "já cobrado
+  este mês". Verde (`green-700`/`emerald-400`) já é a cor de valor de
+  Receita nesta mesma tela — não reutilizar para nenhum estado novo desta
+  manutenção, para não confundir com "valor recebido".
 - **Fonte:** Plus Jakarta Sans (display) + DM Sans (body) — já
   carregadas globalmente, não tocar.
-- **BorderRadius:** `rounded-lg` (inputs, selects, botões), `rounded-2xl`
-  (`Modal.jsx`).
+- **BorderRadius:** `rounded-lg` (inputs, selects, botões, cards de
+  escolha), `rounded-2xl` (`Modal.jsx`, não tocar).
 - **Dark mode:** classe `dark` no `<html>`, toggle já existente — não
   tocar.
-- **Ícones:** `lucide-react` (já é dependência do projeto). **Sem emoji
-  nesta tela** — emoji é padrão intencional só da Sidebar.
+- **Ícones:** `lucide-react` (já é dependência do projeto). Sem emoji
+  nesta tela — emoji é padrão intencional só da Sidebar.
 - **Componentes a reutilizar (nenhum componente genérico novo):**
   `Card`, `Modal`, `Button`, `Select`, `Input`, `AuditFooter`. Um
-  componente de domínio novo (`BuscaFornecedorRapida`, clone adaptado de
-  `BuscaProdutoRapida`) e um modal rápido novo (`NovoFornecedorModal`,
-  mesmo molde de `CriarCategoriaRapidaModal`) — ambos seguindo padrões já
-  existentes no projeto, nunca inventados do zero.
+  componente de domínio novo (`ClienteAutocomplete`, clone local em
+  `Financeiro.jsx` — ver seção 2 sobre por que **não** é um clone 1:1 do
+  de `Assinaturas.jsx`). Nenhum modal novo nesta manutenção (diferente da
+  #89, que criou `NovoFornecedorModal` — aqui não há "+ Novo cliente").
 
 ---
 
 ## Especificação Visual por Tela
 
-Única tela afetada: **Financeiro → Contas a Pagar** (`DespesasTab` em
-`Financeiro.jsx`) — modal "Nova/Editar Despesa" e a barra de filtros da
-listagem. Não cria aba nova, não cria rota nova.
+Única tela afetada: **Financeiro → Contas a Receber** (`ReceitasTab` em
+`Financeiro.jsx`) — modal "Nova Receita" / "Editar Receita". Não cria aba
+nova, não cria rota nova, não altera a listagem/filtros (diferente da
+#89, que também tocou a barra de filtros — aqui RF-06 não pede filtro por
+Cliente na listagem).
 
-### 1. Modal "Nova Despesa" / "Editar Despesa" — reordenação de campos
+### 1. Modal "Nova Receita" / "Editar Receita" — novo campo no topo
 
-**Ordem atual (hoje):**
+**Ordem atual (hoje, linhas 699-727):**
 ```
-[Tipo | Conta] → Categoria → Descrição → Fornecedor (texto) →
-[Valor Bruto | Desconto R$ | Vencimento] → Mês de referência →
-Forma de Pagamento → Observações
+[Tipo | Conta] → Categoria → Descrição →
+[Valor Bruto | Desconto | Vencimento] → Mês de referência → Observações
 ```
 
-**Ordem nova (RF-F01/RF-F02):**
+**Ordem nova (RF-01):**
 ```
-1. Fornecedor (busca + "+ Novo fornecedor")    ← NOVO, 1º campo
-2. [Tipo | Conta]                               ← mesma posição de hoje
-3. Categoria                                    ← mesma posição relativa
-4. Subcategoria                                 ← NOVO, logo após Categoria
+1. Cliente (autocomplete)                        ← NOVO, 1º campo
+2. [Tipo | Conta]                                 ← mesma posição de hoje
+3. (sugestão de assinatura/venda, se houver)      ← NOVO, condicional, logo
+                                                     após o campo Cliente,
+                                                     ANTES do grid Tipo/Conta
+4. Categoria
 5. Descrição
-6. [Valor Bruto | Desconto (R$/%) | Vencimento] ← mesmo grid 3 col de hoje
-7. Mês de referência (competência)
-8. Forma de Pagamento
-9. Observações
-10. AuditFooter (se edição)
+6. [Valor Bruto | Desconto | Vencimento]
+7. Mês de referência (competência)                ← já existe, sem mudança
+8. Observações
+9. AuditFooter (se edição)
 ```
+
+Correção de ordem em relação ao RF-01 (seção 6.1 do Analista, item 1 diz
+"logo no topo, antes do grid Tipo/Conta" — mas a lista de escolha de
+assinatura/venda do item 2 só pode aparecer **depois** que o cliente foi
+selecionado): o bloco de sugestão (passo 3 acima) fica **entre** o campo
+Cliente e o grid Tipo/Conta, nunca deslocando os campos de baixo para
+cima/baixo de forma inesperada — é inserção, não reposicionamento do que
+já existe.
 
 Container do form continua `<form className="space-y-4">` — nenhum
-espaçamento novo, só reordenação + inserção de 2 blocos (Fornecedor,
-Subcategoria) e substituição de 1 campo (Desconto).
+espaçamento novo, só inserção de 2 blocos (Cliente + bloco de sugestão
+condicional).
 
 **Mobile (375px):** os grids existentes (`grid-cols-1 sm:grid-cols-2` e
 `grid-cols-1 sm:grid-cols-3`) já colapsam para coluna única — sem
-alteração. Fornecedor e Subcategoria ficam fora de qualquer grid
+alteração. Cliente e o bloco de sugestão ficam fora de qualquer grid
 (`full-width` nativo), herdando o mesmo comportamento.
 
 ---
 
-### 2. Campo Fornecedor — `BuscaFornecedorRapida` (substitui o `Input` texto livre)
+### 2. Campo Cliente — `ClienteAutocomplete` (clone local em `Financeiro.jsx`)
 
-**Reuso explícito e obrigatório:** clonar `BuscaProdutoRapida`
-(`Vendas.jsx`) — mesmo hook de debounce 300ms, mesmo `AbortController`,
-mesma técnica `position: fixed` via `getBoundingClientRect()` (escapa o
-`overflow-y-auto` do `Modal`, mesmo problema que motivou o fix original
-em Vendas/Compras). Só trocam o endpoint (`/fornecedores/?search=`) e o
-conteúdo renderizado em cada linha do dropdown.
+**Atenção — não é um clone 1:1 do `ClienteAutocomplete` de
+`Assinaturas.jsx`.** O comentário original em `Assinaturas.jsx` (linhas
+77-80) diz explicitamente que o dropdown ali **não** usa a técnica
+`position: fixed` "porque não há overflow-y-auto agressivo o suficiente
+pra justificar o truque". Isso não vale para este modal: o modal de
+Receita (`Modal.jsx`, `max-h-[90vh] overflow-y-auto`) já tem **9 campos**
+e cresce mais com o bloco de sugestão condicional — exatamente o cenário
+que já forçou a técnica `position: fixed` + `getBoundingClientRect()` em
+`BuscaFornecedorRapida` (mesmo arquivo, Manutenção #89, linhas 771-787).
+**Clonar a estrutura dos 3 estados (busca/selecionado/disabled) do
+`ClienteAutocomplete` de `Assinaturas.jsx`, mas clonar a técnica de
+posicionamento de dropdown do `BuscaFornecedorRapida`** — são dois
+pontos de referência diferentes, cada um pelo motivo certo. Não escolher
+só um dos dois.
 
+**Os 3 estados do componente (`editingId` vindo de `ReceitasTab`,
+`clienteSelecionado` e `onSelecionar`/`onLimpar` como props):**
+
+**Estado 1 — busca (criação, nada selecionado ainda):**
 ```
-Fornecedor
-┌───────────────────────────────────────┬──────────┐
-│ 🔍  Buscar fornecedor...               │ + Novo   │
-└───────────────────────────────────────┴──────────┘
-  (dropdown abre abaixo, position:fixed, mesma técnica de Vendas.jsx)
+Cliente
+┌───────────────────────────────────────┐
+│ 🔍  Buscar cliente por nome...         │
+└───────────────────────────────────────┘
+  (dropdown abre abaixo, position:fixed — mesma técnica de
+   BuscaFornecedorRapida: top = rect.bottom+4, left = rect.left,
+   width = rect.width, zIndex 9999, recalculado em scroll/resize)
 ```
+- Ícone `Search` (16px, já importado), mesma classe de borda/foco de
+  `BuscaFornecedorRapida` (inclui variante dark).
+- Dropdown: mesma classe (`bg-white rounded-lg shadow-lg border
+  max-h-64 overflow-y-auto dark:bg-navy-800 dark:border-navy-600`). Cada
+  linha mostra só `nome_razao_social` (`text-sm font-medium`) — **sem**
+  segunda linha de documento (diferente do dropdown de Fornecedor): o
+  endpoint `/clientes/?search=` já é o mesmo usado em
+  `ClienteAutocomplete` de `Assinaturas.jsx`, que também só mostra o
+  nome — manter paridade visual entre os dois usos do mesmo tipo de
+  busca.
+- Estado "buscando": linha única `text-sm text-gray-400 dark:text-slate-500
+  text-center` com texto `"Buscando..."` (idêntico aos dois componentes
+  de referência).
+- Estado "nenhum resultado": **não** precisa de mensagem dedicada —
+  dropdown simplesmente não aparece quando `resultados.length === 0 &&
+  !buscando` (mesmo comportamento de `ClienteAutocomplete` de
+  `Assinaturas.jsx` — diferente de `BuscaFornecedorRapida`, que mostra
+  "Nenhum fornecedor encontrado."; manter o comportamento do componente
+  de origem citado pelo Analista para este campo específico).
 
-- Label `"Fornecedor"` acima, mesma tipografia de label dos demais
-  campos (`text-sm font-medium text-gray-700 dark:text-slate-300`) —
-  campo é custom (não usa `Input.jsx` puro, mas replica a label dele
-  para não destoar visualmente.
-- Input: ícone `Search` (16px) `absolute left-3 top-1/2
-  -translate-y-1/2`, mesma classe de borda/foco já usada em
-  `BuscaProdutoRapida` (inclui variante dark `navy-500`/`navy-800`/
-  `violet-500`). Placeholder: `"Buscar fornecedor..."`.
-- Botão `"+ Novo"` ao lado, mesma linha (`flex items-center gap-2`):
-  `variant="secondary"`, `size="sm"`, ícone `Plus` (12px) + texto
-  `"Novo"`.
-- Dropdown: mesma classe de `BuscaProdutoRapida`
-  (`bg-white rounded-lg shadow-lg border max-h-64 overflow-y-auto
-  dark:bg-navy-800 dark:border-navy-600`). Cada linha:
-  - `nome_razao_social` em negrito (`text-sm font-medium`).
-  - Segunda linha só se `documento` existir (`text-xs text-gray-400
-    dark:text-slate-500`) — omitir a linha inteira quando vazio, nunca
-    deixar espaço reservado em branco.
-  - Sem coluna à direita (preço/estoque não se aplicam a Fornecedor).
-- Selecionar: preenche `fornecedor_fk` + `fornecedor_fk_nome`, limpa a
-  busca, dispara a chamada de sugestão (seção 4 abaixo).
-- **Depois de selecionado**, o input de busca é substituído por um chip:
+**Estado 2 — selecionado, ainda em criação (`!editingId`):**
+```
+Cliente
+┌─────────────────────────────────────────┬──────────┐
+│ 👤  Maria Oliveira                        │ Trocar   │
+└─────────────────────────────────────────┴──────────┘
+```
+- Mesmo molde visual do chip de Fornecedor selecionado
+  (`BuscaFornecedorRapida`, linhas 829-841): `flex items-center
+  justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3
+  py-2 dark:border-navy-500 dark:bg-navy-800`, ícone à esquerda do nome.
+- Ícone: `User` (16px, novo import — paralelo ao `Building2` usado no
+  chip de Fornecedor).
+- Botão `"Trocar"` (`variant="secondary"`, `size="sm"`) — clicar limpa
+  `cliente`, fecha o bloco de sugestão (seção 3) e **limpa também
+  `assinatura` do form** (RN-02) — reabre o Estado 1.
+
+**Estado 3 — modo edição (`editingId` setado) — campo sempre somente
+leitura, independente de ter cliente ou não (RF-01/RN-01):**
+```
+Cliente
+┌───────────────────────────────────────┐
+│ Maria Oliveira                         │   (input disabled)
+└───────────────────────────────────────┘
+```
+- Reaproveita exatamente o branch `disabled` já existente em
+  `ClienteAutocomplete` de `Assinaturas.jsx` (linhas 114-118):
+  `<Input label="Cliente" value={clienteSelecionado?.nome || ''}
+  disabled />` — **sem** ícone, **sem** botão, **sem** chip customizado.
+  É o único dos 3 estados em que o componente novo não precisa de nada
+  visual além do que o `Input.jsx` já faz com `disabled` (fundo
+  `bg-gray-50`/`dark:bg-navy-900`, cursor `not-allowed`).
+- Nenhum clique neste estado dispara `GET sugestao-cliente` — reforça
+  CA-11.
+- Se a Receita em edição não tiver `cliente` (registro antigo, criado
+  antes desta manutenção): mesmo Estado 3, só com `value=''` — campo
+  disabled vazio, nunca volta a ficar buscável em modo edição.
+
+**Busca:** debounce 300ms em `/clientes/?search=<nome>&page_size=10`
+(idêntico ao `ClienteAutocomplete` de `Assinaturas.jsx` — **sem**
+`AbortController` aqui, só `clearTimeout` do debounce, porque o
+componente de origem citado pelo Analista não usa abort; manter paridade
+com ele, diferente de `BuscaFornecedorRapida` que usa abort). Clique fora
+(`mousedown` fora do `wrapRef`) fecha o dropdown — mesmo padrão dos dois
+componentes de referência.
+
+---
+
+### 3. Bloco de sugestão condicional (RF-03/04/05/08) — logo abaixo do campo Cliente
+
+Renderizado **só durante a criação** (`!editingId`) e **só depois** de um
+cliente ser selecionado. Três sub-estados, mutuamente exclusivos, na
+ordem definida por RN-11 (assinatura sempre tem prioridade sobre venda):
+
+**3.0 — Carregando (transitório, enquanto `GET sugestao-cliente` resolve):**
+```
+Verificando assinaturas e vendas deste cliente...
+```
+`text-xs text-gray-400 dark:text-slate-500` — sem spinner, mesmo
+princípio já usado na #89 para a sugestão de categoria por fornecedor
+(dado complementar, não ação bloqueante que o usuário espera). Dura
+tipicamente menos de 1s; não há botão "Cancelar" nem skeleton.
+
+**3.1 — Exatamente 1 assinatura ativa (RF-03, auto-aplicado sem clique):**
+Depois do preenchimento automático já ter sido aplicado, mostrar uma
+tira de confirmação (não uma lista — não há nada para escolher):
+```
+🔁  Assinatura: Plano Mensal — R$ 199,90/mês          [Remover vínculo]
+```
+- Ícone `Repeat` (16px, novo import).
+- Texto `text-sm text-gray-800 dark:text-slate-200`, valor formatado com
+  o `BRL()` já existente na tela.
+- Botão `"Remover vínculo"` (`variant="secondary"`, `size="sm"`) — limpa
+  `assinatura` do form e esconde a tira, **sem** limpar os campos já
+  preenchidos (Tipo/Descrição/Valor/Categoria/Mês continuam como
+  estavam — RN-03, são só sugestão, o usuário decide manter o texto e só
+  descartar o vínculo formal). Rótulo diferente de "Trocar" de propósito:
+  com 1 única assinatura não há para onde "trocar", só para desvincular.
+
+**3.2 — 2+ assinaturas ativas (RF-03, lista de escolha):**
+```
+Este cliente tem mais de uma assinatura ativa — escolha qual cobrar:
+
+┌───────────────────────────────────────────────────┐
+│ 🔁  Plano Mensal                        R$ 199,90   │
+├───────────────────────────────────────────────────┤
+│ 🔁  Plano Anual                       R$ 1.499,00   │
+│                                ⚠ já cobrado este mês│
+└───────────────────────────────────────────────────┘
+```
+- Texto de instrução: `text-sm text-gray-700 dark:text-slate-300`.
+- Lista: mesmo container visual do dropdown de busca (`bg-white
+  rounded-lg border divide-y dark:bg-navy-800 dark:border-navy-600`),
+  porém **estático** (não é `position:fixed`, não fecha ao clicar fora —
+  faz parte do fluxo do form, não é um dropdown transitório).
+- Cada linha é um `<button type="button">` full-width, mesmo padrão de
+  hover dos outros dropdowns (`hover:bg-gray-50 dark:hover:bg-navy-700`):
+  ícone `Repeat` (16px) + `plano_nome` (`text-sm font-medium`) + valor à
+  direita (`text-sm font-semibold`, BRL de `valor`).
+  - Quando `ja_tem_receita_mes_atual === true`: segunda linha abaixo do
+    nome, alinhada à direita, badge `⚠ já cobrado este mês` —
+    `inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs
+    font-semibold bg-yellow-100 text-yellow-800 dark:bg-amber-900/30
+    dark:text-amber-300` (mesma classe de `STATUS_BADGES.PAUSADA` em
+    `Assinaturas.jsx`), ícone `AlertTriangle` (12px). **Não bloqueia o
+    clique** — é só aviso (RF-07); a validação real é no backend (RN-08,
+    `400` só no submit se o usuário insistir).
+- Ao clicar numa linha: aplica o preenchimento (RF-03), fecha a lista e
+  passa a mostrar a tira de confirmação do item **3.1** (mesmo visual,
+  agora com botão `"Trocar"` em vez de `"Remover vínculo"` — aqui faz
+  sentido trocar porque havia mais de uma opção). Clicar em "Trocar"
+  reabre esta mesma lista (3.2) — **sem** refazer a chamada à API
+  (`assinaturas_ativas` já está em memória desde a consulta inicial,
+  RN-02 só exige refetch ao trocar o **cliente**, não a assinatura
+  dentro da mesma sugestão).
+
+**3.3 — 0 assinaturas ativas e 1+ vendas em aberto (RF-04, lista de
+escolha — sempre escolha explícita, mesmo com só 1 item, por RF-04):**
+```
+Este cliente tem vendas em aberto — vincular a uma delas?
+
+┌───────────────────────────────────────────────────┐
+│ 📋  PED-2026-0034 - Pedido              R$ 450,00   │
+├───────────────────────────────────────────────────┤
+│ 📋  ORC-2026-0012 - Orçamento           R$ 1.200,00 │
+└───────────────────────────────────────────────────┘
+```
+- Mesmo container/hover dos itens de 3.2. Ícone `ClipboardList` (16px,
+  novo import) — genérico para os dois tipos (`ORCAMENTO`/`PEDIDO`); o
+  texto de cada linha já distingue o tipo via `descricao_sugerida`
+  (formato `"<numero> - Orçamento"`/`"<numero> - Pedido"`, já vem pronto
+  do backend — RF-06) e `numero` com o prefixo (`PED-`/`ORC-`) — não é
+  necessário ícone diferente por tipo.
+- Sem badge de aviso aqui (RF-07/`ja_tem_receita_mes_atual` só existe
+  para assinatura).
+- Ao clicar: aplica RF-04 (Tipo/Descrição/Valor Bruto), **não** seta
+  `assinatura`, fecha a lista e mostra tira de confirmação:
   ```
-  🏢  Fornecedor Alfa Materiais Ltda                    [Trocar]
+  📋  Vinculado a: PED-2026-0034 - Pedido — R$ 450,00    [Trocar]
   ```
-  Ícone `Building2` (16px), `text-sm font-medium text-gray-900
-  dark:text-slate-100`; botão `"Trocar"` (`variant="secondary"`,
-  `size="sm"`) volta ao estado de busca (limpa `fornecedor_fk`, reabre
-  o input vazio).
+  mesmo ícone `ClipboardList`, botão `"Trocar"` reabre a lista 3.3 (sem
+  refetch, mesma lógica de 3.2).
 
-**Fornecedor legado (edição de despesa com `fornecedor` texto,
-`fornecedor_fk=null`) — RN-01:** enquanto nenhum fornecedor novo for
-selecionado, mostrar abaixo do campo de busca:
-```
-ℹ️  Cadastro antigo (texto livre): "Fornecedor Alfa Materiais"
-    Buscar e selecionar acima para vincular ao cadastro.
-```
-Ícone `Info` (14px), `text-xs text-gray-400 dark:text-slate-500` — mesmo
-tom das notas explicativas já existentes no form (ex.: a nota abaixo de
-"Mês de referência"). Não é erro, não bloqueia nada; some sozinho se o
-usuário vincular um fornecedor nessa edição. Se não vincular, o texto
-legado em `fornecedor` segue sendo enviado no payload exatamente como
-estava (campo preservado no estado do form, só sem `<Input>` visível
-dedicado — RF-F01 não pede edição manual desse texto).
+**3.4 — 0 assinaturas e 0 vendas (RF-05):** nenhum elemento visual
+adicional é renderizado — o bloco de sugestão simplesmente não aparece
+depois do estado "Carregando" (3.0) desaparecer. Só o campo Cliente fica
+preenchido.
+
+**Trocar o cliente (RN-02), em qualquer sub-estado 3.0 a 3.3:** volta
+direto para o Estado 1 do campo Cliente (busca) e, ao selecionar um novo
+cliente, reinicia em 3.0 — todo o bloco de sugestão anterior (lista,
+tira de confirmação, `assinatura` oculto) é descartado e refeito do
+zero para o novo cliente.
 
 ---
 
-### 3. Modal "Novo Fornecedor" (rápido, inline) — `NovoFornecedorModal`
+### 4. Campos preenchidos automaticamente — sem mudança visual no próprio campo
 
-**Reuso explícito:** mesma estrutura de `CriarCategoriaRapidaModal.jsx`
-— `Modal maxW="max-w-sm"`, form mínimo, rodapé Cancelar/Criar idêntico.
-
-```
-┌─ Novo Fornecedor ──────────────────────┐
-│  Nome / Razão Social                   │
-│  [________________________________]   │
-│                                         │
-│  Tipo de Pessoa                        │
-│  [ Pessoa Física ▾ ]                   │
-│                                         │
-│  Documento (CPF/CNPJ) — opcional       │
-│  [________________________________]   │
-│                                         │
-│                  [Cancelar]   [Criar]  │
-└─────────────────────────────────────────┘
-```
-
-- Campos: `nome_razao_social` (`Input`, obrigatório, `autoFocus`),
-  `tipo_pessoa` (`Select`, `PF`/`PJ` — reaproveitar as mesmas opções já
-  usadas em qualquer outro cadastro de pessoa do projeto, nenhum rótulo
-  novo), `documento` (`Input`, opcional, sem máscara — backend já
-  valida/normaliza).
-- Rodapé: `Button variant="secondary"` Cancelar + `Button` Criar
-  (`loading={saving}`).
-- Sucesso: `POST /api/v1/fornecedores/`, toast `"Fornecedor
-  cadastrado."` (mesmo padrão de texto de `CriarCategoriaRapidaModal`:
-  `"Categoria criada."`), fecha o modal, preenche `fornecedor_fk`/
-  `fornecedor_fk_nome` no form de Despesa (equivalente a já ter
-  "selecionado" via busca) e dispara a sugestão (seção 4 — resultado
-  vazio para fornecedor recém-criado, sem efeito visual).
-- **Empilhamento sobre o modal "Nova Despesa"** já aberto: mesma técnica
-  já validada em `CriarCategoriaRapidaModal` dentro deste mesmo form —
-  renderizar o segundo `<Modal>` depois na árvore JSX
-  (`{novoFornecedorAberto && <NovoFornecedorModal ... />}` após o modal
-  de Despesa) já empilha visualmente por cima, sem tocar em
-  `Modal.jsx` nem adicionar `zIndex` novo.
-
----
-
-### 4. Categoria + Subcategoria
-
-**Categoria:** sem mudança visual — mantém exatamente como está hoje
-(label + link "+ Nova categoria" com `Plus` 12px + `Select`).
-
-**Subcategoria (novo, imediatamente depois de Categoria — RF-F02):**
-```
-Categoria                           [+ Nova categoria]
-[ Fornecedores / Serviços ▾ ]
-
-Subcategoria
-[ Nenhuma ▾ ]
-```
-- `Select` com `label`, sem link de "+ Nova" (subcategoria é criada
-  escolhendo um `pai` — fluxo já coberto na aba Categorias da
-  Manutenção #88, fora do escopo visual desta tela).
-- `options` sempre com `{ value: '', label: 'Nenhuma' }` como primeira
-  entrada.
-- Populado via `GET /financeiro/categorias/?pai=<categoria_id>` sempre
-  que `form.categoria` mudar.
-- Lista vazia (categoria sem subcategorias) → `Select` mostra só
-  "Nenhuma", **`disabled`** — sinaliza visualmente que não há opção, em
-  vez de um select clicável sem efeito.
-- Trocar/limpar Categoria: reseta `form.subcategoria` para `''`
-  imediatamente, antes mesmo da nova lista chegar — nunca deixa uma
-  subcategoria "órfã" de uma categoria diferente aparecendo selecionada.
-
----
-
-### 5. Sugestão automática de categoria/subcategoria por fornecedor (RF-F03)
-
-**Decisão de UX: auto-fill com indicação visual discreta, não
-tooltip.** Tooltip depende de hover, mal descobrível em mobile (sem
-hover real); auto-fill já é o padrão do próprio form
-(`CriarCategoriaRapidaModal` também pré-seleciona a categoria recém-
-criada). A etiqueta visual evita o usuário achar que "adivinhou do
-nada" sem entender a origem.
-
-Ao selecionar um Fornecedor (via busca ou via "+ Novo fornecedor"):
-
-1. Dispara `GET /financeiro/despesas/sugestao-categoria/
-   ?fornecedor_fk=<id>` em paralelo, sem bloquear a UI (sem spinner —
-   é dado complementar, não uma ação que o usuário espera).
-2. Resposta com `categoria`/`subcategoria` não nulos **e** campos do
-   form ainda vazios (nunca sobrescreve escolha manual — RN-05):
-   pré-seleciona os dois `Select` e mostra, uma vez, abaixo de
-   Subcategoria:
-   ```
-   ✓ Sugerido com base no histórico deste fornecedor
-   ```
-   `text-xs text-primary-600 dark:text-violet-400` (mesmo tom do link
-   "+ Nova categoria" — sinaliza "preenchimento assistido", não erro/
-   aviso). Some se o usuário alterar manualmente Categoria ou
-   Subcategoria depois (nesse ponto a escolha já é manual).
-3. Resposta `{"categoria": null, "subcategoria": null}` (sem despesa
-   anterior) ou campos já preenchidos: nenhuma mudança visual.
-
----
-
-### 6. Desconto em R$ ou % (RF-F04)
-
-Substitui `<Input label="Desconto (R$)" .../>` (hoje a célula central do
-grid `[Valor Bruto | Desconto | Vencimento]`) por um campo composto
-dentro da **mesma célula do grid** — não altera o grid de 3 colunas.
-
-```
-Desconto                              Desconto
-┌──────┬─────────────┐                ┌──────┬─────────────┐
-│ R$ ▾ │  [ 20,00  ]  │     ou         │  % ▾ │  [ 10,00  ]  │
-└──────┴─────────────┘                └──────┴─────────────┘
-                                       ≈ R$ 20,00
-```
-
-- Seletor à esquerda: `<select>` compacto (mesma classe de
-  `Select.jsx`, largura `w-16` em vez de `w-full`), 2 opções: `R$` / `%`.
-  Colado ao input numérico (`flex`, sem gap, `rounded-l-lg` no select e
-  `rounded-r-lg` no input — "campo único visual com prefixo").
-- Input numérico à direita: mesmas classes de `Input.jsx`, sem label
-  própria (compartilha a label "Desconto" do bloco).
-- Trocar `R$`↔`%`: limpa o valor numérico (evita interpretar "20"
-  digitado como R$ virando "20" como % sem revisão).
-- Modo `%`: abaixo do campo, preview em tempo real
-  (`valor_bruto * percentual / 100`, formatado com o mesmo `BRL()` já
-  usado na tela): `text-xs text-gray-400 dark:text-slate-500`:
-  ```
-  ≈ R$ 20,00
-  ```
-  Recalcula ao digitar em `percentual_desconto` ou `valor_bruto`;
-  `valor_bruto` vazio/0 → `≈ R$ 0,00` (nunca `NaN`).
-- Payload sempre envia os 3 campos juntos (`tipo_desconto`,
-  `percentual_desconto`, `desconto`) — o backend decide/recalcula qual
-  prevalece (RF-04 backend), o frontend só evita mandar campo vazio
-  enquanto isso.
-- Editar despesa com `tipo_desconto='%'`: reabre já no modo `%` com
-  `percentual_desconto` preenchido (nunca reabre padrão em `R$`).
-
----
-
-### 7. Filtros na listagem de Contas a Pagar (RF-F05)
-
-```
-┌───────────────────────────────────────────────────────────────┐
-│ [ Buscar...     ] [ Status ▾ ] [ Categoria ▾ ] [ Subcategoria ▾ ] │
-└───────────────────────────────────────────────────────────────┘
-```
-
-- Mesmo `Card` + `flex flex-col sm:flex-row gap-3` já existente —
-  acrescenta 2 `Select` ao final (`w-full sm:w-48`, mesma largura do
-  `Select` de Status já em produção).
-- `Select Categoria`: reusa `categoriaOptions` já carregado para o form
-  (não duplicar chamada); sem `label` visível (mesmo padrão do Status —
-  a primeira option já comunica o que é, ex.: `"Categoria"`/`"Todas"`).
-- `Select Subcategoria`: populado a partir da Categoria escolhida no
-  filtro (mesmo endpoint `?pai=<id>`); sem Categoria selecionada no
-  filtro → lista com só "Todas", não trava a tela.
-- Filtro por Fornecedor: **não cria campo novo** — reaproveita o `Input`
-  de busca textual já existente (RF-F05 é SHOULD; busca textual já
-  cobre o pedido do cliente nesta rodada).
-- **Mobile (375px):** linha de filtros já quebra em coluna
-  (`flex-col sm:flex-row`); os 2 novos `Select` empilham abaixo do
-  Status, `w-full` até o breakpoint `sm`.
+Tipo (`Select`), Descrição (`Input`), Valor Bruto (`Input`), Categoria
+(`Select`), Mês de referência (`Input type="month"`) **não ganham nenhum
+estilo novo** quando preenchidos automaticamente (sem borda destacada,
+sem ícone "✓ sugerido" dentro do campo) — diferente da sugestão de
+categoria por fornecedor na #89, que usa uma etiqueta textual
+(`"✓ Sugerido com base no histórico deste fornecedor"`) porque ali a
+origem do valor não é óbvia visualmente. Aqui a própria tira de
+confirmação da seção 3 (`🔁 Assinatura: ...` / `📋 Vinculado a: ...`) já
+comunica a origem do preenchimento — adicionar uma 2ª etiqueta dentro de
+cada campo seria redundante. Os campos continuam 100% editáveis (RN-03);
+o usuário percebe isso pelo cursor/foco normal, sem necessidade de
+indicação visual extra de "este campo é editável".
 
 ---
 
 ## Ícones Lucide — consolidado desta manutenção
 
-| Ícone | Tamanho | Uso |
-|---|---|---|
-| `Search` | 16px | Campo de busca de Fornecedor |
-| `Building2` | 16px | Chip de fornecedor selecionado |
-| `Info` | 14px | Aviso de cadastro legado (fornecedor texto sem FK) |
-| `Plus` | 12px | Botão "+ Novo" (fornecedor) — mesmo padrão já usado em "+ Nova categoria" |
-| `Percent` | 12px (opcional, decorativo) | Reforço visual do modo "%" no seletor de desconto |
+| Ícone | Tamanho | Uso | Já importado? |
+|---|---|---|---|
+| `Search` | 16px | Campo de busca de Cliente (Estado 1) | Sim (linha 2) |
+| `User` | 16px | Chip de cliente selecionado em criação (Estado 2) | **Novo** |
+| `Repeat` | 16px | Linha de assinatura na lista (3.2) + tira de confirmação (3.1) | **Novo** |
+| `ClipboardList` | 16px | Linha de venda na lista (3.3) + tira de confirmação | **Novo** |
+| `AlertTriangle` | 12px | Badge "já cobrado este mês" (3.2) | **Novo** |
 
-Todos já fazem parte da dependência `lucide-react` já instalada. Import
-a acrescentar em `Financeiro.jsx`: `Search`, `Building2`, `Info` (e
-`Percent`, se o Loom optar por usá-lo) junto da lista já existente
+Import a acrescentar em `Financeiro.jsx`: `User`, `Repeat`,
+`ClipboardList`, `AlertTriangle`, junto da lista já existente
 (`ChevronDown, ChevronUp, Edit, Plus, Pencil, Trash2, CornerDownRight,
-Tag`).
+Tag, Search, Building2, Info`).
 
-## Badges / Status
+## Badges
 
-Sem badge novo — `Badge status={item.status}` da listagem de Despesas
-permanece inalterado.
+| Badge | Classe | Ícone |
+|---|---|---|
+| "⚠ já cobrado este mês" | `bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300` (= `STATUS_BADGES.PAUSADA` de `Assinaturas.jsx`) | `AlertTriangle` 12px |
+
+Nenhum badge de `Badge status={...}` (componente local da própria
+`ReceitasTab`) é alterado — ele continua só para `status` da Receita
+(PENDENTE/RECEBIDO/ATRASADO/CANCELADO), sem relação com esta manutenção.
 
 ## Componentes reutilizados (resumo)
 
-| Componente | Onde é usado nesta manutenção | Alterado? |
+| Componente/padrão | Onde é usado nesta manutenção | Alterado? |
 |---|---|---|
-| `Modal.jsx` | Modal Nova/Editar Despesa (sem mudança) + `NovoFornecedorModal` (novo) | Não |
-| `Input.jsx` | Campos do `NovoFornecedorModal`, input numérico do seletor de Desconto | Não |
-| `Select.jsx` | Subcategoria (form + filtro), Categoria (filtro), seletor compacto R$/% | Não |
-| `Button.jsx` | "+ Novo" (fornecedor), "Trocar" (chip), Cancelar/Criar | Não |
-| `Card.jsx` | Barra de filtros (sem mudança estrutural) | Não |
-| `BuscaProdutoRapida` (`Vendas.jsx`) | **Padrão de referência** — `BuscaFornecedorRapida` é adaptação direta (endpoint + conteúdo de linha trocados; debounce/abort/posicionamento idênticos) | — |
-| `CriarCategoriaRapidaModal.jsx` | **Padrão de referência** — `NovoFornecedorModal` segue a mesma estrutura (modal pequeno, 1 POST, toast, fecha, preenche form-pai) | Não |
+| `Modal.jsx` | Modal Nova/Editar Receita (sem mudança estrutural) | Não |
+| `Input.jsx` | Estado 3 do Cliente (disabled), demais campos do form (sem mudança) | Não |
+| `Button.jsx` | "Trocar" (chip de cliente, confirmação de assinatura/venda), "Remover vínculo" | Não |
+| `ClienteAutocomplete` (`Assinaturas.jsx`) | **Padrão de referência para os 3 estados** — clone local em `Financeiro.jsx`, adaptado (ver seção 2) | — |
+| `BuscaFornecedorRapida` (`Financeiro.jsx`, Manutenção #89) | **Padrão de referência para o posicionamento do dropdown** (`position:fixed` + `getBoundingClientRect()`) | Não (só referência) |
+| `STATUS_BADGES.PAUSADA` (`Assinaturas.jsx`) | Classe reaproveitada para o badge "já cobrado este mês" | Não |
 
 ## Mobile-first (375px)
 
-- Campo de busca de Fornecedor, chip de fornecedor, seletor composto de
-  Desconto: todos full-width no mobile — fora de grid, ou herdando o
-  colapso de `sm:grid-cols-*` já existente.
-- Filtros novos empilham em coluna, herdado do `flex-col sm:flex-row`
-  já aplicado ao filtro de Status — nenhum CSS novo.
-- Dropdown de busca de Fornecedor usa `position: fixed` (copiado de
-  `BuscaProdutoRapida`) — essencial no mobile porque o `Modal` já usa
+- Campo de busca de Cliente, chip de cliente, listas de escolha
+  (assinatura/venda) e tira de confirmação: todos full-width, fora de
+  qualquer grid — herdam o comportamento de coluna única já existente no
+  resto do form.
+- Dropdown de busca de Cliente usa `position: fixed` (mesma técnica de
+  `BuscaFornecedorRapida`) — essencial no mobile porque o `Modal` já usa
   `overflow-y-auto`; sem isso o dropdown ficaria cortado/rolando junto
-  com o form (mesmo bug que a técnica original corrigiu no PDV/Vendas).
+  com o form (mesmo bug que a técnica original corrigiu no PDV/Vendas e,
+  nesta mesma tela, no campo Fornecedor da #89).
+- Listas de escolha (3.2/3.3) **não** usam `position:fixed` — fazem
+  parte do fluxo normal do form (empurram os campos de baixo), não são
+  um overlay transitório. Em 375px cada linha continua full-width,
+  badge "já cobrado este mês" quebra para a linha de baixo naturalmente
+  (`flex-wrap` ou bloco próprio, sem truncar o nome do plano).
 - Nunca `overflow-hidden` no container do form/modal (regra global do
-  projeto).
+  projeto) — já garantido, nenhuma mudança necessária aqui.
 
-## Decisões do Brush não explícitas na Especificacao_Hotfix.md (registradas para o Loom não precisar adivinhar)
+## Decisões do Brush não explícitas na Especificação_Hotfix.md (registradas para o Loom não precisar adivinhar)
 
-1. Sugestão de categoria/subcategoria por fornecedor (RF-F03) é
-   **auto-fill com etiqueta discreta**, não tooltip — justificativa de
-   descobribilidade em mobile, ver seção 5.
-2. Seletor de Desconto R$/% usa visual de "campo composto com prefixo"
-   (select colado ao input, bordas compartilhadas) em vez de 2 campos
-   lado a lado com gap — mantém a aparência de "1 campo só" dentro da
-   mesma célula do grid de 3 colunas já existente, sem alargar o modal.
-3. Fornecedor legado (texto, sem FK) nunca ganha um `<Input>` editável
-   visível nesta manutenção — só o aviso informativo (RF-F01 não pede
-   edição do texto legado; campo continua preservado no estado/payload
-   sem UI dedicada).
-4. `NovoFornecedorModal` fica dentro de `pages/Financeiro.jsx` (escopo
-   local, não em `components/ui/`) — diferente de
-   `CriarCategoriaRapidaModal` (que é reaproveitado em 3 páginas
-   diferentes), este modal só é usado em Despesa nesta manutenção; se um
-   uso futuro em outra tela aparecer, promover para `components/ui/`
-   naquele momento, não antecipar agora.
-5. Badge "Sugerido com base no histórico" (seção 5) é texto simples, não
-   um componente `Badge` novo — é uma etiqueta textual transitória, não
-   um estado persistente de dado como os badges de Status/Ativo já
-   existentes.
+1. **Dois componentes de referência, não um só** (seção 2): os 3 estados
+   do `ClienteAutocomplete` seguem `Assinaturas.jsx`, mas o
+   posicionamento do dropdown segue `BuscaFornecedorRapida`
+   (`Financeiro.jsx`). Clonar só `Assinaturas.jsx` literalmente
+   reproduziria, dentro deste modal específico, o mesmo bug de corte de
+   dropdown que a #89 já teve que corrigir para Fornecedor — por isso a
+   divergência explícita é necessária e intencional, não uma
+   inconsistência a "resolver" escolhendo um dos dois padrões.
+2. **Confirmação por tira, não etiqueta dentro do campo** (seção 4): ao
+   contrário da sugestão de categoria/subcategoria por fornecedor da
+   #89 (`"✓ Sugerido com base no histórico"` dentro do bloco de
+   Categoria), aqui a origem do preenchimento (assinatura X ou venda Y)
+   já é autoexplicativa pela própria tira de confirmação — evita
+   duplicar a mesma informação em dois lugares da tela.
+3. **Rótulo do botão varia por contexto** (seção 3.1 vs 3.2/3.3):
+   "Remover vínculo" quando só havia 1 opção (não há "outra coisa" para
+   trocar, só desfazer), "Trocar" quando havia uma lista real de opções
+   — microcópia pensada para não confundir o usuário sobre o que vai
+   acontecer ao clicar.
+4. **Dropdown de busca de Cliente sem mensagem de "nenhum resultado"**
+   (seção 2, Estado 1): segue o comportamento do componente de origem
+   citado pelo Analista (`Assinaturas.jsx`), que simplesmente não
+   renderiza nada quando a busca não encontra ninguém — diferente de
+   `BuscaFornecedorRapida`, que mostra uma mensagem explícita. Mantido
+   assim de propósito (paridade com o padrão já em uso para busca de
+   Cliente especificamente, não para busca de Fornecedor).
+5. **Nenhum ícone/borda especial nos 5 campos preenchidos
+   automaticamente** (Tipo, Descrição, Valor Bruto, Categoria, Mês de
+   referência) — decisão deliberada para não haver 2 pontos de
+   indicação visual competindo com a tira de confirmação (ver item 2).
+6. **Listas de escolha (3.2/3.3) são estáticas, não dropdown** — fazem
+   parte do fluxo vertical do form (empurram os campos seguintes para
+   baixo), diferente do dropdown de busca que flutua por cima. Isso
+   evita usar `position:fixed`/`zIndex` onde não é necessário e deixa a
+   altura do modal crescer naturalmente (o `Modal.jsx` já tem
+   `overflow-y-auto` para isso).
 
 ---
 
 ## Passagem de bastão
 
 ```
-✅ Especificação UI concluída — UidCore (Manutenção #89)
-   Telas analisadas: 1 (Financeiro → Contas a Pagar — modal Nova/Editar
-     Despesa + barra de filtros)
-   Componentes reutilizados: 6 existentes (Modal, Input, Select, Button,
-     Card, AuditFooter) + 2 padrões de referência direta
-     (BuscaProdutoRapida, CriarCategoriaRapidaModal)
-   Novos padrões: 2 — BuscaFornecedorRapida (clone adaptado) e seletor
-     composto R$/% (só composição de classes Tailwind já em uso, nenhum
-     token novo)
+✅ Especificação UI concluída — UidCore (Manutenção #90)
+   Telas analisadas: 1 (Financeiro → Contas a Receber — modal
+     Nova/Editar Receita)
+   Componentes reutilizados: 4 existentes (Modal, Input, Button, classe
+     de badge de Assinaturas.jsx) + 2 padrões de referência direta
+     (ClienteAutocomplete de Assinaturas.jsx para os 3 estados,
+     BuscaFornecedorRapida para o posicionamento do dropdown)
+   Novos padrões: 1 — ClienteAutocomplete clonado localmente em
+     Financeiro.jsx (combinação deliberada dos dois padrões acima,
+     nenhum token visual novo) + bloco de sugestão condicional (3
+     sub-estados: confirmação única, lista de assinaturas, lista de
+     vendas)
+   Modo: Padrão Uid (sistema interno já em produção, dark mode
+     navy/violet — sem alteração de identidade)
 
 📁 Arquivo: Especificacao_UI_Hotfix.md (em /var/www/uidcore/)
 
