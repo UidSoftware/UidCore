@@ -13,6 +13,7 @@ from .models import (
     MovimentoEstoque,
     Produto,
     TipoMovimento,
+    TipoProduto,
     UnidadeBase,
 )
 from .services import validar_cadeia
@@ -118,7 +119,11 @@ class MovimentoEstoqueSerializer(AuditFieldsMixin, serializers.ModelSerializer):
 
 class ProdutoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
+    tipo_display = serializers.CharField(source='get_tipo_display', read_only=True)
     unidade_base_display = serializers.CharField(source='get_unidade_base_display', read_only=True)
+    categoria_financeira_entrada_nome = serializers.CharField(
+        source='categoria_financeira_entrada.nome', read_only=True, default=None,
+    )
     conversoes = serializers.SerializerMethodField()
     # RF-04/RN-05: write_only, nunca aparece no retorno da API — o retorno
     # usa sempre quantidade_estoque, calculado pelo MovimentoEstoque criado
@@ -137,21 +142,27 @@ class ProdutoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     class Meta:
         model = Produto
         fields = [
-            'id', 'nome', 'codigo_barras',
+            'id', 'tipo', 'tipo_display', 'nome', 'codigo_barras',
             'quantidade_estoque', 'estoque_minimo',
             'unidade_base', 'unidade_base_display',
             'valor_unitario', 'preco_venda',
-            'observacoes', 'is_active', 'created_at', 'updated_at',
+            'observacoes', 'duracao_minutos',
+            'categoria_financeira_entrada', 'categoria_financeira_entrada_nome',
+            'is_active', 'created_at', 'updated_at',
             'created_by_nome', 'updated_by_nome',
             'conversoes', 'estoque_inicial', 'nota_fiscal_inicial',
         ]
         read_only_fields = ['quantidade_estoque', 'created_at', 'updated_at']
 
     def create(self, validated_data):
+        # RN-02: estoque_inicial/nota_fiscal_inicial sao ignorados quando
+        # tipo=SERVICO — nenhum MovimentoEstoque e criado nesse caso, mesmo
+        # que o payload venha preenchido por engano.
         estoque_inicial = validated_data.pop('estoque_inicial', Decimal('0'))
         nota_fiscal_inicial = validated_data.pop('nota_fiscal_inicial', '')
+        tipo = validated_data.get('tipo', TipoProduto.PRODUTO)
         produto = super().create(validated_data)
-        if estoque_inicial and estoque_inicial > 0:
+        if tipo == TipoProduto.PRODUTO and estoque_inicial and estoque_inicial > 0:
             MovimentoEstoque.objects.create(
                 produto=produto,
                 tipo=TipoMovimento.ENTRADA_INICIAL,
@@ -162,6 +173,13 @@ class ProdutoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
             )
             produto.refresh_from_db(fields=['quantidade_estoque'])
         return produto
+
+    def update(self, instance, validated_data):
+        # RN-06: tipo nao pode ser alterado via PATCH/PUT depois de criado —
+        # ignorado silenciosamente (mesmo padrao usado para is_staff no
+        # serializer de usuario), nunca o valor do payload.
+        validated_data.pop('tipo', None)
+        return super().update(instance, validated_data)
 
     def get_conversoes(self, obj):
         # CA-03: conversão soft-deletada (is_active=False) nunca pode

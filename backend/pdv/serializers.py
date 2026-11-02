@@ -115,7 +115,12 @@ class ItemVendaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
 class AdicionarItemSerializer(serializers.Serializer):
     produto = serializers.IntegerField()
     quantidade = serializers.DecimalField(max_digits=12, decimal_places=3)
-    unidade = serializers.CharField(max_length=2)
+    # Manutencao 91/RF-07: para item de Servico, unidade e ignorada pela
+    # view (RN-04) e o frontend nao exibe esse campo — por isso nao e mais
+    # obrigatorio aqui. Para item de Produto a view continua validando
+    # contra UnidadeBase.values e retornando 400 se vier vazio/invalido,
+    # preservando o comportamento legado.
+    unidade = serializers.CharField(max_length=2, required=False, allow_blank=True, default='')
     desconto_item = serializers.DecimalField(max_digits=12, decimal_places=2, default=0)
 
 

@@ -11,7 +11,7 @@ from rest_framework import status
 from rest_framework.test import APITestCase
 
 from accounts.models import User
-from .models import Combo, ConversaoUnidade, ItemCombo, MovimentoEstoque, Produto, TipoMovimento
+from .models import Combo, ConversaoUnidade, ItemCombo, MovimentoEstoque, Produto, TipoMovimento, TipoProduto
 
 
 def _make_user(email='admin@teste.com'):
@@ -840,3 +840,127 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(combo.deleted_by, user_c)
         self.assertIsNotNone(combo.deleted_at)
         self.assertFalse(Combo.objects.filter(pk=combo_id).exists())
+
+
+# ---------------------------------------------------------------------------
+# Manutencao 91 — Produto.tipo (PRODUTO/SERVICO)
+# ---------------------------------------------------------------------------
+
+def _make_servico(nome='Servico Teste', preco_venda=Decimal('100.00')):
+    return Produto.objects.create(
+        nome=nome, tipo=TipoProduto.SERVICO, preco_venda=preco_venda,
+    )
+
+
+class ProdutoTipoModelTest(TestCase):
+    def test_produto_default_tipo_produto(self):
+        p = _make_produto()
+        self.assertEqual(p.tipo, TipoProduto.PRODUTO)
+
+    def test_criar_servico(self):
+        s = _make_servico()
+        self.assertEqual(s.tipo, TipoProduto.SERVICO)
+        self.assertEqual(s.quantidade_estoque, Decimal('0'))
+
+
+class ProdutoTipoAPITest(APITestCase):
+    def setUp(self):
+        self.user = _make_user(email='tipo@teste.com')
+        self.client.force_authenticate(self.user)
+
+    def test_criar_servico_via_api_sem_estoque(self):
+        # CA-02: criar Servico via API sem estoque -> sucesso, 0
+        # MovimentoEstoque criado, quantidade_estoque permanece 0.
+        resp = self.client.post('/api/v1/produtos/', {
+            'nome': 'Consulta', 'tipo': 'SERVICO', 'preco_venda': '150.00',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data['tipo'], 'SERVICO')
+        self.assertEqual(Decimal(resp.data['quantidade_estoque']), Decimal('0'))
+        produto_id = resp.data['id']
+        self.assertEqual(MovimentoEstoque.objects.filter(produto_id=produto_id).count(), 0)
+
+    def test_criar_servico_com_estoque_inicial_e_ignorado(self):
+        # RN-02: estoque_inicial no payload de um Servico e ignorado,
+        # nenhum MovimentoEstoque e criado.
+        resp = self.client.post('/api/v1/produtos/', {
+            'nome': 'Aula', 'tipo': 'SERVICO', 'preco_venda': '80.00',
+            'estoque_inicial': '10',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        produto_id = resp.data['id']
+        self.assertEqual(MovimentoEstoque.objects.filter(produto_id=produto_id).count(), 0)
+        self.assertEqual(Produto.objects.get(pk=produto_id).quantidade_estoque, Decimal('0'))
+
+    def test_post_movimentos_em_servico_retorna_400(self):
+        # CA-03
+        s = _make_servico()
+        resp = self.client.post(f'/api/v1/produtos/{s.id}/movimentos/', {
+            'tipo': 'ENTRADA', 'quantidade': '5', 'unidade': 'UN',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('tipo', resp.data)
+
+    def test_get_movimentos_em_servico_retorna_400(self):
+        s = _make_servico()
+        resp = self.client.get(f'/api/v1/produtos/{s.id}/movimentos/')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_post_conversoes_em_servico_retorna_400(self):
+        # CA-04
+        s = _make_servico()
+        resp = self.client.post(f'/api/v1/produtos/{s.id}/conversoes/', {
+            'unidade': 'CX', 'quantidade_por_base': '12',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_get_conversoes_em_servico_retorna_400(self):
+        s = _make_servico()
+        resp = self.client.get(f'/api/v1/produtos/{s.id}/conversoes/')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_filtro_tipo_produto(self):
+        # CA-08
+        _make_produto(nome='Produto Filtro')
+        _make_servico(nome='Servico Filtro')
+        resp = self.client.get('/api/v1/produtos/?tipo=PRODUTO')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tipos = {item['tipo'] for item in resp.data['results']}
+        self.assertEqual(tipos, {'PRODUTO'})
+
+    def test_filtro_tipo_servico(self):
+        # CA-08
+        _make_produto(nome='Produto Filtro 2')
+        _make_servico(nome='Servico Filtro 2')
+        resp = self.client.get('/api/v1/produtos/?tipo=SERVICO')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tipos = {item['tipo'] for item in resp.data['results']}
+        self.assertEqual(tipos, {'SERVICO'})
+
+    def test_sem_filtro_tipo_retorna_todos(self):
+        # CA-08: 0 regressao — sem o param, retorna todos.
+        _make_produto(nome='Produto Filtro 3')
+        _make_servico(nome='Servico Filtro 3')
+        resp = self.client.get('/api/v1/produtos/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        tipos = {item['tipo'] for item in resp.data['results']}
+        self.assertEqual(tipos, {'PRODUTO', 'SERVICO'})
+
+    def test_patch_tipo_nao_altera_valor_gravado(self):
+        # CA-09/RN-06: tentar trocar tipo de um Produto existente via
+        # PATCH nao altera o valor gravado.
+        p = _make_produto()
+        resp = self.client.patch(f'/api/v1/produtos/{p.id}/', {
+            'tipo': 'SERVICO',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        p.refresh_from_db()
+        self.assertEqual(p.tipo, TipoProduto.PRODUTO)
+
+    def test_migration_backfill_tipo_produto(self):
+        # CA-01: Produto criado sem especificar tipo (simula registro
+        # pre-existente antes desta manutencao) vira tipo=PRODUTO.
+        p = Produto.objects.create(nome='Legado', unidade_base='UN')
+        self.assertEqual(p.tipo, TipoProduto.PRODUTO)
+        self.assertEqual(Produto.objects.filter(tipo='').count(), 0)
+        self.assertEqual(Produto.objects.filter(tipo__isnull=True).count(), 0)

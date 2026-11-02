@@ -11,7 +11,7 @@ from rest_framework.test import APITestCase
 
 from accounts.models import User
 from clientes.models import Cliente
-from produtos.models import Produto
+from produtos.models import MovimentoEstoque, Produto, TipoProduto
 
 from .models import ItemOrcamento, ItemPedido, Orcamento, Pedido
 
@@ -331,3 +331,54 @@ class AuditoriaManutencao62APITest(APITestCase):
         self.assertEqual(ped.deleted_by, user_c)
         self.assertIsNotNone(ped.deleted_at)
         self.assertFalse(Pedido.objects.filter(pk=ped_id).exists())
+
+
+# ---------------------------------------------------------------------------
+# Manutencao 91 — ItemOrcamento/ItemPedido com produto tipo=SERVICO (RF-08)
+# ---------------------------------------------------------------------------
+
+def _make_servico(nome='Servico Vendas Teste'):
+    return Produto.objects.create(nome=nome, tipo=TipoProduto.SERVICO, preco_venda=Decimal('100.00'))
+
+
+class ItemVendasServicoTest(TestCase):
+    """RF-08/CA-10: criar ItemOrcamento/ItemPedido com produto Servico
+    funciona sem erro e sem qualquer MovimentoEstoque criado — vendas/
+    nunca acessa quantidade_estoque/unidade_base, app nao precisou mudar."""
+
+    def setUp(self):
+        self.cliente = _make_cliente()
+        self.servico = _make_servico()
+
+    def test_item_orcamento_com_servico(self):
+        orc = Orcamento.objects.create(cliente=self.cliente, descricao='Orc Servico')
+        item = ItemOrcamento.objects.create(
+            orcamento=orc, produto=self.servico,
+            descricao='', quantidade=Decimal('1'), valor_unitario=Decimal('100.00'),
+        )
+        self.assertEqual(item.valor_total, Decimal('100.00'))
+        self.assertEqual(item.descricao, self.servico.nome)
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)
+
+    def test_item_pedido_com_servico(self):
+        ped = Pedido.objects.create(cliente=self.cliente, data_pedido='2026-11-02')
+        item = ItemPedido.objects.create(
+            pedido=ped, produto=self.servico,
+            descricao='', quantidade=Decimal('2'), valor_unitario=Decimal('100.00'),
+        )
+        self.assertEqual(item.valor_total, Decimal('200.00'))
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)
+
+    def test_criar_item_orcamento_com_servico_via_api(self):
+        orc = Orcamento.objects.create(cliente=self.cliente, descricao='Orc Servico API')
+        user = _make_user(email='servico-vendas@teste.com')
+        from rest_framework.test import APIClient
+        api = APIClient()
+        api.force_authenticate(user)
+        resp = api.post(
+            f'/api/v1/vendas/orcamentos/{orc.id}/itens/',
+            {'produto': self.servico.id, 'descricao': '', 'quantidade': '1.000', 'valor_unitario': '100.00'},
+            format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)

@@ -26,7 +26,7 @@ from rest_framework.exceptions import ValidationError
 from financeiro.models import Conta, Receita, TipoConta
 from financeiro.services import estornar_receita
 from pagamentos.models import MetodoPagamento, NomeMetodoPagamento
-from produtos.models import Produto
+from produtos.models import Produto, TipoProduto
 from produtos.services import fator_para_base
 
 from .models import (
@@ -69,6 +69,10 @@ def _quantidade_base(item):
 
 def _debitar_estoque(item):
     """Debita estoque do produto (operação inversa de MovimentoEstoque)."""
+    # Manutencao 91/RN-03: Servico nunca gera MovimentoEstoque nem debita
+    # estoque — no-op.
+    if item.produto.tipo == TipoProduto.SERVICO:
+        return
     qtd_base = _quantidade_base(item)
     Produto.objects.filter(pk=item.produto_id).update(
         quantidade_estoque=F('quantidade_estoque') - qtd_base,
@@ -77,6 +81,10 @@ def _debitar_estoque(item):
 
 def _reverter_estoque(item, quantidade_devolvida):
     """Reverte estoque para devolução parcial (RF-13)."""
+    # Manutencao 91/RN-03: idem _debitar_estoque — Servico nunca tem
+    # estoque para reverter.
+    if item.produto.tipo == TipoProduto.SERVICO:
+        return
     qtd_base = quantidade_devolvida * _fator_conversao(item)
     Produto.objects.filter(pk=item.produto_id).update(
         quantidade_estoque=F('quantidade_estoque') + qtd_base,
@@ -371,9 +379,14 @@ def finalizar_venda(venda, pagamentos_payload, usuario):
             for pid in produto_ids:
                 cursor.execute('SELECT pg_advisory_xact_lock(%s)', [pid])
 
-        # RF-07: valida estoque de TODOS antes de debitar qualquer um
+        # RF-07: valida estoque de TODOS antes de debitar qualquer um.
+        # Manutencao 91/RN-03: item de Servico nunca entra nessa checagem —
+        # pula sem select_for_update() desnecessario (nunca pode ficar
+        # "sem estoque").
         itens_sem_estoque = []
         for item in itens:
+            if item.produto.tipo == TipoProduto.SERVICO:
+                continue
             produto = Produto.objects.select_for_update().get(pk=item.produto_id)
             qtd_base = _quantidade_base(item)
             if produto.quantidade_estoque < qtd_base:

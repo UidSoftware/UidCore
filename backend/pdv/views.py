@@ -24,7 +24,7 @@ from rest_framework.viewsets import ModelViewSet, ReadOnlyModelViewSet
 from common.mixins import AuditMixin
 from common.permissions import IsAdmin
 
-from produtos.models import Produto, UnidadeBase
+from produtos.models import Produto, TipoProduto, UnidadeBase
 from produtos.services import fator_para_base
 
 from .models import ItemVenda, MovimentoCaixa, PagamentoVenda, SessaoCaixa, Venda
@@ -255,29 +255,38 @@ class VendaViewSet(AuditMixin, ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        unidade = d['unidade']
-        if unidade not in UnidadeBase.values:
-            return Response(
-                {'unidade': f'Unidade invalida: {unidade}.'},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # RF-06/RN-04: valor_unitario segue sendo sempre snapshot calculado
-        # pelo backend (nunca aceito do payload) — agora convertido pela
-        # unidade escolhida quando != unidade_base do produto. RN-05: unidade
-        # sem conversão cadastrada (direta ou em cadeia) retorna 400 legível,
-        # nunca mais cobra o preço da unidade base por uma unidade maior.
-        if unidade == produto.unidade_base:
+        if produto.tipo == TipoProduto.SERVICO:
+            # RN-04/RN-05: servico nunca passa por conversao de unidade —
+            # valor_unitario e sempre preco_venda direto; unidade do payload
+            # e ignorada, gravando produto.unidade_base so para satisfazer a
+            # constraint NOT NULL do schema compartilhado (sem efeito de
+            # calculo/estoque para servico).
+            unidade = produto.unidade_base
             valor_unitario = produto.preco_venda
         else:
-            try:
-                fator = fator_para_base(produto, unidade)
-            except DjangoValidationError as exc:
+            unidade = d['unidade']
+            if unidade not in UnidadeBase.values:
                 return Response(
-                    {'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)]},
+                    {'unidade': f'Unidade invalida: {unidade}.'},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            valor_unitario = (produto.preco_venda * fator).quantize(Decimal('0.01'))
+
+            # RF-06/RN-04: valor_unitario segue sendo sempre snapshot calculado
+            # pelo backend (nunca aceito do payload) — agora convertido pela
+            # unidade escolhida quando != unidade_base do produto. RN-05: unidade
+            # sem conversão cadastrada (direta ou em cadeia) retorna 400 legível,
+            # nunca mais cobra o preço da unidade base por uma unidade maior.
+            if unidade == produto.unidade_base:
+                valor_unitario = produto.preco_venda
+            else:
+                try:
+                    fator = fator_para_base(produto, unidade)
+                except DjangoValidationError as exc:
+                    return Response(
+                        {'unidade': exc.messages if hasattr(exc, 'messages') else [str(exc)]},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                valor_unitario = (produto.preco_venda * fator).quantize(Decimal('0.01'))
 
         item = ItemVenda.objects.create(
             venda=venda,

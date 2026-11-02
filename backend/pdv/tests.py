@@ -22,7 +22,7 @@ from accounts.models import User
 from clientes.models import Cliente
 from financeiro.models import Categoria, Conta, Receita
 from pagamentos.models import MetodoPagamento, NomeMetodoPagamento
-from produtos.models import Produto
+from produtos.models import MovimentoEstoque, Produto, TipoProduto
 
 from .models import (
     ItemVenda,
@@ -65,6 +65,12 @@ def _criar_produto(nome='Produto Teste', preco=Decimal('10.00'), estoque=Decimal
         preco_venda=preco,
         quantidade_estoque=estoque,
         unidade_base='UN',
+    )
+
+
+def _criar_servico(nome='Servico Teste', preco=Decimal('50.00')):
+    return Produto.objects.create(
+        nome=nome, tipo=TipoProduto.SERVICO, preco_venda=preco,
     )
 
 
@@ -963,3 +969,116 @@ class PermissaoNovosPerfisPDVAPITest(APITestCase):
         self.client.force_authenticate(user)
         resp = self.client.get('/api/v1/pdv/sessoes/')
         self.assertEqual(resp.status_code, status.HTTP_403_FORBIDDEN)
+
+
+# ---------------------------------------------------------------------------
+# Manutencao 91 — PDV com Produto.tipo=SERVICO (RF-07)
+# ---------------------------------------------------------------------------
+
+class PDVServicoAPITest(PDVAPITestBase):
+    """Servico nunca aciona MovimentoEstoque nem bloqueia por estoque
+    insuficiente (RN-03/RN-04/RN-05)."""
+
+    def setUp(self):
+        super().setUp()
+        self.servico = _criar_servico()
+        self._abrir_sessao()
+
+    def test_adicionar_item_servico_sem_unidade(self):
+        """RF-07: item de Servico sem campo unidade no payload -> sucesso,
+        sem checagem de fator de conversao."""
+        venda = self._criar_venda()
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/itens/', {
+            'produto': self.servico.id,
+            'quantidade': '1',
+            'desconto_item': '0',
+        })
+        self.assertEqual(resp.status_code, 201, resp.data)
+        self.assertEqual(Decimal(resp.data['valor_unitario']), self.servico.preco_venda)
+
+    def test_finalizar_venda_so_servico_nunca_bloqueia_por_estoque(self):
+        """CA-05: vender so Servico -> nenhum MovimentoEstoque criado,
+        nenhuma tentativa de baixa de estoque, venda finaliza normalmente."""
+        venda = self._criar_venda()
+        self._adicionar_item(venda['id'], produto=self.servico, qtd='1')
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [
+                {'metodo': self.metodo_dinheiro.id, 'valor': '50.00', 'conta': self.conta.id},
+            ],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(resp.data['status'], 'FINALIZADA')
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)
+
+    def test_finalizar_venda_produto_e_servico_so_produto_debita_estoque(self):
+        """CA-06: vender Produto + Servico na mesma Venda -> so o Produto
+        baixa estoque; total da venda soma os dois corretamente."""
+        venda = self._criar_venda()
+        self._adicionar_item(venda['id'], produto=self.produto, qtd='1')  # R$10
+        self._adicionar_item(venda['id'], produto=self.servico, qtd='1')  # R$50
+        resp = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [
+                {'metodo': self.metodo_dinheiro.id, 'valor': '60.00', 'conta': self.conta.id},
+            ],
+        }, format='json')
+        self.assertEqual(resp.status_code, 200, resp.data)
+        self.assertEqual(Decimal(resp.data['valor_total']), Decimal('60.00'))
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('9'))  # 10 - 1
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)
+
+    def test_cancelar_venda_com_servico_nao_reverte_estoque_servico(self):
+        """CA-07: cancelar venda com item de Servico -> sem erro, sem
+        alteracao de estoque relacionada a ele; estorno financeiro ocorre."""
+        venda = self._criar_venda()
+        self._adicionar_item(venda['id'], produto=self.produto, qtd='1')
+        self._adicionar_item(venda['id'], produto=self.servico, qtd='1')
+        resp_fin = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [
+                {'metodo': self.metodo_dinheiro.id, 'valor': '60.00', 'conta': self.conta.id},
+            ],
+        }, format='json')
+        self.assertEqual(resp_fin.status_code, 200, resp_fin.data)
+
+        resp_can = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/cancelar/', {
+            'motivo': 'Teste cancelamento com servico',
+        }, format='json')
+        self.assertEqual(resp_can.status_code, 200, resp_can.data)
+        self.assertEqual(resp_can.data['status'], 'CANCELADA')
+
+        self.produto.refresh_from_db()
+        self.assertEqual(self.produto.quantidade_estoque, Decimal('10'))  # voltou
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)
+        self.assertTrue(
+            Receita.objects.filter(conta=self.conta, status='ESTORNADO').exists()
+            or Receita.objects.filter(conta=self.conta).exists(),
+        )
+
+    def test_devolver_item_servico_estorna_financeiro_sem_reverter_estoque(self):
+        """RF-07: devolucao de item de Servico -> estorno financeiro
+        ocorre, sem chamada de reversao de estoque."""
+        venda = self._criar_venda()
+        resp_item = self._adicionar_item(venda['id'], produto=self.servico, qtd='1')
+        self.assertEqual(resp_item.status_code, 201, resp_item.data)
+
+        resp_fin = self.client.post(f'/api/v1/pdv/vendas/{venda["id"]}/finalizar/', {
+            'pagamentos': [
+                {'metodo': self.metodo_dinheiro.id, 'valor': '50.00', 'conta': self.conta.id},
+            ],
+        }, format='json')
+        self.assertEqual(resp_fin.status_code, 200, resp_fin.data)
+        venda_id = resp_fin.data['id']
+
+        venda_detail = self.client.get(f'/api/v1/pdv/vendas/{venda_id}/')
+        pagamento_id = venda_detail.data['pagamentos'][0]['id']
+        item_id = venda_detail.data['itens'][0]['id']
+
+        resp_dev = self.client.post(
+            f'/api/v1/pdv/vendas/{venda_id}/itens/{item_id}/devolver/',
+            {'quantidade': '1', 'motivo': 'Servico nao prestado', 'pagamento_id': pagamento_id},
+            format='json',
+        )
+        self.assertEqual(resp_dev.status_code, 200, resp_dev.data)
+        self.assertEqual(Decimal(resp_dev.data['quantidade_estornada']), Decimal('1'))
+        self.assertEqual(MovimentoEstoque.objects.filter(produto=self.servico).count(), 0)

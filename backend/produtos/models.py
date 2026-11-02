@@ -14,7 +14,19 @@ class UnidadeBase(models.TextChoices):
     M  = 'M',  'Metro'
 
 
+class TipoProduto(models.TextChoices):
+    PRODUTO = 'PRODUTO', 'Produto'
+    SERVICO = 'SERVICO', 'Serviço'
+
+
 class Produto(BaseModel):
+    # Manutencao 91: tipo=SERVICO reaproveita nome/preco_venda/observacoes
+    # (RN-01) — nunca gera MovimentoEstoque (RN-03), nunca aceita troca de
+    # tipo depois de criado (RN-06, aplicado no serializer).
+    tipo = models.CharField(
+        'tipo', max_length=10,
+        choices=TipoProduto.choices, default=TipoProduto.PRODUTO,
+    )
     nome = models.CharField('nome', max_length=200)
     codigo_barras = models.CharField('código de barras', max_length=50, blank=True, default='')
     quantidade_estoque = models.DecimalField(
@@ -34,6 +46,16 @@ class Produto(BaseModel):
         'preço de venda', max_digits=12, decimal_places=2, default=0,
     )
     observacoes = models.TextField('observações', blank=True, default='')
+    # RF-02: usados somente quando tipo=SERVICO. Puramente informativos
+    # nesta manutencao (RN-07) — sem efeito automatico na geracao de
+    # Receita no PDV/Vendas ainda.
+    duracao_minutos = models.PositiveIntegerField(
+        'duração (minutos)', null=True, blank=True,
+    )
+    categoria_financeira_entrada = models.ForeignKey(
+        'financeiro.Categoria', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='produtos_servico',
+    )
 
     class Meta:
         db_table = 'prd_produto'

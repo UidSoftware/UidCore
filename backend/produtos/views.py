@@ -15,6 +15,7 @@ from .models import (
     MovimentoEstoque,
     Produto,
     TipoMovimento,
+    TipoProduto,
 )
 from .serializers import (
     ComboSerializer,
@@ -36,13 +37,26 @@ class ProdutoViewSet(AuditMixin, ModelViewSet):
         # CA-03: prefetch já filtrado por is_active — o campo aninhado
         # 'conversoes' do ProdutoSerializer nunca deve expor conversão
         # soft-deletada (ver ProdutoSerializer.get_conversoes).
-        return Produto.objects.filter(is_active=True).prefetch_related(
+        qs = Produto.objects.filter(is_active=True).prefetch_related(
             Prefetch('conversoes', queryset=ConversaoUnidade.objects.filter(is_active=True)),
         )
+        # RF-04: filtro manual por query param — sem django-filter configurado
+        # neste ViewSet, consistente com o restante do arquivo. Sem o param,
+        # retorna todos (0 regressao).
+        tipo = self.request.query_params.get('tipo')
+        if tipo in TipoProduto.values:
+            qs = qs.filter(tipo=tipo)
+        return qs
 
     @action(detail=True, methods=['get', 'post'], url_path='conversoes')
     def conversoes(self, request, pk=None):
         produto = self.get_object()
+        if produto.tipo == TipoProduto.SERVICO:
+            # RF-05: servico nao tem unidade_base relevante para conversao.
+            return Response(
+                {'tipo': ['Serviço não possui conversão de unidade.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if request.method == 'GET':
             qs = ConversaoUnidade.objects.filter(produto=produto, is_active=True)
             return Response(ConversaoUnidadeSerializer(qs, many=True).data)
@@ -109,6 +123,13 @@ class ProdutoViewSet(AuditMixin, ModelViewSet):
     @action(detail=True, methods=['get', 'post'], url_path='movimentos')
     def movimentos(self, request, pk=None):
         produto = self.get_object()
+        if produto.tipo == TipoProduto.SERVICO:
+            # RF-05: servico nao possui controle de estoque — bloqueia GET e
+            # POST por igual (400 explicito em vez de lista vazia silenciosa).
+            return Response(
+                {'tipo': ['Serviço não possui controle de estoque.']},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if request.method == 'GET':
             qs = MovimentoEstoque.objects.filter(produto=produto, is_active=True).order_by('-created_at')
             return Response(MovimentoEstoqueSerializer(qs, many=True).data)
