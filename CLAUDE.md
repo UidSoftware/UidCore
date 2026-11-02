@@ -104,6 +104,57 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-11-02] — Manutenção #89 — Despesa.fornecedor_fk + subcategoria + desconto_tipo/percentual
+
+**Contexto:** manutenção de backend+frontend no módulo Financeiro — vínculo
+real de `Despesa` a `Fornecedor` (antes só texto livre), uso de
+subcategoria (herdada da hierarquia de `Categoria` introduzida na
+Manutenção #88) e tipo de desconto configurável (valor fixo ou percentual)
+no lançamento.
+
+**Tarefas executadas:**
+- Backend (`financeiro`): `Despesa.fornecedor_fk` (FK para
+  `fornecedores.Fornecedor`, nullable); `Despesa.subcategoria` (FK para
+  `Categoria`, usando a hierarquia pai/subcategoria da Manutenção #88);
+  `desconto_tipo`/`desconto_percentual` no lançamento; migrations
+  `financeiro.0014_despesa_fornecedor_fk` (AddField) e
+  `financeiro.0015_despesa_fornecedor_fk_backfill` (RunPython — backfill
+  dos registros existentes)
+- Frontend: busca de fornecedor (autocomplete) no formulário de Despesa;
+  seletor de subcategoria dependente da categoria escolhida; campo de
+  desconto com alternância valor fixo/percentual calculado ao vivo
+
+**Arquivos alterados:**
+- backend/financeiro/ (Despesa.fornecedor_fk, Despesa.subcategoria,
+  desconto_tipo/desconto_percentual, migrations 0014 e 0015 — commit
+  f777806)
+- frontend/src/ (busca de fornecedor, subcategoria, desconto tipo/pct —
+  commit ca25b58)
+
+**Commits:**
+- f777806 — feat(financeiro): fornecedor_fk + subcategoria + desconto_tipo/percentual - Manutencao 89
+- ca25b58 — feat(frontend): fornecedor busca + subcategoria + desconto tipo/pct - Manutencao 89
+
+**Sentinel:**
+- 594/594 testes Django passando (0 falhas)
+- 15/15 critérios de aceite atendidos
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-11-02T07:17:28Z UTC (04:17:28 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 41405274867, sucesso em 37s
+- Push confirmado: 62f049e..ca25b58 main -> main (2 commits: f777806 e ca25b58, ambos de código, já existiam localmente prontos antes desta execução do Pilot)
+- Container uidcore-backend-1 recriado: 2026-11-02T07:17:28Z (StartedAt confirmado via docker inspect, comparado contra baseline pré-deploy da Manutenção #88, 2026-11-01T15:26:14Z); gunicorn 3 workers up sem crash (log confirmado)
+- Container uidcore-nginx-1 não recriado (sem mudança de infra nesta manutenção — esperado; StartedAt ainda 2026-10-28, herdado da Manutenção #71)
+- Migrations `financeiro.0014_despesa_fornecedor_fk` e `financeiro.0015_despesa_fornecedor_fk_backfill` aplicadas em produção (showmigrations confirmado); `makemigrations --check --dry-run`: "No changes detected" — 0 pendências
+- Frontend rebuildado: bundle novo `index-CqjCWDww.js` (723 KB), mtime 2026-11-02 07:17 UTC batendo exatamente com a recriação do backend; referenciado em `index.html`; confirmado contendo as strings "fornecedor_fk" e "subcategoria"
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/financeiro/despesas/ (esperado, requer auth — rota confirmada ativa)
+- SystemD: Manutenção #89 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 89`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
+
+---
+
 ### [2026-11-01] — Manutenção #88 — Categoria com pai/subcategoria + carregar_categorias_padrao
 
 **Contexto:** `Categoria` (Financeiro) ganha hierarquia de 1 nível (pai →
