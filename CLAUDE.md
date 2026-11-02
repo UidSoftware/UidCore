@@ -104,6 +104,54 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-11-02] — Manutenção #90 — Campo cliente + preenchimento automático no form Nova Receita
+
+**Contexto:** manutenção de backend+frontend no módulo Financeiro — form de
+Nova Receita ganhou vínculo a `Cliente` com sugestão/preenchimento
+automático (autocomplete), reduzindo digitação manual e amarrando a
+Receita a um cadastro real de cliente.
+
+**Tarefas executadas:**
+- Backend (`financeiro`): campo `cliente` no form de Receita + endpoint de
+  sugestão (`sugestao-cliente`) usado pelo autocomplete
+- Frontend: campo cliente com busca/autocomplete e preenchimento
+  automático dos dados relacionados no formulário de Nova Receita
+- Analista/Brush atualizaram `Especificacao_Hotfix.md` e
+  `Especificacao_UI_Hotfix.md`
+
+**Arquivos alterados:**
+- backend/financeiro/ (campo cliente + endpoint sugestao-cliente —
+  commit f5622dd)
+- frontend/src/ (campo cliente + preenchimento automático no form Nova
+  Receita — commit 8158ece)
+- Especificacao_Hotfix.md, Especificacao_UI_Hotfix.md (commit 2818d02)
+
+**Commits:**
+- f5622dd — feat(financeiro): campo cliente + sugestao-cliente no form Nova Receita - Manutencao 90
+- 8158ece — feat(frontend): campo cliente + preenchimento automatico no form Nova Receita - Manutencao 90
+- 2818d02 — docs: atualiza specs - Manutencao 90 (campo cliente + preenchimento automatico no form Nova Receita)
+
+**Sentinel:**
+- 611/611 testes Django passando (0 falhas)
+- 13/13 critérios de aceite atendidos
+- 0 migrations pendentes
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-11-02T19:22:58Z UTC (16:22:58 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 41509316404, sucesso
+- Push confirmado: 6783798..2818d02 main -> main (3 commits: f5622dd e 8158ece já existiam localmente + 2818d02 de docs desta execução)
+- Container uidcore-backend-1 recriado: 2026-11-02T19:22:58Z (StartedAt confirmado via docker inspect, comparado contra baseline pré-deploy da Manutenção #89, 2026-11-02T07:17:28Z); gunicorn 3 workers up sem crash (log confirmado)
+- Container uidcore-nginx-1 não recriado (sem mudança de infra nesta manutenção — esperado; StartedAt ainda 2026-10-28, herdado da Manutenção #71)
+- `makemigrations --check --dry-run`: "No changes detected" — 0 pendências
+- Frontend rebuildado: bundle novo `index-2gDUrRPK.js` (731 KB) + `index-Dq4f-VdS.css`, mtime 2026-11-02 19:22 UTC batendo exatamente com a recriação do backend; referenciado em `index.html`; confirmado contendo a string "sugestao-cliente"
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/financeiro/dashboard/ e /api/v1/financeiro/receitas/ (esperado, requer auth — rotas confirmadas ativas)
+- SystemD: Manutenção #90 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 90`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
+
+---
+
 ### [2026-11-02] — Manutenção #89 — Despesa.fornecedor_fk + subcategoria + desconto_tipo/percentual
 
 **Contexto:** manutenção de backend+frontend no módulo Financeiro — vínculo
