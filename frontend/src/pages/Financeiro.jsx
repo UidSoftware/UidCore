@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { ChevronDown, ChevronUp, Edit, Plus, Pencil, Trash2, CornerDownRight, Tag, Search, Building2, Info } from 'lucide-react'
+import { ChevronDown, ChevronUp, Edit, Plus, Pencil, Trash2, CornerDownRight, Tag, Search, Building2, Info, User, Repeat, ClipboardList, AlertTriangle } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage, stripEmptyStrings } from '../utils/errors.js'
 import Card from '../components/ui/Card.jsx'
@@ -521,6 +521,14 @@ function ReceitasTab({ showToast, contasOptions }) {
   const [form, setForm] = useState(EMPTY_RECEITA)
   const [categoriaOptions, setCategoriaOptions] = useState([])
   const [categoriaRapidaAberta, setCategoriaRapidaAberta] = useState(false)
+  // Manutencao 90 (RF-01/02): cliente vinculado ao form + resultado da
+  // sugestao (/receitas/sugestao-cliente/) + qual assinatura/venda foi
+  // escolhida (so para destacar a tira de confirmacao, RF-03/04).
+  const [clienteSelecionado, setClienteSelecionado] = useState(null)
+  const [sugestaoCliente, setSugestaoCliente] = useState(null)
+  const [carregandoSugestao, setCarregandoSugestao] = useState(false)
+  const [assinaturaEscolhida, setAssinaturaEscolhida] = useState(null)
+  const [vendaEscolhida, setVendaEscolhida] = useState(null)
 
   const fetchCategorias = useCallback(() => {
     api.get('/financeiro/categorias/', { params: { tipo: 'ENTRADA', page_size: 200 } })
@@ -555,7 +563,86 @@ function ReceitasTab({ showToast, contasOptions }) {
 
   const handleChange = (e) => setForm((p) => ({ ...p, [e.target.name]: e.target.value }))
 
-  const openNew = () => { setForm(EMPTY_RECEITA); setEditingId(null); setModalOpen(true) }
+  // Manutencao 90 (RF-03): aplica o preenchimento automatico de uma
+  // assinatura ativa (unica ou escolhida numa lista de 2+ — RF-03). Valor
+  // sempre de Assinatura.valor (snapshot), nunca Assinatura.plano.valor.
+  const aplicarAssinatura = (a) => {
+    setForm((f) => ({
+      ...f,
+      tipo: 'MENSALIDADE',
+      descricao: a.descricao_sugerida,
+      valor_bruto: a.valor,
+      categoria: a.categoria_id || '',
+      referencia_mes: (a.referencia_mes_sugerido || '').slice(0, 7),
+      assinatura: a.id,
+    }))
+    setAssinaturaEscolhida(a)
+    setVendaEscolhida(null)
+  }
+
+  // RF-04: aplica o preenchimento a partir de uma venda (Orcamento/Pedido)
+  // em aberto — nunca toca categoria nem assinatura (RF-04).
+  const aplicarVenda = (v) => {
+    setForm((f) => ({
+      ...f,
+      tipo: v.tipo === 'ORCAMENTO' ? 'SERVICO' : 'PRODUTO',
+      descricao: v.descricao_sugerida,
+      valor_bruto: v.valor_total,
+    }))
+    setVendaEscolhida(v)
+    setAssinaturaEscolhida(null)
+  }
+
+  // "Remover vinculo" (1 assinatura) ou "Trocar" (2+ assinaturas, reabre a
+  // lista 3.2 sem refetch — RN-02 so exige refetch ao trocar o CLIENTE).
+  // Limpa so o vinculo (assinatura), nunca os campos ja preenchidos (RN-03).
+  const handleDesvincularAssinatura = () => {
+    setForm((f) => ({ ...f, assinatura: '' }))
+    setAssinaturaEscolhida(null)
+  }
+  const handleTrocarVenda = () => setVendaEscolhida(null)
+
+  // RF-02/RN-01: so busca sugestao durante a CRIACAO — nunca na edicao.
+  const fetchSugestaoCliente = async (clienteId) => {
+    setCarregandoSugestao(true)
+    setSugestaoCliente(null)
+    setAssinaturaEscolhida(null)
+    setVendaEscolhida(null)
+    try {
+      const { data } = await api.get('/financeiro/receitas/sugestao-cliente/', { params: { cliente_id: clienteId } })
+      setSugestaoCliente(data)
+      if ((data.assinaturas_ativas || []).length === 1) {
+        aplicarAssinatura(data.assinaturas_ativas[0])
+      }
+    } catch {
+      setSugestaoCliente({ assinaturas_ativas: [], vendas_abertas: [] })
+    } finally {
+      setCarregandoSugestao(false)
+    }
+  }
+
+  const handleSelecionarCliente = (cliente) => {
+    setForm((f) => ({ ...f, cliente: cliente.id, assinatura: '' }))
+    setClienteSelecionado({ id: cliente.id, nome: cliente.nome_razao_social })
+    fetchSugestaoCliente(cliente.id)
+  }
+
+  // RN-02: trocar o cliente limpa a escolha de assinatura/venda anterior e
+  // o vinculo oculto, refazendo a sugestao do zero para o novo cliente.
+  const handleTrocarCliente = () => {
+    setForm((f) => ({ ...f, cliente: '', assinatura: '' }))
+    setClienteSelecionado(null)
+    setSugestaoCliente(null)
+    setAssinaturaEscolhida(null)
+    setVendaEscolhida(null)
+  }
+
+  const openNew = () => {
+    setForm(EMPTY_RECEITA); setEditingId(null)
+    setClienteSelecionado(null); setSugestaoCliente(null)
+    setAssinaturaEscolhida(null); setVendaEscolhida(null)
+    setModalOpen(true)
+  }
   const openEdit = (item) => {
     setForm({
       tipo: item.tipo || 'SERVICO', descricao: item.descricao || '',
@@ -563,8 +650,13 @@ function ReceitasTab({ showToast, contasOptions }) {
       valor_bruto: item.valor_bruto || '', desconto: item.desconto || '0',
       conta: item.conta || '', vencimento: item.vencimento || '',
       referencia_mes: (item.referencia_mes || '').slice(0, 7),
+      assinatura: item.assinatura || '',
       observacoes: item.observacoes || '',
     })
+    // RN-01: edicao nunca dispara a sugestao — campo Cliente so mostra o
+    // vinculo ja existente, somente leitura (CA-11).
+    setClienteSelecionado(item.cliente ? { id: item.cliente, nome: item.cliente_nome } : null)
+    setSugestaoCliente(null); setAssinaturaEscolhida(null); setVendaEscolhida(null)
     setEditingId(item.id); setModalOpen(true)
   }
   const closeModal = () => { setModalOpen(false); setEditingId(null) }
@@ -697,6 +789,99 @@ function ReceitasTab({ showToast, contasOptions }) {
       {modalOpen && (
         <Modal title={editingId ? 'Editar Receita' : 'Nova Receita'} onClose={closeModal} maxW="max-w-2xl">
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Manutencao 90 (RF-01): Cliente e o 1o campo do form */}
+            <ClienteAutocompleteReceita
+              clienteSelecionado={clienteSelecionado}
+              onSelecionar={handleSelecionarCliente}
+              onTrocar={handleTrocarCliente}
+              disabled={!!editingId}
+            />
+
+            {/* Manutencao 90 (RF-03/04/05): bloco de sugestao condicional —
+                so na criacao, so depois de um cliente ser selecionado. */}
+            {!editingId && clienteSelecionado && (
+              <div className="flex flex-col gap-2">
+                {carregandoSugestao && (
+                  <p className="text-xs text-gray-400 dark:text-slate-500">Verificando assinaturas e vendas deste cliente...</p>
+                )}
+
+                {!carregandoSugestao && assinaturaEscolhida && (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-navy-500 dark:bg-navy-800">
+                    <span className="flex items-center gap-2 text-sm text-gray-800 dark:text-slate-200 truncate">
+                      <Repeat size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                      Assinatura: {assinaturaEscolhida.plano_nome} — {BRL(assinaturaEscolhida.valor)}/mês
+                    </span>
+                    <Button type="button" variant="secondary" size="sm" onClick={handleDesvincularAssinatura}>
+                      {(sugestaoCliente?.assinaturas_ativas?.length || 0) > 1 ? 'Trocar' : 'Remover vínculo'}
+                    </Button>
+                  </div>
+                )}
+
+                {!carregandoSugestao && !assinaturaEscolhida && (sugestaoCliente?.assinaturas_ativas?.length || 0) > 1 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-gray-700 dark:text-slate-300">Este cliente tem mais de uma assinatura ativa — escolha qual cobrar:</p>
+                    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100 dark:bg-navy-800 dark:border-navy-600 dark:divide-navy-700">
+                      {sugestaoCliente.assinaturas_ativas.map((a) => (
+                        <button
+                          key={a.id}
+                          type="button"
+                          onClick={() => aplicarAssinatura(a)}
+                          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-navy-700 transition-colors text-left"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-slate-100">
+                            <Repeat size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                            {a.plano_nome}
+                          </span>
+                          <span className="flex flex-col items-end gap-1">
+                            <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">{BRL(a.valor)}</span>
+                            {a.ja_tem_receita_mes_atual && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-yellow-100 text-yellow-800 dark:bg-amber-900/30 dark:text-amber-300">
+                                <AlertTriangle size={12} />já cobrado este mês
+                              </span>
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {!carregandoSugestao && vendaEscolhida && (
+                  <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-navy-500 dark:bg-navy-800">
+                    <span className="flex items-center gap-2 text-sm text-gray-800 dark:text-slate-200 truncate">
+                      <ClipboardList size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                      Vinculado a: {vendaEscolhida.descricao_sugerida} — {BRL(vendaEscolhida.valor_total)}
+                    </span>
+                    <Button type="button" variant="secondary" size="sm" onClick={handleTrocarVenda}>Trocar</Button>
+                  </div>
+                )}
+
+                {!carregandoSugestao && !assinaturaEscolhida && !vendaEscolhida &&
+                  (sugestaoCliente?.assinaturas_ativas?.length || 0) === 0 &&
+                  (sugestaoCliente?.vendas_abertas?.length || 0) > 0 && (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-sm text-gray-700 dark:text-slate-300">Este cliente tem vendas em aberto — vincular a uma delas?</p>
+                    <div className="bg-white rounded-lg border border-gray-200 divide-y divide-gray-100 dark:bg-navy-800 dark:border-navy-600 dark:divide-navy-700">
+                      {sugestaoCliente.vendas_abertas.map((v) => (
+                        <button
+                          key={`${v.tipo}-${v.id}`}
+                          type="button"
+                          onClick={() => aplicarVenda(v)}
+                          className="w-full flex items-center justify-between gap-2 px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-navy-700 transition-colors text-left"
+                        >
+                          <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-slate-100">
+                            <ClipboardList size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+                            {v.descricao_sugerida}
+                          </span>
+                          <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">{BRL(v.valor_total)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Select label="Tipo" name="tipo" options={TIPO_RECEITA} value={form.tipo} onChange={handleChange} />
               <Select label="Conta" name="conta" options={[{ value: '', label: 'Selecione...' }, ...contasOptions]} value={form.conta} onChange={handleChange} required />
@@ -748,7 +933,132 @@ function ReceitasTab({ showToast, contasOptions }) {
 
 const EMPTY_RECEITA = {
   tipo: 'SERVICO', descricao: '', cliente: '', categoria: '',
-  valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '', observacoes: '',
+  valor_bruto: '', desconto: '0', conta: '', vencimento: '', referencia_mes: '', assinatura: '', observacoes: '',
+}
+
+// --- Busca de cliente no form de Receita (RF-01/02 — Manutencao 90) ---
+// Combinacao deliberada de dois padroes ja existentes na fabrica (ver
+// Especificacao_UI_Hotfix.md, Manutencao 90): os 3 estados (busca/
+// selecionado/disabled) seguem ClienteAutocomplete de Assinaturas.jsx
+// (mesmo debounce 300ms sem AbortController, mesmo "sem mensagem de
+// nenhum resultado"); o posicionamento do dropdown (position:fixed +
+// getBoundingClientRect()) segue BuscaFornecedorRapida (acima, nesta
+// mesma Financeiro.jsx, Manutencao 89) — o modal de Receita tem 9+ campos
+// e overflow-y-auto, mesmo cenario que forcou a tecnica no Fornecedor.
+function ClienteAutocompleteReceita({ clienteSelecionado, onSelecionar, onTrocar, disabled }) {
+  const [busca, setBusca] = useState('')
+  const [resultados, setResultados] = useState([])
+  const [buscando, setBuscando] = useState(false)
+  const [dropdownStyle, setDropdownStyle] = useState({})
+  const inputRef = useRef(null)
+  const wrapRef = useRef(null)
+  const debounceRef = useRef(null)
+
+  const aberto = resultados.length > 0 || buscando
+
+  const calcularPosicao = useCallback(() => {
+    if (!inputRef.current) return
+    const rect = inputRef.current.getBoundingClientRect()
+    setDropdownStyle({ position: 'fixed', top: rect.bottom + 4, left: rect.left, width: rect.width, zIndex: 9999 })
+  }, [])
+
+  useEffect(() => { if (aberto) calcularPosicao() }, [aberto, calcularPosicao])
+
+  useEffect(() => {
+    if (!aberto) return
+    window.addEventListener('scroll', calcularPosicao, true)
+    window.addEventListener('resize', calcularPosicao)
+    return () => {
+      window.removeEventListener('scroll', calcularPosicao, true)
+      window.removeEventListener('resize', calcularPosicao)
+    }
+  }, [aberto, calcularPosicao])
+
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    if (!busca.trim()) { setResultados([]); return }
+    debounceRef.current = setTimeout(() => {
+      setBuscando(true)
+      api.get('/clientes/', { params: { search: busca.trim(), page_size: 10 } })
+        .then((r) => setResultados(r.data.results || r.data || []))
+        .catch(() => setResultados([]))
+        .finally(() => setBuscando(false))
+    }, 300)
+    return () => clearTimeout(debounceRef.current)
+  }, [busca])
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
+        setResultados([])
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Estado 3 (edicao): sempre somente leitura, mesmo sem cliente vinculado
+  // (registro antigo) — nunca dispara a sugestao (RN-01/CA-11).
+  if (disabled) {
+    return (
+      <Input label="Cliente" value={clienteSelecionado?.nome || ''} disabled />
+    )
+  }
+
+  // Estado 2 (selecionado, ainda em criacao).
+  if (clienteSelecionado) {
+    return (
+      <div className="flex flex-col gap-1">
+        <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Cliente</label>
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-navy-500 dark:bg-navy-800">
+          <span className="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
+            <User size={16} className="text-gray-400 dark:text-slate-500 shrink-0" />
+            {clienteSelecionado.nome}
+          </span>
+          <Button type="button" variant="secondary" size="sm" onClick={onTrocar}>Trocar</Button>
+        </div>
+      </div>
+    )
+  }
+
+  // Estado 1 (busca).
+  return (
+    <div ref={wrapRef} className="flex flex-col gap-1">
+      <label className="text-sm font-medium text-gray-700 dark:text-slate-300">Cliente</label>
+      <div className="relative">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500 pointer-events-none" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar cliente por nome..."
+          autoComplete="off"
+          className="w-full rounded-lg border border-gray-300 bg-white pl-9 pr-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500"
+        />
+      </div>
+      {aberto && (
+        <div
+          style={dropdownStyle}
+          className="bg-white rounded-lg shadow-lg border border-gray-200 max-h-64 overflow-y-auto dark:bg-navy-800 dark:border-navy-600 dark:shadow-none"
+        >
+          {buscando && (
+            <div className="px-4 py-3 text-sm text-gray-400 dark:text-slate-500 text-center">Buscando...</div>
+          )}
+          {!buscando && resultados.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={() => { onSelecionar(c); setBusca(''); setResultados([]) }}
+              className="w-full text-left px-4 py-2.5 hover:bg-gray-50 border-b border-gray-100 last:border-0 transition-colors dark:hover:bg-navy-700 dark:border-navy-700"
+            >
+              <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{c.nome_razao_social}</p>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // --- Busca rapida de fornecedor (RF-F01 — Manutencao 89) ---
