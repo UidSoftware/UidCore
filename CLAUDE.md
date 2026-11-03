@@ -104,6 +104,67 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-11-03] — Manutenção #92 — Profissional FK Colaborador (Agenda) + vagas em perform_update + campo canal (Compromisso)
+
+**Contexto:** manutenção de backend+frontend no módulo Agendamento + RH —
+`Agenda.profissional` deixou de ser texto livre e passou a ser FK real para
+`rh.Colaborador` (com migração de dado dos registros existentes); controle
+de vagas por horário movido para dentro do `perform_update` do fluxo de
+agendamento; novo campo `canal` em `Compromisso` (origem do contato — ex.:
+WhatsApp, telefone, presencial), com nova aba "Pendentes" no frontend
+filtrando por canal.
+
+**Tarefas executadas:**
+- Backend (`agendamento`): `Agenda.profissional` convertido de `CharField`
+  para FK de `rh.Colaborador`; migrations `0011_agenda_profissional_colaborador`
+  (AddField nullable), `0012_migra_profissional_para_colaborador` (RunPython —
+  backfill dos registros existentes, resolvendo/criando o Colaborador
+  correspondente ao texto livre antigo) e `0013_agenda_remove_profissional_rename`
+  (remove o campo texto antigo e renomeia a FK para `profissional`);
+  `0014_compromisso_canal` (campo `Compromisso.canal`); vagas por horário
+  verificadas dentro do `perform_update` (evita corrida entre leitura e
+  escrita no mesmo request)
+- Backend (`rh`): endpoint `colaboradores/opcoes/` para popular o select de
+  profissional no frontend
+- Frontend: seletor de profissional (Colaborador real, via `opcoes/`) na
+  tela de Agendamento; aba "Pendentes" filtrando compromissos por `canal`
+- Analista/Loom atualizaram `Especificacao_Hotfix.md` e
+  `Especificacao_UI_Hotfix.md`
+
+**Arquivos alterados:**
+- backend/agendamento/, backend/rh/ (Agenda.profissional FK Colaborador,
+  migrations 0011/0012/0013/0014, vagas em perform_update, endpoint
+  colaboradores/opcoes/, campo canal — commit 75fa5a1)
+- frontend/src/ (seletor de profissional real, vagas no compromisso, aba
+  Pendentes por canal — commit 12deda6)
+- Especificacao_Hotfix.md, Especificacao_UI_Hotfix.md (commit 780b95b)
+
+**Commits:**
+- 75fa5a1 — feat(agendamento+rh): profissional FK Colaborador + vagas perform_update + campo canal - Manutencao 92
+- 12deda6 — feat(frontend): profissional do RH + vagas compromisso + aba Pendentes canal - Manutencao 92
+- 780b95b — docs: atualiza specs - Manutencao 92 (profissional FK Colaborador + vagas compromisso + canal)
+
+**Sentinel:**
+- 649/649 testes Django passando (0 falhas)
+- 8/8 critérios de aceite verificados
+- npm run build limpo (2176 módulos)
+- Status: APROVADO
+
+**Deploy:**
+- Data: 2026-11-03T08:02:21Z UTC (05:02:21 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 41600337986, sucesso em 41s
+- Push confirmado: 17c5a34..780b95b main -> main (3 commits: 75fa5a1 e 12deda6 já existiam localmente + 780b95b de docs desta execução)
+- Container uidcore-backend-1 recriado: 2026-11-03T08:02:55Z (StartedAt confirmado via docker inspect, comparado contra baseline pré-deploy da Manutenção #91, 2026-11-03T03:25:25Z); gunicorn 3 workers up sem crash (log confirmado)
+- Container uidcore-nginx-1 não recriado (sem mudança de infra nesta manutenção — esperado; StartedAt ainda 2026-10-28, herdado da Manutenção #71)
+- Migrations `agendamento.0011_agenda_profissional_colaborador`, `0012_migra_profissional_para_colaborador`, `0013_agenda_remove_profissional_rename` e `0014_compromisso_canal` aplicadas em produção (showmigrations confirmado); `makemigrations --check --dry-run`: "No changes detected" — 0 pendências
+- Frontend rebuildado: bundle novo `index-BbgA9gLV.js` (738 KB) + `index-DtNf8WId.css`, mtime 2026-11-03 08:02 UTC batendo exatamente com a recriação do backend; referenciado em `index.html`; bundle confirmado contendo a string "canal"
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/agendamento/horarios-disponiveis/ e /api/v1/rh/colaboradores/opcoes/ (esperado, requer auth — rotas confirmadas ativas)
+- SystemD: Manutenção #92 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 92`
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
+
+---
+
 ### [2026-11-03] — Manutenção #91 — Produto com tipo PRODUTO|SERVICO (cadastro de Serviço, sem baixa de estoque)
 
 **Contexto:** Produtos ganha o conceito de `tipo` (PRODUTO ou SERVICO), para
