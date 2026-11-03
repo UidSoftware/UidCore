@@ -104,6 +104,58 @@ só adicionar o campo no model.
 
 ## Histórico de execuções
 
+### [2026-11-03] — Manutenção #91 — Produto com tipo PRODUTO|SERVICO (cadastro de Serviço, sem baixa de estoque)
+
+**Contexto:** Produtos ganha o conceito de `tipo` (PRODUTO ou SERVICO), para
+que o cadastro passe a aceitar serviço (ex.: corte de cabelo, sessão,
+consultoria) sem gerar movimento de estoque. Replicado no template UidCore a
+partir da Manutenção #84 do fork LifeStyle (pedido do Luiz Eduardo,
+29/10/2026), implementado de forma genérica (multi-nicho, sem nada
+específico de estúdio), para todo fork novo já nascer com isso.
+
+**Tarefas executadas:**
+- Backend (`produtos`): campo `Produto.tipo` (choices `PRODUTO`|`SERVICO`,
+  default `PRODUTO` — tudo que já existia virou `PRODUTO` automaticamente);
+  migration `produtos.0008_produto_tipo_servico`; serializer e views com
+  filtro por tipo
+- Backend (`pdv`+`vendas`): serviço vendido no PDV ou adicionado em
+  Orçamento/Pedido nunca gera `MovimentoEstoque` nem alerta de estoque
+  mínimo — estoque só vale para `tipo=PRODUTO`
+- Frontend: botão "+ Novo Item" (antes "+ Novo Produto") em `Produtos.jsx`,
+  com seletor Produto/Serviço mudando os campos do form; abas de filtro
+  Produtos | Serviços | Todos; badge "Serviço" no dropdown do PDV
+  (`FrenteDeCaixa.jsx`) e na busca rápida de `Vendas.jsx`
+- Analista/Loom atualizaram `Especificacao_Hotfix.md` e
+  `Especificacao_UI_Hotfix.md` (já incluídos no commit de frontend)
+
+**Arquivos alterados:**
+- backend/produtos/ (campo tipo, migration 0008, serializer, views —
+  commit eb9ec70)
+- backend/pdv/, backend/vendas/ (serviço sem MovimentoEstoque — commit
+  eb9ec70)
+- frontend/src/pages/Produtos.jsx, Vendas.jsx, pdv/FrenteDeCaixa.jsx,
+  pdv/components/CarrinhoItem.jsx (botão + Novo Item, abas, badges —
+  commit a0fd340)
+- Especificacao_Hotfix.md, Especificacao_UI_Hotfix.md (incluídos no commit
+  a0fd340)
+
+**Commits:**
+- eb9ec70 — feat(produtos): tipo PRODUTO|SERVICO + sem estoque para servico - Manutencao 91
+- a0fd340 — feat(frontend): tipo PRODUTO|SERVICO + filtro abas + PDV/Vendas vendem servico - Manutencao 91
+
+**Sentinel:**
+- 632/632 testes Django passando (0 falhas)
+- 12/12 critérios de aceite atendidos
+- Status: APROVADO
+
+**Deploy:**
+- Data: PILOT_DEPLOY_PLACEHOLDER
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml)
+- URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
+- Status: ✅ Aprovado por Sentinel / PILOT_STATUS_PLACEHOLDER
+
+---
+
 ### [2026-11-02] — Manutenção #90 — Campo cliente + preenchimento automático no form Nova Receita
 
 **Contexto:** manutenção de backend+frontend no módulo Financeiro — form de
