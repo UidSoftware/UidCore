@@ -95,8 +95,15 @@ export default function ResourceCrud({
         // (ex.: ?perfil=PROFISSIONAL). f.filterOptions (opcional): filtro
         // client-side aplicado depois da resposta, pro caso do endpoint
         // nao suportar o filtro via query param (Manutencao 63).
-        const response = await api.get(`/${f.endpoint}/`, { params: { page_size: 200, ...f.params } })
-        const results = f.filterOptions ? response.data.results.filter(f.filterOptions) : response.data.results
+        // f.rawArray (Manutencao 92): algumas actions dedicadas (ex.:
+        // rh/colaboradores/opcoes) devolvem um array puro, sem paginacao
+        // DRF (sem .results/.count) -- usado de proposito quando o
+        // endpoint existe justamente pra evitar expor o serializer
+        // completo/paginado (dado sensivel) so pra popular um dropdown.
+        const params = f.rawArray ? { ...f.params } : { page_size: 200, ...f.params }
+        const response = await api.get(`/${f.endpoint}/`, { params })
+        const raw = f.rawArray ? response.data : response.data.results
+        const results = f.filterOptions ? raw.filter(f.filterOptions) : raw
         setRemoteOptions((prev) => ({ ...prev, [f.name]: results }))
       } catch {
         setRemoteOptions((prev) => ({ ...prev, [f.name]: [] }))

@@ -29,6 +29,21 @@ function pad2(n) {
   return String(n).padStart(2, '0')
 }
 
+// Manutencao 92 (RF-14, opcional) — le ?canal= da propria URL do link
+// publico (ex.: /agendar/estudio-x?canal=instagram), sem exigir nenhuma
+// navegacao adicional do visitante. So repassa valor reconhecido (RN-06:
+// canal e so informativo, nunca obrigatorio) — o backend tambem normaliza/
+// valida de novo (AgendamentoPublicoSerializer.validate_canal), este
+// filtro aqui e so pra nao mandar lixo no payload.
+const CANAIS_RECONHECIDOS = ['site', 'instagram', 'whatsapp']
+
+function extrairCanalDaUrl() {
+  const valor = new URLSearchParams(window.location.search).get('canal')
+  if (!valor) return ''
+  const normalizado = valor.trim().toLowerCase()
+  return CANAIS_RECONHECIDOS.includes(normalizado) ? normalizado : ''
+}
+
 function dataParaISO(d) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
 }
@@ -87,6 +102,9 @@ export default function AgendamentoPublico() {
 
   // Slot clicado
   const [slotSelecionado, setSlotSelecionado] = useState(null)
+
+  // Manutencao 92 (RF-14, opcional) — canal lido 1x da querystring da URL
+  const [canal] = useState(() => extrairCanalDaUrl())
 
   // Formulário
   const [nome, setNome] = useState('')
@@ -185,13 +203,17 @@ export default function AgendamentoPublico() {
     setEnviando(true)
     setErro(null)
     try {
-      await publicApi.post(`/publico/agenda/${slug}/agendar/`, {
+      const payload = {
         horario_id: slotSelecionado.horario_id,
         data_horario: dataSelecionada,
         nome_contato: nome.trim(),
         telefone_contato: telefone.trim(),
         email_contato: email.trim(),
-      })
+      }
+      // Manutencao 92 (RF-14, opcional/RN-06): so inclui o campo quando a
+      // URL trouxe um canal reconhecido — ausencia e o caso normal hoje.
+      if (canal) payload.canal = canal
+      await publicApi.post(`/publico/agenda/${slug}/agendar/`, payload)
       setConfirmacaoInfo({
         data: formatarDataLonga(dataSelecionada),
         hora: slotSelecionado.hora_inicio,

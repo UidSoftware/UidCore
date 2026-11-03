@@ -3,6 +3,7 @@ import {
   Clock, CalendarDays, Users, Plus, Pencil,
   CheckCircle, X, RefreshCw, CalendarCheck,
   Shield, Globe, AlertTriangle, User,
+  Camera, MessageCircle,
 } from 'lucide-react'
 import api from '../api/client.js'
 import { extractErrorMessage } from '../utils/errors.js'
@@ -40,6 +41,39 @@ const DIAS_SEMANA_OPTIONS = [
 ]
 
 const DIAS_SEMANA_LABELS = ['Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo']
+
+// Manutencao 92 (RF-07) — converte uma data (YYYY-MM-DD) pro dia_semana
+// na convencao do backend (0=Segunda...6=Domingo). Date.getDay() do JS usa
+// 0=Domingo...6=Sabado — por isso o ajuste (Domingo cai pra 6, os demais -1).
+function calcularDiaSemanaBackend(dataStr) {
+  const d = new Date(`${dataStr}T00:00:00`)
+  const jsDay = d.getDay()
+  return jsDay === 0 ? 6 : jsDay - 1
+}
+
+// Manutencao 92 (RF-14, opcional) — badge de canal na aba Pendentes.
+// OUTRO/vazio nunca vira badge (so "—" solto), conforme Especificacao_UI_Hotfix.md 3.3.
+// Nota: a Especificacao_UI_Hotfix.md pedia o icone "Instagram" do lucide-react,
+// mas a versao instalada (1.27.0) removeu os icones de marca/logo da lib —
+// "Camera" é o substituto mais próximo disponível (sem mudar o significado
+// visual pretendido: distinguir o canal de origem do agendamento).
+const CANAL_CONFIG = {
+  INSTAGRAM: { icon: Camera, label: 'Instagram', classes: 'bg-pink-400/15 text-pink-400 border border-pink-400/30' },
+  WHATSAPP: { icon: MessageCircle, label: 'WhatsApp', classes: 'bg-emerald-400/15 text-emerald-400 border border-emerald-400/30' },
+  SITE: { icon: Globe, label: 'Site', classes: 'bg-sky-400/15 text-sky-400 border border-sky-400/30' },
+}
+
+function CanalBadge({ canal }) {
+  const config = canal ? CANAL_CONFIG[canal] : null
+  if (!config) return <span className="text-slate-500 text-xs">—</span>
+  const Icon = config.icon
+  return (
+    <span className={`rounded-full px-2 py-0.5 text-xs inline-flex items-center gap-1 ${config.classes}`}>
+      <Icon size={10} />
+      {config.label}
+    </span>
+  )
+}
 
 // ---------------------------------------------------------------------------
 // Aba Horários
@@ -506,7 +540,9 @@ function PendentesTab({ onCountChange }) {
             )}
           </div>
           <p className="text-sm text-slate-400 mt-0.5">
-            Compromissos recebidos pelo agendamento público aguardando confirmação.
+            Pedidos feitos pelo link público de agendamento (aberto pelo cliente final, sem
+            login) chegam aqui como pendentes — confirme ou recuse cada um. Compromissos
+            criados direto pela equipe (aba Compromissos) não passam por esta etapa.
           </p>
         </div>
         <button
@@ -530,7 +566,7 @@ function PendentesTab({ onCountChange }) {
           <table className="w-full">
             <thead className="bg-navy-900">
               <tr>
-                {['Contato', 'Telefone', 'Data', 'Serviço', 'Recebido em', 'Ações'].map((col) => (
+                {['Contato', 'Telefone', 'Data', 'Serviço', 'Origem', 'Recebido em', 'Ações'].map((col) => (
                   <th
                     key={col}
                     className="px-4 py-3 text-xs font-semibold text-slate-400 uppercase tracking-wide text-left"
@@ -555,6 +591,15 @@ function PendentesTab({ onCountChange }) {
                   <td className="px-4 py-3 text-sm text-slate-300">{p.telefone_contato || '—'}</td>
                   <td className="px-4 py-3 text-sm text-slate-300">{formatarDataHora(p.data_horario)}</td>
                   <td className="px-4 py-3 text-sm text-slate-400">{p.horario_servico || '—'}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-1.5">
+                      <span className="bg-violet-400/15 text-violet-400 border border-violet-400/30 rounded-full px-2 py-0.5 text-xs inline-flex items-center gap-1">
+                        <Globe size={10} />
+                        Público
+                      </span>
+                      <CanalBadge canal={p.canal} />
+                    </div>
+                  </td>
                   <td className="px-4 py-3 text-xs text-slate-500">{tempoRelativo(p.created_at)}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -697,6 +742,12 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
   const [saving, setSaving] = useState(false)
   const [clientesOptions, setClientesOptions] = useState([])
   const [conflito, setConflito] = useState(null)
+  // Manutencao 92 (RF-07) — horarios do dia da semana da Data escolhida,
+  // ja com vagas_ocupadas/vagas_disponiveis/lotado calculados pelo backend
+  // (HorarioDisponivelSerializer, ?data=). Independente do cache antigo
+  // horariosPorAgenda (que so serve pra coluna Vagas da tabela).
+  const [horariosDoDia, setHorariosDoDia] = useState([])
+  const [carregandoHorarios, setCarregandoHorarios] = useState(false)
 
   const PAGE_SIZE = 10
 
@@ -727,6 +778,34 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
       .then((r) => setClientesOptions(r.data.results))
       .catch(() => {})
   }, [])
+
+  // Manutencao 92 (RF-07) — ao ter Agenda + Data escolhidas, busca so os
+  // horarios daquele dia da semana, com vagas calculadas pra aquela data
+  // especifica (RF-06). Tambem roda na edicao (form.data_horario ja vem
+  // preenchido do item existente), fechando o pedido "isso tambem vale
+  // para Editar Compromisso" da Especificacao_Hotfix.md secao 4.2.
+  useEffect(() => {
+    if (!form.agenda || !form.data_horario) {
+      setHorariosDoDia([])
+      return
+    }
+    let cancelado = false
+    const diaSemana = calcularDiaSemanaBackend(form.data_horario)
+    setCarregandoHorarios(true)
+    api.get('/agendamento/horarios-disponiveis/', {
+      params: {
+        agenda: form.agenda,
+        dia_semana: diaSemana,
+        ativo: true,
+        data: form.data_horario,
+        page_size: 200,
+      },
+    })
+      .then((r) => { if (!cancelado) setHorariosDoDia(r.data.results) })
+      .catch(() => { if (!cancelado) setHorariosDoDia([]) })
+      .finally(() => { if (!cancelado) setCarregandoHorarios(false) })
+    return () => { cancelado = true }
+  }, [form.agenda, form.data_horario])
 
   const openNew = () => {
     setEditingId(null)
@@ -761,15 +840,16 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
     const { name, value } = e.target
     setForm((prev) => {
       const next = { ...prev, [name]: value }
-      // Ao mudar agenda, limpar horário
+      // Ao mudar agenda, limpar data e horário (RF-08)
       if (name === 'agenda') {
         next.horario = ''
         next.data_horario = ''
         if (value) onCarregarHorarios(value)
       }
-      // Ao mudar horário, limpar data_horario
-      if (name === 'horario') {
-        next.data_horario = ''
+      // Ao mudar a data, limpar horário (RF-08 — Data agora vem antes de
+      // Horário, então trocar a data invalida o horário já escolhido)
+      if (name === 'data_horario') {
+        next.horario = ''
       }
       return next
     })
@@ -819,13 +899,29 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
     }
   }
 
-  const horariosDaAgenda = form.agenda ? (horariosPorAgenda[form.agenda] || []) : []
+  // Manutencao 92 (RF-07) — opções do select de Horário vêm de
+  // horariosDoDia (filtrado por agenda+dia_semana+data, com vagas já
+  // calculadas pelo backend), não mais do cache horariosPorAgenda (esse
+  // cache continua existindo só pra coluna "Vagas" da tabela abaixo).
   const horarioOpts = [
-    { value: '', label: form.agenda ? 'Nenhum (agendamento avulso)' : 'Selecione uma agenda primeiro' },
-    ...horariosDaAgenda.map((h) => ({
-      value: String(h.id),
-      label: `${DIAS_SEMANA_LABELS[h.dia_semana]} ${h.hora_inicio?.slice(0, 5)} — ${h.servico || 'Sem rótulo'}`,
-    })),
+    {
+      value: '',
+      label: !form.agenda
+        ? 'Selecione uma agenda primeiro'
+        : !form.data_horario
+          ? 'Selecione a data primeiro'
+          : 'Nenhum (agendamento avulso)',
+    },
+    ...horariosDoDia.map((h) => {
+      const ocupadas = h.vagas_ocupadas ?? 0
+      const lotado = h.lotado === true
+      const base = `${h.hora_inicio?.slice(0, 5)} — ${h.servico || 'Sem rótulo'} (${ocupadas}/${h.vagas} vagas)`
+      return {
+        value: String(h.id),
+        label: lotado ? `${base} (Lotado)` : base,
+        disabled: lotado,
+      }
+    }),
   ]
 
   const agendasOpts = [
@@ -837,11 +933,6 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
     { value: '', label: 'Selecione (opcional)...' },
     ...clientesOptions.map((c) => ({ value: String(c.id), label: c.nome_razao_social })),
   ]
-
-  const horarioSelecionado = form.horario
-    ? horariosDaAgenda.find((h) => String(h.id) === form.horario)
-    : null
-  const diaLabel = horarioSelecionado ? DIAS_SEMANA_LABELS[horarioSelecionado.dia_semana] : ''
 
   // Edição: obter origem do item atual
   const itemAtual = items.find((i) => i.id === editingId)
@@ -955,8 +1046,28 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
             {/* Separador */}
             <div className="border-t border-navy-700 my-3" />
 
-            {/* Horário disponível */}
+            {/* Data + Horário disponível (Manutencao 92, RF-07/RF-08: Data
+                vem antes de Horário, e o Horário já mostra vagas da data
+                escolhida — ver Especificacao_Hotfix.md seção 4.2) */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="text-sm font-medium text-gray-700 dark:text-slate-300 flex items-center gap-1.5 mb-1">
+                  <CalendarDays size={14} />
+                  Data do Compromisso *
+                </label>
+                <input
+                  type="date"
+                  name="data_horario"
+                  value={form.data_horario}
+                  onChange={handleChange}
+                  disabled={!form.agenda}
+                  className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:text-slate-100 dark:focus:ring-violet-500 transition-colors duration-150 border-gray-300 bg-white dark:border-navy-500 dark:bg-navy-800 disabled:opacity-50 disabled:cursor-not-allowed dark:disabled:bg-navy-900"
+                />
+                {!form.agenda && (
+                  <p className="text-xs text-slate-500 mt-1">Selecione a agenda primeiro</p>
+                )}
+              </div>
+
               <div>
                 <label className="text-sm font-medium text-gray-700 dark:text-slate-300 flex items-center gap-1.5 mb-1">
                   <Clock size={14} />
@@ -966,34 +1077,21 @@ function CompromissosResourceCrud({ agendas, horariosPorAgenda, onCarregarHorari
                   name="horario"
                   value={form.horario}
                   onChange={handleChange}
-                  disabled={!form.agenda}
+                  disabled={!form.data_horario}
                   className="w-full rounded-lg border px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:text-slate-100 dark:focus:ring-violet-500 transition-colors duration-150 border-gray-300 bg-white dark:border-navy-500 dark:bg-navy-800 disabled:opacity-50 disabled:cursor-not-allowed dark:disabled:bg-navy-900"
                 >
                   {horarioOpts.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
+                    <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
                   ))}
                 </select>
                 <p className="text-xs text-slate-500 mt-1">
-                  Vincula este compromisso a um horário com controle de vagas
+                  {!form.data_horario
+                    ? 'Selecione a data primeiro'
+                    : carregandoHorarios
+                      ? 'Carregando horários...'
+                      : 'Vincula este compromisso a um horário com controle de vagas'}
                 </p>
               </div>
-
-              {form.horario && (
-                <div>
-                  <Input
-                    label="Data do Horário"
-                    type="date"
-                    name="data_horario"
-                    value={form.data_horario}
-                    onChange={handleChange}
-                  />
-                  {diaLabel && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      Deve ser uma {diaLabel}
-                    </p>
-                  )}
-                </div>
-              )}
             </div>
 
             {/* Separador + Dados de contato (quando sem cliente) */}
@@ -1154,13 +1252,18 @@ export default function Agendamento() {
           fields={[
             { name: 'nome', label: 'Nome', type: 'text' },
             {
+              // Manutencao 92 (RF-01/RF-03) — profissional agora vem de
+              // rh.Colaborador, nao mais de accounts.User. A action
+              // "opcoes" (IsAuthenticated, devolve so id+nome, sem dado
+              // sensivel) existe justamente pra nao exigir acesso IsAdmin
+              // so pra abrir este dropdown (RN-01) — ver rh/views.py.
               name: 'profissional',
               label: 'Profissional responsável',
               type: 'select-remote',
-              endpoint: 'accounts/usuarios',
-              labelField: 'nome_completo',
-              params: { perfil: 'PROFISSIONAL' },
-              filterOptions: (u) => u.perfil === 'PROFISSIONAL',
+              endpoint: 'rh/colaboradores/opcoes',
+              labelField: 'nome',
+              rawArray: true,
+              params: {},
             },
             { name: 'cor', label: 'Cor (hex)', type: 'text', placeholder: '#3B82F6' },
             { name: 'descricao', label: 'Descrição', type: 'textarea' },
