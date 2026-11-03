@@ -1,4 +1,3 @@
-from django.conf import settings
 from django.core.validators import MinValueValidator
 from django.db import models
 from django.utils.text import slugify
@@ -10,9 +9,10 @@ class Agenda(BaseModel):
     nome      = models.CharField(max_length=100, blank=True)
     descricao = models.TextField(blank=True)
     cor       = models.CharField(max_length=7, default='#3B82F6')
-    profissional = models.ForeignKey(            # Manutencao 63 (RF-05)
-        settings.AUTH_USER_MODEL, verbose_name='profissional responsável',
+    profissional = models.ForeignKey(            # Manutencao 92 (RF-01) — antes 'rh.Colaborador'
+        'rh.Colaborador', verbose_name='profissional responsável',       # era settings.AUTH_USER_MODEL (Manutencao 63)
         null=True, blank=True, on_delete=models.SET_NULL, related_name='agendas_vinculadas',
+        limit_choices_to={'is_active': True},
     )
     # Manutencao 65 [NUCLEO 4/5] — agendamento publico
     slug = models.SlugField(
@@ -90,6 +90,14 @@ class OrigemCompromisso(models.TextChoices):
     PUBLICO = 'PUBLICO', 'Público'
 
 
+class CanalCompromisso(models.TextChoices):
+    """Manutencao 92 (RF-14, opcional) — rotulo informativo, nunca usado em regra de negocio (RN-06)."""
+    SITE      = 'SITE', 'Site'
+    INSTAGRAM = 'INSTAGRAM', 'Instagram'
+    WHATSAPP  = 'WHATSAPP', 'WhatsApp'
+    OUTRO     = 'OUTRO', 'Outro'
+
+
 class Compromisso(BaseModel):
     agenda      = models.ForeignKey(
         Agenda, null=True, blank=True, on_delete=models.PROTECT, related_name='compromissos',
@@ -122,6 +130,10 @@ class Compromisso(BaseModel):
     nome_contato     = models.CharField(max_length=255, blank=True)
     telefone_contato = models.CharField(max_length=20, blank=True)
     email_contato    = models.EmailField(blank=True)
+    # Manutencao 92 (RF-14, opcional) — canal de origem do agendamento publico
+    canal = models.CharField(
+        max_length=10, choices=CanalCompromisso.choices, blank=True, default='',
+    )
 
     class Meta:
         db_table = 'age_compromisso'

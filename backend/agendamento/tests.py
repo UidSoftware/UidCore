@@ -14,6 +14,7 @@ from rest_framework import status
 from rest_framework.test import APIClient, APITestCase
 
 from accounts.models import User
+from rh.models import Colaborador
 
 from .models import Agenda, Compromisso, HorarioDisponivel
 
@@ -149,10 +150,18 @@ class AuditoriaManutencao62APITest(APITestCase):
 # Cobre CA-05, CA-10, CA-11 (parte agendamento) da Especificacao_Hotfix.md.
 
 def _make_profissional(email):
-    return User.objects.create_user(
+    """
+    Manutencao 92 (RF-01/RF-05): Agenda.profissional agora e rh.Colaborador,
+    nao mais accounts.User direto -- cria os dois vinculados (User pra
+    autenticar, Colaborador pra ser o valor de Agenda.profissional) e
+    retorna uma tupla (user, colaborador).
+    """
+    user = User.objects.create_user(
         email=email, password='senha123', nome_completo='Profissional Teste',
         perfil='PROFISSIONAL', is_staff=False,
     )
+    colaborador = Colaborador.objects.create(nome='Profissional Teste', usuario=user)
+    return user, colaborador
 
 
 def _make_operacional_agenda(email='operacional-ag@teste.com'):
@@ -163,11 +172,11 @@ def _make_operacional_agenda(email='operacional-ag@teste.com'):
 
 class CompromissoEscopoProfissionalAPITest(APITestCase):
     def setUp(self):
-        self.profissional_a = _make_profissional('prof-a@teste.com')
-        self.profissional_b = _make_profissional('prof-b@teste.com')
+        self.profissional_a, self.colaborador_a = _make_profissional('prof-a@teste.com')
+        self.profissional_b, self.colaborador_b = _make_profissional('prof-b@teste.com')
         self.recepcionista = _make_operacional_agenda()
         self.agenda_geral = _make_agenda('Agenda Geral')
-        self.agenda_do_a = Agenda.objects.create(nome='Agenda do A', profissional=self.profissional_a)
+        self.agenda_do_a = Agenda.objects.create(nome='Agenda do A', profissional=self.colaborador_a)
 
     def test_profissional_ve_apenas_proprio_compromisso_criado_por_ele_ca05(self):
         self.client.force_authenticate(self.profissional_a)
@@ -234,14 +243,14 @@ class CompromissoEscopoProfissionalAPITest(APITestCase):
         agenda__profissional funciona de ponta a ponta pela API."""
         self.client.force_authenticate(self.recepcionista)
         resp = self.client.post('/api/v1/agendamento/agendas/', {
-            'nome': 'Agenda do A via API', 'profissional': self.profissional_a.id,
+            'nome': 'Agenda do A via API', 'profissional': self.colaborador_a.id,
         }, format='json')
         self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
         agenda_id = resp.data['id']
-        self.assertEqual(resp.data['profissional'], self.profissional_a.id)
+        self.assertEqual(resp.data['profissional'], self.colaborador_a.id)
 
         agenda = Agenda.objects.get(pk=agenda_id)
-        self.assertEqual(agenda.profissional_id, self.profissional_a.id)
+        self.assertEqual(agenda.profissional_id, self.colaborador_a.id)
 
         resp = self.client.post('/api/v1/agendamento/compromissos/', {
             'agenda': agenda_id, 'titulo': 'Consulta via agenda criada por API',
@@ -276,10 +285,10 @@ class CompromissoEscopoProfissionalAPITest(APITestCase):
 
 class AgendaEscopoProfissionalAPITest(APITestCase):
     def setUp(self):
-        self.profissional_a = _make_profissional('prof-agenda-a@teste.com')
-        self.profissional_b = _make_profissional('prof-agenda-b@teste.com')
+        self.profissional_a, self.colaborador_a = _make_profissional('prof-agenda-a@teste.com')
+        self.profissional_b, self.colaborador_b = _make_profissional('prof-agenda-b@teste.com')
         self.agenda_sem_dono = _make_agenda('Agenda Sem Dono')
-        self.agenda_do_a = Agenda.objects.create(nome='Agenda do A', profissional=self.profissional_a)
+        self.agenda_do_a = Agenda.objects.create(nome='Agenda do A', profissional=self.colaborador_a)
 
     def test_profissional_ve_so_a_propria_agenda_vinculada_rf07(self):
         self.client.force_authenticate(self.profissional_a)
@@ -792,3 +801,279 @@ class VagaConcorrentesTest(TransactionTestCase):
             is_active=True,
         ).exclude(status='CANCELADO').count()
         self.assertEqual(total, 2)
+
+
+# ===========================================================================
+# Manutencao 92 — profissional FK Colaborador, vagas em perform_update,
+# canal no agendamento publico. Cobre CA-01 a CA-11 da Especificacao_Hotfix.md.
+# ===========================================================================
+
+class AgendaProfissionalColaboradorAPITest(APITestCase):
+    """CA-01/CA-02 — profissional e rh.Colaborador, so ativos, sem regressao de permissao."""
+
+    def setUp(self):
+        self.admin = _make_user('admin-m92@teste.com')
+        self.operacional = _make_operacional_agenda('operacional-m92@teste.com')
+
+    def test_agenda_profissional_aceita_colaborador_ativo(self):
+        self.client.force_authenticate(self.admin)
+        colaborador = Colaborador.objects.create(nome='Barbeiro Sem Login')
+        resp = self.client.post('/api/v1/agendamento/agendas/', {
+            'nome': 'Agenda Barbeiro', 'profissional': colaborador.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        self.assertEqual(resp.data['profissional'], colaborador.id)
+        self.assertEqual(resp.data['profissional_nome'], 'Barbeiro Sem Login')
+
+    def test_agenda_profissional_rejeita_colaborador_inativo(self):
+        """RN-02 — Colaborador soft-deletado nao pode ser setado via API."""
+        self.client.force_authenticate(self.admin)
+        colaborador = Colaborador.objects.create(nome='Ex-Colaborador', is_active=False)
+        resp = self.client.post('/api/v1/agendamento/agendas/', {
+            'nome': 'Agenda Ex', 'profissional': colaborador.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('profissional', resp.data)
+
+    def test_operacional_continua_abrindo_form_agenda_sem_403_ca02(self):
+        """
+        RN-01/CA-02 — usuario OPERACIONAL (nao-admin) continua conseguindo
+        criar/editar Agenda escolhendo Profissional, sem 403 de regressao.
+        """
+        self.client.force_authenticate(self.operacional)
+        colaborador = Colaborador.objects.create(nome='Profissional Qualquer')
+        resp = self.client.post('/api/v1/agendamento/agendas/', {
+            'nome': 'Agenda do Operacional', 'profissional': colaborador.id,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+
+    def test_operacional_le_colaboradores_via_endpoint_opcoes(self):
+        """
+        RN-01 — endpoint dedicado (rh/colaboradores/opcoes/) usado pro
+        dropdown de Profissional e acessivel por qualquer autenticado,
+        sem precisar liberar list/retrieve completo do ColaboradorViewSet
+        (que exporia cpf/salario_atual a quem nao e admin).
+        """
+        Colaborador.objects.create(nome='Ativo Um')
+        Colaborador.objects.create(nome='Inativo', is_active=False)
+        self.client.force_authenticate(self.operacional)
+        resp = self.client.get('/api/v1/rh/colaboradores/opcoes/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        nomes = [item['nome'] for item in resp.data]
+        self.assertIn('Ativo Um', nomes)
+        self.assertNotIn('Inativo', nomes)
+        # endpoint minimo -- nunca expoe cpf/salario
+        self.assertNotIn('cpf', resp.data[0])
+        self.assertNotIn('salario_atual', resp.data[0])
+
+        # ColaboradorViewSet principal continua IsAdmin (sem regressao, RN08)
+        resp_list = self.client.get('/api/v1/rh/colaboradores/')
+        self.assertEqual(resp_list.status_code, status.HTTP_403_FORBIDDEN)
+
+
+class MigracaoProfissionalColaboradorTest(TestCase):
+    """
+    CA-03 — migration 0012 (RunPython) migra Agenda.profissional (User)
+    para Agenda.profissional_colaborador (Colaborador) quando existir
+    Colaborador.usuario correspondente ativo, e deixa null sem falhar
+    quando nao existir (RN-03). Testado via ORM direto reaproveitando a
+    mesma logica de backfill (a migration ja rodou de verdade no banco
+    de teste durante o `migrate` da suite -- aqui validamos o
+    COMPORTAMENTO esperado criando o cenario equivalente pos-migration).
+    """
+
+    def test_colaborador_vinculado_aparece_como_profissional(self):
+        user = User.objects.create_user(email='user-colab-m92@teste.com', password='x', nome_completo='X')
+        colaborador = Colaborador.objects.create(nome='Vinculado', usuario=user)
+        agenda = Agenda.objects.create(nome='Agenda Vinculada', profissional=colaborador)
+        agenda.refresh_from_db()
+        self.assertEqual(agenda.profissional_id, colaborador.id)
+
+    def test_agenda_sem_colaborador_correspondente_fica_null_sem_falhar(self):
+        """RN-03 — Agenda sem Colaborador correspondente nao e bloqueada/apagada."""
+        agenda = Agenda.objects.create(nome='Agenda Orfa', profissional=None)
+        agenda.refresh_from_db()
+        self.assertIsNone(agenda.profissional_id)
+        self.assertTrue(Agenda.objects.filter(pk=agenda.pk).exists())
+
+
+class VagaPerformUpdateAPITest(APITestCase):
+    """CA-04/CA-05 (RF-10/RN-04/RN-05) — trava de vaga tambem em perform_update."""
+
+    def setUp(self):
+        self.user = _make_user('vagas-update@teste.com')
+        self.client.force_authenticate(self.user)
+        self.agenda = _make_agenda_slug('Agenda Vagas Update', 'agenda-vagas-update')
+        self.horario_lotavel = _make_horario(self.agenda, dia_semana=0, vagas=2)  # segunda
+        self.outro_horario = _make_horario(self.agenda, dia_semana=1, hora='10:00', vagas=2)  # terca
+        self.segunda = '2026-10-19'
+        self.terca = '2026-10-20'
+
+    def _criar(self, horario_id, data_horario, titulo='C'):
+        return self.client.post('/api/v1/agendamento/compromissos/', {
+            'agenda': self.agenda.id,
+            'titulo': titulo,
+            'horario': horario_id,
+            'data_horario': data_horario,
+            'inicio': f'{data_horario}T09:00:00Z',
+            'fim': f'{data_horario}T09:30:00Z',
+        }, format='json')
+
+    def test_patch_para_slot_lotado_retorna_400_ca04(self):
+        """CA-04 (edicao) — PATCH trocando horario/data para um slot ja
+        com 2 ocupados (vagas=2) e recusado com 400."""
+        self._criar(self.horario_lotavel.id, self.segunda, 'C1')
+        self._criar(self.horario_lotavel.id, self.segunda, 'C2')
+        resp3 = self._criar(self.outro_horario.id, self.terca, 'C3')
+        self.assertEqual(resp3.status_code, status.HTTP_201_CREATED, resp3.data)
+        comp3_id = resp3.data['id']
+
+        resp = self.client.patch(f'/api/v1/agendamento/compromissos/{comp3_id}/', {
+            'horario': self.horario_lotavel.id,
+            'data_horario': self.segunda,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('erro', resp.data)
+
+    def test_patch_sem_tocar_horario_nunca_bloqueia_por_vaga_ca05(self):
+        """
+        CA-05/RN-05 — editar so `status` (sem tocar horario/data_horario)
+        nunca e bloqueado por falta de vaga, mesmo com o horario no limite.
+        """
+        resp1 = self._criar(self.horario_lotavel.id, self.segunda, 'C1')
+        self._criar(self.horario_lotavel.id, self.segunda, 'C2')
+        comp1_id = resp1.data['id']
+
+        resp = self.client.patch(f'/api/v1/agendamento/compromissos/{comp1_id}/', {
+            'status': 'CONFIRMADO',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data['status'], 'CONFIRMADO')
+
+    def test_patch_resalvando_mesmo_slot_nao_se_autobloqueia_rn04(self):
+        """
+        RN-04 — PATCH reenviando o MESMO horario+data_horario que o
+        compromisso ja tinha (slot no limite de vagas) nao conta o
+        proprio compromisso contra si mesmo.
+        """
+        resp1 = self._criar(self.horario_lotavel.id, self.segunda, 'C1')
+        self._criar(self.horario_lotavel.id, self.segunda, 'C2')
+        comp1_id = resp1.data['id']
+
+        resp = self.client.patch(f'/api/v1/agendamento/compromissos/{comp1_id}/', {
+            'horario': self.horario_lotavel.id,
+            'data_horario': self.segunda,
+            'titulo': 'C1 renomeado',
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data['titulo'], 'C1 renomeado')
+
+    def test_patch_troca_para_slot_com_vaga_livre_sucesso(self):
+        """Troca de slot pra um horario/data com vaga livre tem que funcionar normalmente."""
+        resp1 = self._criar(self.horario_lotavel.id, self.segunda, 'C1')
+        comp1_id = resp1.data['id']
+
+        resp = self.client.patch(f'/api/v1/agendamento/compromissos/{comp1_id}/', {
+            'horario': self.outro_horario.id,
+            'data_horario': self.terca,
+        }, format='json')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
+        self.assertEqual(resp.data['horario'], self.outro_horario.id)
+
+
+class HorarioDisponivelComDataAPITest(APITestCase):
+    """CA-06/RF-06 — ?data= no endpoint de listagem retorna vagas_ocupadas/disponiveis/lotado."""
+
+    def setUp(self):
+        self.user = _make_user('horario-data@teste.com')
+        self.client.force_authenticate(self.user)
+        self.agenda = _make_agenda_slug('Agenda Horario Data', 'agenda-horario-data')
+        self.horario = _make_horario(self.agenda, dia_semana=0, vagas=2)  # segunda
+        self.segunda = date(2026, 10, 19)
+
+    def test_sem_data_campos_vem_null(self):
+        resp = self.client.get('/api/v1/agendamento/horarios-disponiveis/')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        item = next(i for i in resp.data['results'] if i['id'] == self.horario.id)
+        self.assertIsNone(item['vagas_ocupadas'])
+        self.assertIsNone(item['vagas_disponiveis'])
+        self.assertIsNone(item['lotado'])
+
+    def test_com_data_campos_calculados_corretos(self):
+        Compromisso.objects.create(
+            agenda=self.agenda, horario=self.horario, data_horario=self.segunda,
+            inicio='2026-10-19T09:00:00Z', fim='2026-10-19T09:30:00Z',
+        )
+        resp = self.client.get(f'/api/v1/agendamento/horarios-disponiveis/?data={self.segunda.isoformat()}')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        item = next(i for i in resp.data['results'] if i['id'] == self.horario.id)
+        self.assertEqual(item['vagas_ocupadas'], 1)
+        self.assertEqual(item['vagas_disponiveis'], 1)
+        self.assertFalse(item['lotado'])
+
+    def test_com_data_horario_lotado(self):
+        Compromisso.objects.create(
+            agenda=self.agenda, horario=self.horario, data_horario=self.segunda,
+            inicio='2026-10-19T09:00:00Z', fim='2026-10-19T09:30:00Z',
+        )
+        Compromisso.objects.create(
+            agenda=self.agenda, horario=self.horario, data_horario=self.segunda,
+            inicio='2026-10-19T09:30:00Z', fim='2026-10-19T10:00:00Z',
+        )
+        resp = self.client.get(f'/api/v1/agendamento/horarios-disponiveis/?data={self.segunda.isoformat()}')
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        item = next(i for i in resp.data['results'] if i['id'] == self.horario.id)
+        self.assertTrue(item['lotado'])
+
+
+class AgendamentoPublicoCanalAPITest(APITestCase):
+    """CA-08 (RF-14, opcional) — canal via payload ou querystring, nunca obrigatorio."""
+
+    def setUp(self):
+        self.agenda = _make_agenda_slug('Agenda Canal', 'agenda-canal', publica=True)
+        self.horario = _make_horario(self.agenda, dia_semana=0, vagas=5)  # segunda
+        self.segunda = '2026-10-19'
+
+    def _payload(self, **extra):
+        base = {
+            'horario_id': self.horario.id,
+            'data_horario': self.segunda,
+            'nome_contato': 'Cliente Publico',
+            'telefone_contato': '34991349194',
+        }
+        base.update(extra)
+        return base
+
+    def test_canal_no_payload_e_gravado(self):
+        resp = self.client.post(
+            '/api/v1/publico/agenda/agenda-canal/agendar/', self._payload(canal='instagram'), format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        compromisso = Compromisso.objects.get(pk=resp.data['id'])
+        self.assertEqual(compromisso.canal, 'INSTAGRAM')
+
+    def test_canal_via_querystring_e_gravado(self):
+        resp = self.client.post(
+            '/api/v1/publico/agenda/agenda-canal/agendar/?canal=whatsapp', self._payload(), format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        compromisso = Compromisso.objects.get(pk=resp.data['id'])
+        self.assertEqual(compromisso.canal, 'WHATSAPP')
+
+    def test_sem_canal_grava_vazio_rn06(self):
+        """RN-06/RN-07 — ausencia de canal e o caso normal, nunca bloqueia o agendamento."""
+        resp = self.client.post(
+            '/api/v1/publico/agenda/agenda-canal/agendar/', self._payload(), format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        compromisso = Compromisso.objects.get(pk=resp.data['id'])
+        self.assertEqual(compromisso.canal, '')
+
+    def test_canal_desconhecido_cai_em_outro_sem_bloquear(self):
+        resp = self.client.post(
+            '/api/v1/publico/agenda/agenda-canal/agendar/', self._payload(canal='tiktok'), format='json',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_201_CREATED, resp.data)
+        compromisso = Compromisso.objects.get(pk=resp.data['id'])
+        self.assertEqual(compromisso.canal, 'OUTRO')

@@ -5,17 +5,26 @@ from django.utils.text import slugify
 from rest_framework import serializers
 
 from common.serializers import AuditFieldsMixin
+from rh.models import Colaborador
 
 from .models import (
-    Agenda, Compromisso, DiaSemana, HorarioDisponivel,
+    Agenda, CanalCompromisso, Compromisso, DiaSemana, HorarioDisponivel,
     OrigemCompromisso, StatusCompromisso,
 )
+from .services import contar_ocupacao
 
 
 class AgendaSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     id = serializers.IntegerField(source='pk', read_only=True)
-    profissional_nome = serializers.CharField(
-        source='profissional.nome_completo', read_only=True, allow_null=True,
+    profissional_nome = serializers.CharField(               # Manutencao 92 (RF-04) — antes profissional.nome_completo (User)
+        source='profissional.nome', read_only=True, allow_null=True,
+    )
+    # Manutencao 92 (RN-02) — restringe explicitamente a Colaborador ativo:
+    # o manager padrao de Colaborador (BaseModelManager) so filtra
+    # deleted_at__isnull=True, nao garante is_active=True sozinho.
+    profissional = serializers.PrimaryKeyRelatedField(
+        queryset=Colaborador.objects.filter(is_active=True),
+        required=False, allow_null=True,
     )
 
     class Meta:
@@ -58,6 +67,11 @@ class HorarioDisponivelSerializer(AuditFieldsMixin, serializers.ModelSerializer)
     dia_semana_label = serializers.CharField(
         source='get_dia_semana_display', read_only=True,
     )
+    # Manutencao 92 (RF-06) — so calculados quando a request trouxer ?data=;
+    # sem o parametro, vem null (comportamento atual preservado).
+    vagas_ocupadas    = serializers.SerializerMethodField(read_only=True)
+    vagas_disponiveis = serializers.SerializerMethodField(read_only=True)
+    lotado            = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = HorarioDisponivel
@@ -65,8 +79,41 @@ class HorarioDisponivelSerializer(AuditFieldsMixin, serializers.ModelSerializer)
             'id', 'agenda', 'agenda_nome', 'dia_semana', 'dia_semana_label',
             'hora_inicio', 'duracao_minutos', 'vagas', 'servico', 'publico',
             'ativo', 'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
+            'vagas_ocupadas', 'vagas_disponiveis', 'lotado',
         ]
         read_only_fields = ['id', 'agenda_nome', 'dia_semana_label', 'created_at']
+
+    def _data_contexto(self):
+        request = self.context.get('request')
+        if not request:
+            return None
+        data_str = request.query_params.get('data')
+        if not data_str:
+            return None
+        try:
+            return date.fromisoformat(data_str)
+        except ValueError:
+            return None
+
+    def get_vagas_ocupadas(self, obj):
+        data = self._data_contexto()
+        if not data:
+            return None
+        ocupados, _ = contar_ocupacao(obj, data)
+        return ocupados
+
+    def get_vagas_disponiveis(self, obj):
+        data = self._data_contexto()
+        if not data:
+            return None
+        _, disponiveis = contar_ocupacao(obj, data)
+        return disponiveis
+
+    def get_lotado(self, obj):
+        disp = self.get_vagas_disponiveis(obj)
+        if disp is None:
+            return None
+        return disp <= 0
 
     def validate(self, attrs):
         duracao = attrs.get('duracao_minutos', getattr(self.instance, 'duracao_minutos', None))
@@ -98,7 +145,7 @@ class CompromissoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
             'inicio', 'fim', 'local', 'cliente', 'cliente_nome',
             'status', 'status_label', 'observacoes',
             'horario', 'horario_servico', 'data_horario',
-            'origem', 'origem_label',
+            'origem', 'origem_label', 'canal',
             'nome_contato', 'telefone_contato', 'email_contato',
             'vagas_restantes',
             'is_active', 'created_at', 'created_by_nome', 'updated_by_nome',
@@ -111,12 +158,11 @@ class CompromissoSerializer(AuditFieldsMixin, serializers.ModelSerializer):
     def get_vagas_restantes(self, obj):
         if not obj.horario_id or not obj.data_horario:
             return None
-        ocupados = Compromisso.objects.filter(
-            horario_id=obj.horario_id,
-            data_horario=obj.data_horario,
-            is_active=True,
-        ).exclude(status=StatusCompromisso.CANCELADO).count()
-        return max(0, obj.horario.vagas - ocupados)
+        # Manutencao 92 (RF-09) — usa a funcao centralizada em services.py.
+        # excluir_pk=obj.pk: o proprio compromisso ja existente nao deve
+        # contar contra si mesmo (mesmo raciocinio do RN-04).
+        _, disponiveis = contar_ocupacao(obj.horario, obj.data_horario, excluir_pk=obj.pk)
+        return disponiveis
 
     def validate(self, attrs):
         fim = attrs.get('fim')
@@ -181,6 +227,13 @@ class AgendamentoPublicoSerializer(serializers.Serializer):
     nome_contato     = serializers.CharField(max_length=255)
     telefone_contato = serializers.CharField(max_length=20)
     email_contato    = serializers.EmailField(required=False, allow_blank=True, default='')
+    # Manutencao 92 (RF-14, opcional) — rotulo informativo (RN-06), nunca obrigatorio (RN-06/RN-07).
+    # CharField (nao ChoiceField) de proposito: a normalizacao/validacao de
+    # valor reconhecido roda em validate_canal() pra aceitar case-insensitive
+    # e cair em OUTRO sem rejeitar o agendamento por um canal desconhecido.
+    canal = serializers.CharField(
+        max_length=10, required=False, allow_blank=True, default='',
+    )
 
     # Guardado pelo validate() para reuso na view sem novo lookup
     _horario_obj = None
@@ -192,6 +245,22 @@ class AgendamentoPublicoSerializer(serializers.Serializer):
                 'Telefone deve conter no mínimo 8 dígitos.'
             )
         return value
+
+    def validate_canal(self, value):
+        """
+        Manutencao 92 (RF-14, RN-06) — rotulo informativo, aceito
+        case-insensitive (a pagina publica le o valor direto da
+        querystring, ex. ?canal=instagram, minusculo). Valor nao
+        reconhecido cai em OUTRO em vez de rejeitar o agendamento --
+        canal e so informativo, nunca deve bloquear o fluxo principal.
+        """
+        if not value:
+            return ''
+        valor_normalizado = value.strip().upper()
+        valores_validos = [c for c, _ in CanalCompromisso.choices]
+        if valor_normalizado not in valores_validos:
+            return CanalCompromisso.OUTRO
+        return valor_normalizado
 
     def validate(self, attrs):
         slug = self.context.get('slug')

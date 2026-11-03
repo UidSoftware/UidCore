@@ -1,6 +1,9 @@
 from django.db import transaction
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.filters import SearchFilter, OrderingFilter
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 from django_filters.rest_framework import DjangoFilterBackend
 
@@ -30,6 +33,31 @@ class ColaboradorViewSet(AuditMixin, ModelViewSet):
     filterset_fields = ['cargo', 'regime']
     search_fields = ['nome', 'cpf', 'email']
     ordering_fields = ['nome', 'data_admissao']
+
+    @action(detail=False, methods=['get'], url_path='opcoes', permission_classes=[IsAuthenticated])
+    def opcoes(self, request):
+        """
+        RN-01 (Manutencao 92) — a tela de Agenda (gerenciada livremente por
+        OPERACIONAL/MARKETING desde a Manutencao 63) passou a buscar
+        "Profissional responsável" em rh.Colaborador. Em vez de liberar
+        list/retrieve da ViewSet inteira pra qualquer autenticado (o que
+        exporia cpf/salario_atual/data_admissao/observacoes via
+        ColaboradorSerializer completo -- regressao de dado sensivel real,
+        nao so hipotetica), esta action dedicada devolve so o minimo
+        necessario pro dropdown (id + nome), sempre filtrando is_active=True
+        (RN-02/RF-03). ColaboradorViewSet principal continua IsAdmin em
+        tudo (list/retrieve/create/update/destroy) -- RN08 (Manutencao #54)
+        sem nenhuma mudanca.
+
+        O `permission_classes` do decorator aqui tem efeito de verdade
+        porque esta classe NAO sobrescreve get_permissions() -- se algum
+        dia sobrescrever, o override precisa checar `self.action ==
+        'opcoes'` explicitamente, senao o kwarg do decorator e ignorado
+        (mesma armadilha documentada no CLAUDE.md global).
+        """
+        qs = Colaborador.objects.filter(is_active=True).order_by('nome')
+        dados = [{'id': c.pk, 'nome': c.nome} for c in qs]
+        return Response(dados)
 
     def _validar_criar_usuario(self, email_fallback):
         """
