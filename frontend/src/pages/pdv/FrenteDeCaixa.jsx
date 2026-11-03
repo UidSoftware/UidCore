@@ -63,6 +63,15 @@ export default function FrenteDeCaixa() {
   const [seletorUnidade, setSeletorUnidade] = useState(null) // { produto, rect, unidade }
   const seletorRef = useRef(null)
 
+  // Manutencao 91: ItemVendaSerializer nao expoe produto_tipo no item do
+  // carrinho (so produto_nome/produto_codigo_barras) — guarda o tipo de
+  // cada produto visto nos resultados de busca pra decidir, so na UI, se
+  // a linha do carrinho deve esconder a unidade (RF-11/UI spec).
+  const produtoTipoRef = useRef({})
+  const registrarTiposProdutos = (lista) => {
+    lista.forEach((p) => { produtoTipoRef.current[p.id] = p.tipo })
+  }
+
   const mostrarToast = (msg, tipo = 'success') => {
     setToast({ msg, tipo })
     setTimeout(() => setToast(null), tipo === 'error' ? 7000 : 3500)
@@ -133,7 +142,9 @@ export default function FrenteDeCaixa() {
       setBuscando(true)
       try {
         const { data } = await api.get(`/produtos/?search=${encodeURIComponent(busca)}&page_size=10`)
-        setResultadosBusca(data.results || data || [])
+        const lista = data.results || data || []
+        registrarTiposProdutos(lista)
+        setResultadosBusca(lista)
       } catch {
         setResultadosBusca([])
       } finally {
@@ -244,6 +255,7 @@ export default function FrenteDeCaixa() {
     try {
       const { data } = await api.get(`/produtos/?search=${encodeURIComponent(termo)}&page_size=10`)
       const lista = data.results || data || []
+      registrarTiposProdutos(lista)
       setResultadosBusca(lista)
       const exatos = lista.filter((p) => p.codigo_barras === termo)
       if (exatos.length === 1) {
@@ -266,6 +278,7 @@ export default function FrenteDeCaixa() {
     try {
       const { data } = await api.get(`/produtos/?search=${encodeURIComponent(codigo)}&page_size=10`)
       const lista = data.results || data || []
+      registrarTiposProdutos(lista)
       setResultadosBusca(lista)
       const exatos = lista.filter((p) => p.codigo_barras === codigo)
       if (exatos.length === 1) {
@@ -474,7 +487,7 @@ export default function FrenteDeCaixa() {
                       onClick={(e) => handleClickProduto(p, e)}
                       className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 border-b border-gray-100 last:border-0 text-left transition-colors dark:hover:bg-navy-700 dark:border-navy-700"
                     >
-                      <div className={parseFloat(p.quantidade_estoque || 0) <= 0 ? 'opacity-50' : ''}>
+                      <div className={p.tipo !== 'SERVICO' && parseFloat(p.quantidade_estoque || 0) <= 0 ? 'opacity-50' : ''}>
                         <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{p.nome}</p>
                         {p.codigo_barras && (
                           <p className="text-xs text-gray-400 dark:text-slate-500">{p.codigo_barras}</p>
@@ -482,7 +495,11 @@ export default function FrenteDeCaixa() {
                       </div>
                       <div className="text-right shrink-0 ml-3">
                         <p className="text-sm font-mono font-medium text-gray-900 dark:text-slate-100">{BRL(p.preco_venda)}</p>
-                        {parseFloat(p.quantidade_estoque || 0) <= 0 ? (
+                        {p.tipo === 'SERVICO' ? (
+                          <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-primary-100 text-primary-700 dark:bg-violet-900/30 dark:text-violet-300">
+                            Serviço
+                          </span>
+                        ) : parseFloat(p.quantidade_estoque || 0) <= 0 ? (
                           <span className="px-1.5 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300">
                             Sem estoque
                           </span>
@@ -510,6 +527,7 @@ export default function FrenteDeCaixa() {
                   <CarrinhoItem
                     key={item.id}
                     item={item}
+                    servico={produtoTipoRef.current[item.produto] === 'SERVICO'}
                     onQuantidade={handleQuantidade}
                     onRemover={handleRemover}
                     disabled={salvandoItem}

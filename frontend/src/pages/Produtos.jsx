@@ -101,7 +101,21 @@ function ordenarConversoesPorDependencia(lista) {
 const EMPTY_COMBO_FORM = { nome: '', descricao: '' }
 const EMPTY_COMBO_ITEM = { produto: '', quantidade: '1', valor_unitario: '' }
 
+// Manutencao 91: tipo PRODUTO|SERVICO dentro do mesmo model Produto — ver
+// Especificacao_Hotfix.md RF-09/RF-10 e Especificacao_UI_Hotfix.md.
+const TIPO_TABS = [
+  { key: '', label: 'Todos' },
+  { key: 'PRODUTO', label: 'Produtos' },
+  { key: 'SERVICO', label: 'Serviços' },
+]
+
+const TIPO_ITEM_OPTIONS = [
+  { value: 'PRODUTO', label: 'Produto' },
+  { value: 'SERVICO', label: 'Serviço' },
+]
+
 const EMPTY_FORM = {
+  tipo: 'PRODUTO',
   nome: '',
   codigo_barras: '',
   unidade_base: 'UN',
@@ -112,6 +126,8 @@ const EMPTY_FORM = {
   valor_unitario: '',
   preco_venda: '',
   observacoes: '',
+  duracao_minutos: '',
+  categoria_financeira_entrada: '',
 }
 
 export default function Produtos() {
@@ -120,6 +136,9 @@ export default function Produtos() {
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
+  // Manutencao 91/RF-10: aba Todos | Produtos | Servicos — '' = Todos
+  const [filtroTipo, setFiltroTipo] = useState('')
+  const [categoriasEntrada, setCategoriasEntrada] = useState([])
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(EMPTY_FORM)
   const [editingId, setEditingId] = useState(null)
@@ -156,7 +175,13 @@ export default function Produtos() {
     setLoading(true)
     try {
       const response = await api.get('/produtos/', {
-        params: { search, page, page_size: PAGE_SIZE },
+        params: {
+          search,
+          page,
+          page_size: PAGE_SIZE,
+          // RF-04/RF-10: sem filtroTipo (aba "Todos"), nao envia o param
+          ...(filtroTipo ? { tipo: filtroTipo } : {}),
+        },
       })
       setProdutos(response.data.results)
       const count = response.data.count
@@ -166,11 +191,27 @@ export default function Produtos() {
     } finally {
       setLoading(false)
     }
-  }, [search, page])
+  }, [search, page, filtroTipo])
 
   useEffect(() => {
     fetchProdutos()
   }, [fetchProdutos])
+
+  // RF-09 (Spec Frontend): categoria financeira de entrada, usada so no form
+  // de Servico — carregada 1x ao montar a pagina.
+  useEffect(() => {
+    api.get('/financeiro/categorias/', { params: { tipo: 'ENTRADA', page_size: 200 } })
+      .then((r) => {
+        const list = (r.data.results || r.data || []).map((c) => ({ value: c.id, label: c.nome }))
+        setCategoriasEntrada(list)
+      })
+      .catch(() => {})
+  }, [])
+
+  const handleFiltroTipoChange = (tipo) => {
+    setFiltroTipo(tipo)
+    setPage(1)
+  }
 
   // Combos (RF-05)
   const fetchCombos = useCallback(async () => {
@@ -326,6 +367,7 @@ export default function Produtos() {
 
   const openEdit = async (produto) => {
     setForm({
+      tipo: produto.tipo || 'PRODUTO',
       nome: produto.nome || '',
       codigo_barras: produto.codigo_barras || '',
       unidade_base: produto.unidade_base || 'UN',
@@ -336,6 +378,8 @@ export default function Produtos() {
       valor_unitario: produto.valor_unitario || '',
       preco_venda: produto.preco_venda || '',
       observacoes: produto.observacoes || '',
+      duracao_minutos: produto.duracao_minutos ?? '',
+      categoria_financeira_entrada: produto.categoria_financeira_entrada || '',
     })
     setEditingId(produto.id)
     setConversoes([])
@@ -344,6 +388,10 @@ export default function Produtos() {
     setErroMotivo(false)
     conversoesSnapshotRef.current = {}
     setModalOpen(true)
+
+    // RF-05/RN-08: Servico nao tem conversoes nem movimentos (backend
+    // bloqueia os dois com 400) — nao ha motivo pra chamar esses endpoints.
+    if (produto.tipo === 'SERVICO') return
 
     // Carregar conversoes e movimentos em paralelo
     setLoadingMovimentos(true)
@@ -418,15 +466,27 @@ export default function Produtos() {
     e.preventDefault()
     setSaving(true)
     try {
-      const payload = stripEmptyStrings(form)
+      // Manutencao 91 (Spec Frontend): Servico nao envia campos exclusivos de
+      // Produto (codigo_barras/unidade_base/estoque/custo) — o backend ja
+      // ignora/zera (RN-01), mas evitar poluir o payload e mais limpo.
+      const payload = form.tipo === 'SERVICO'
+        ? stripEmptyStrings({
+            tipo: form.tipo,
+            nome: form.nome,
+            preco_venda: form.preco_venda,
+            observacoes: form.observacoes,
+            duracao_minutos: form.duracao_minutos,
+            categoria_financeira_entrada: form.categoria_financeira_entrada,
+          })
+        : stripEmptyStrings(form)
       let produtoId = editingId
       if (editingId) {
         await api.patch(`/produtos/${editingId}/`, payload)
-        showToast('Produto atualizado com sucesso.')
+        showToast(form.tipo === 'SERVICO' ? 'Serviço atualizado com sucesso.' : 'Produto atualizado com sucesso.')
       } else {
         const r = await api.post('/produtos/', payload)
         produtoId = r.data.id
-        showToast('Produto cadastrado com sucesso.')
+        showToast(form.tipo === 'SERVICO' ? 'Serviço cadastrado com sucesso.' : 'Produto cadastrado com sucesso.')
       }
       // Salvar conversoes — POST das novas, PATCH das existentes que mudaram (RF-02)
       // RF-02/RN-03: ordena por dependencia topologica antes de salvar, para
@@ -434,7 +494,9 @@ export default function Produtos() {
       // ambas ainda sem id) seja persistida na ordem correta independente
       // de como foram criadas na tela. Se houver ciclo, aborta so a secao de
       // conversoes (o produto principal ja foi salvo acima) e avisa o usuario.
-      if (produtoId) {
+      // RF-05/RN-08: Servico nao tem conversoes (endpoint bloqueado com 400
+      // no backend) — pula a secao inteira para esse tipo.
+      if (produtoId && form.tipo !== 'SERVICO') {
         let conversoesOrdenadas
         try {
           conversoesOrdenadas = ordenarConversoesPorDependencia(
@@ -580,7 +642,7 @@ export default function Produtos() {
           <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Produtos</h1>
           <p className="text-sm text-gray-500 dark:text-slate-400 mt-0.5">Gestao de estoque e catalogo de produtos</p>
         </div>
-        <Button onClick={openNew}>+ Novo Produto</Button>
+        <Button onClick={openNew}>+ Novo Item</Button>
       </div>
 
       {/* Search */}
@@ -591,6 +653,24 @@ export default function Produtos() {
           onChange={handleSearchChange}
         />
       </Card>
+
+      {/* Abas Todos | Produtos | Servicos (Manutencao 91/RF-10) */}
+      <div className="flex gap-1 overflow-x-auto pb-1">
+        {TIPO_TABS.map((t) => (
+          <button
+            key={t.key || 'todos'}
+            type="button"
+            onClick={() => handleFiltroTipoChange(t.key)}
+            className={`px-4 py-2 text-sm font-medium rounded-lg whitespace-nowrap transition-colors ${
+              filtroTipo === t.key
+                ? 'bg-primary-600 text-white dark:bg-violet-600'
+                : 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200 dark:bg-navy-800 dark:text-slate-400 dark:hover:bg-navy-700 dark:border-navy-600'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
 
       {/* Content */}
       {loading ? (
@@ -613,16 +693,25 @@ export default function Produtos() {
                       <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">{p.codigo_barras}</p>
                     )}
                   </div>
-                  <span className={`shrink-0 text-xs rounded-full px-2 py-0.5 font-medium ${
-                    p.is_active ? 'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400'
-                  }`}>
-                    {p.is_active ? 'Ativo' : 'Inativo'}
-                  </span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                      p.tipo === 'SERVICO' ? 'bg-primary-100 text-primary-700 dark:bg-violet-900/30 dark:text-violet-300' : 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400'
+                    }`}>
+                      {p.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}
+                    </span>
+                    <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                      p.is_active ? 'bg-green-100 text-green-700 dark:bg-emerald-900/30 dark:text-emerald-300' : 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400'
+                    }`}>
+                      {p.is_active ? 'Ativo' : 'Inativo'}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-gray-600 dark:text-slate-400">
                   <div>
                     <span className="text-gray-400 dark:text-slate-500">Estoque</span>
-                    <p className="font-medium text-gray-800 dark:text-slate-200">{p.quantidade_estoque || 0} {p.unidade_base}</p>
+                    <p className="font-medium text-gray-800 dark:text-slate-200">
+                      {p.tipo === 'SERVICO' ? '—' : `${p.quantidade_estoque || 0} ${p.unidade_base}`}
+                    </p>
                   </div>
                   <div>
                     <span className="text-gray-400 dark:text-slate-500">Preco Venda</span>
@@ -655,12 +744,17 @@ export default function Produtos() {
                   <tbody className="divide-y divide-gray-100 dark:divide-navy-700">
                     {produtos.map((p) => (
                       <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-navy-700/60 transition-colors">
-                        <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[200px] truncate dark:text-slate-100">
-                          {p.nome}
+                        <td className="px-6 py-3 font-medium text-gray-900 whitespace-nowrap max-w-[200px] dark:text-slate-100">
+                          <p className="truncate">{p.nome}</p>
+                          <span className={`text-xs rounded-full px-2 py-0.5 font-medium ${
+                            p.tipo === 'SERVICO' ? 'bg-primary-100 text-primary-700 dark:bg-violet-900/30 dark:text-violet-300' : 'bg-gray-100 text-gray-500 dark:bg-navy-700 dark:text-slate-400'
+                          }`}>
+                            {p.tipo === 'SERVICO' ? 'Serviço' : 'Produto'}
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">{p.codigo_barras || '—'}</td>
                         <td className="px-4 py-3 text-gray-600 whitespace-nowrap dark:text-slate-400">
-                          {p.quantidade_estoque || 0} {p.unidade_base}
+                          {p.tipo === 'SERVICO' ? '—' : `${p.quantidade_estoque || 0} ${p.unidade_base}`}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-gray-900 whitespace-nowrap dark:text-slate-100">
                           {BRL(p.preco_venda)}
@@ -802,11 +896,32 @@ export default function Produtos() {
       {/* Modal */}
       {modalOpen && (
         <Modal
-          title={editingId ? 'Editar Produto' : 'Novo Produto'}
+          title={editingId ? 'Editar Item' : 'Novo Item'}
           onClose={closeModal}
           maxW="max-w-2xl"
         >
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* Seletor Produto/Servico (Manutencao 91/RN-06: desabilitado na edicao) */}
+            <div className="flex gap-2">
+              {TIPO_ITEM_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  disabled={!!editingId}
+                  onClick={() => setForm((f) => ({ ...f, tipo: opt.value }))}
+                  className={`flex-1 px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                    form.tipo === opt.value
+                      ? 'bg-primary-600 text-white dark:bg-violet-600'
+                      : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50 dark:bg-navy-800 dark:text-slate-400 dark:border-navy-500 dark:hover:bg-navy-700'
+                  } disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
+            {form.tipo === 'PRODUTO' && (
+            <>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Input
                 label="Nome"
@@ -1158,6 +1273,63 @@ export default function Produtos() {
                 className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent dark:border-navy-500 dark:bg-navy-800 dark:text-slate-100 dark:placeholder-slate-500 dark:focus:ring-violet-500 transition-colors duration-150"
               />
             </div>
+            </>
+            )}
+
+            {/* Bloco Servico — RF-09/RF-02 (Manutencao 91): nome, descricao
+                (reaproveita observacoes), preco, duracao e categoria financeira
+                de entrada sugerida — sem estoque/unidade/custo/codigo de barras. */}
+            {form.tipo === 'SERVICO' && (
+            <>
+              <Input
+                label="Nome"
+                name="nome"
+                value={form.nome}
+                onChange={handleChange}
+                placeholder="Nome do serviço"
+                required
+              />
+
+              <Input
+                label="Descrição"
+                name="observacoes"
+                value={form.observacoes}
+                onChange={handleChange}
+                placeholder="Ex.: sessão de 50 minutos, inclui avaliação inicial"
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Preço de Venda"
+                  name="preco_venda"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={form.preco_venda}
+                  onChange={handleChange}
+                  placeholder="0,00"
+                  required
+                />
+                <Input
+                  label="Duração (minutos)"
+                  name="duracao_minutos"
+                  type="number"
+                  min="0"
+                  value={form.duracao_minutos}
+                  onChange={handleChange}
+                  placeholder="Opcional"
+                />
+              </div>
+
+              <Select
+                label="Categoria financeira de entrada"
+                name="categoria_financeira_entrada"
+                value={form.categoria_financeira_entrada}
+                onChange={handleChange}
+                options={[{ value: '', label: 'Sem categoria sugerida' }, ...categoriasEntrada]}
+              />
+            </>
+            )}
 
             {editingId && <AuditFooter item={produtos.find((p) => p.id === editingId)} />}
 
@@ -1166,7 +1338,7 @@ export default function Produtos() {
                 Cancelar
               </Button>
               <Button type="submit" loading={saving}>
-                {editingId ? 'Salvar Alteracoes' : 'Cadastrar Produto'}
+                {editingId ? 'Salvar Alteracoes' : 'Cadastrar Item'}
               </Button>
             </div>
           </form>

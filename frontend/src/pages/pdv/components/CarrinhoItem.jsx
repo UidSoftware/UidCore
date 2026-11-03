@@ -8,11 +8,15 @@ const BRL = (v) =>
  * Props:
  *   item: { id, produto_nome, unidade, quantidade, valor_unitario,
  *            desconto_item, valor_total }
+ *   servico — Manutencao 91: true quando o produto do item é tipo=SERVICO
+ *             (ItemVenda sempre grava uma unidade neutra pra satisfazer o
+ *             schema, mas ela nao tem efeito nenhum pra serviço — RN-05,
+ *             por isso a UI não mostra essa unidade nesse caso)
  *   onQuantidade(itemId, novaQtd)  — novaQtd = 0 remove o item
  *   onRemover(itemId)
  *   disabled — bloqueia edição (venda finalizada/cancelada)
  */
-export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled = false }) {
+export default function CarrinhoItem({ item, servico = false, onQuantidade, onRemover, disabled = false }) {
   const handleMinus = () => {
     const nova = parseFloat(item.quantidade) - 1
     if (nova <= 0) {
@@ -39,7 +43,7 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
         <div className="flex-1 min-w-0">
           <p className="text-sm font-medium text-gray-900 truncate dark:text-slate-100">{item.produto_nome}</p>
           <p className="text-xs text-gray-500 mt-0.5 dark:text-slate-400">
-            {BRL(item.valor_unitario)} / {item.unidade || 'UN'}
+            {servico ? BRL(item.valor_unitario) : `${BRL(item.valor_unitario)} / ${item.unidade || 'UN'}`}
           </p>
           {parseFloat(item.desconto_item || 0) > 0 && (
             <p className="text-xs text-gray-400 mt-0.5 dark:text-slate-500">
@@ -91,7 +95,9 @@ export default function CarrinhoItem({ item, onQuantidade, onRemover, disabled =
           >
             <Plus size={12} />
           </button>
-          <span className="text-xs text-gray-400 ml-1 dark:text-slate-500">{item.unidade || 'UN'}</span>
+          {!servico && (
+            <span className="text-xs text-gray-400 ml-1 dark:text-slate-500">{item.unidade || 'UN'}</span>
+          )}
         </div>
       )}
     </div>
