@@ -49,7 +49,10 @@ def executar_matching(conta, transacoes_banco, periodo):
             conta=conta,
             data__gte=primeiro_dia,
             data__lt=ultimo_dia,
-            estornado=False,
+            # Sem filtrar estornado: lancamento estornado passou de verdade pela
+            # conta e o extrato mostra as duas pontas. Filtrar deixa o par ja
+            # lancado como falso FALTANDO_SISTEMA (bug corrigido no SystemD em
+            # 28/09/2026). Regime de caixa, diferente de saldo/DRE.
         ).exclude(
             # RN-D01: um LivroCaixa ja conciliado (CONCILIADO) em uma execucao
             # anterior nunca pode ser vinculado a um novo ItemConciliacao.

@@ -4,6 +4,8 @@ from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from common.suporte import RelatarProblemaView
+
 urlpatterns = [
     path('admin/', admin.site.urls),
 
@@ -11,6 +13,7 @@ urlpatterns = [
     path('api/v1/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
     path('api/v1/accounts/', include('accounts.urls')),
+    path('api/v1/suporte/relatar-problema/', RelatarProblemaView.as_view(), name='relatar-problema'),
     path('api/v1/clientes/', include('clientes.urls')),
     path('api/v1/fornecedores/', include('fornecedores.urls')),
     path('api/v1/produtos/', include('produtos.urls')),

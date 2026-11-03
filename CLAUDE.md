@@ -102,6 +102,10 @@ só adicionar o campo no model.
 
 ---
 
+## Relatar problema -> Manutenção no SystemD
+
+`common/suporte.py` + botão "Problema" no Header. **Desligado por padrão:** só aparece com `SYSTEMD_API_KEY` no `.env.prod` (gerada no SystemD: `POST /api/os/{id}/gerar-api-key/`), com `up -d --force-recreate backend` depois. ⚠️ O texto do cliente vira Manutenção que o cron dispara sozinho: revisar esse ponto antes de ligar para cliente externo.
+
 ## Histórico de execuções
 
 ### [2026-11-03] — Manutenção #92 — Profissional FK Colaborador (Agenda) + vagas em perform_update + campo canal (Compromisso)

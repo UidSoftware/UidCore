@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Camera } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Camera, LifeBuoy } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth.js'
 import { useTheme } from '../../hooks/useTheme.js'
 import api from '../../api/client.js'
@@ -8,10 +8,17 @@ import useAuthStore from '../../stores/authStore.js'
 import { APP_NAME } from '../../utils/appConfig.js'
 import Modal from '../ui/Modal.jsx'
 import Input from '../ui/Input.jsx'
+import Select from '../ui/Select.jsx'
 import Button from '../ui/Button.jsx'
 import Avatar from '../ui/Avatar.jsx'
 
 const EMPTY_SENHA_FORM = { senha_atual: '', senha_nova: '', confirmar: '' }
+const EMPTY_PROBLEMA_FORM = { descricao: '', prioridade: 'MEDIA' }
+const OPCOES_PRIORIDADE = [
+  { value: 'BAIXA', label: 'Baixa' },
+  { value: 'MEDIA', label: 'Média' },
+  { value: 'ALTA', label: 'Alta (impede o trabalho)' },
+]
 
 export default function Header({ onMenuOpen }) {
   const { user, logout } = useAuth()
@@ -28,6 +35,40 @@ export default function Header({ onMenuOpen }) {
   const [previewFoto, setPreviewFoto] = useState(null)
   const [fotoErro, setFotoErro] = useState('')
   const [salvandoFoto, setSalvandoFoto] = useState(false)
+
+  const [relatoAtivo, setRelatoAtivo] = useState(false)
+  const [modalProblema, setModalProblema] = useState(false)
+  const [problemaForm, setProblemaForm] = useState(EMPTY_PROBLEMA_FORM)
+  const [problemaErro, setProblemaErro] = useState('')
+  const [problemaEnviado, setProblemaEnviado] = useState(false)
+  const [enviandoProblema, setEnviandoProblema] = useState(false)
+
+  useEffect(() => {
+    api.get('/suporte/relatar-problema/')
+      .then(({ data }) => setRelatoAtivo(data.ativo))
+      .catch(() => setRelatoAtivo(false))
+  }, [])
+
+  const abrirModalProblema = () => {
+    setProblemaForm(EMPTY_PROBLEMA_FORM)
+    setProblemaErro('')
+    setProblemaEnviado(false)
+    setModalProblema(true)
+  }
+
+  const enviarProblema = async (e) => {
+    e.preventDefault()
+    setProblemaErro('')
+    setEnviandoProblema(true)
+    try {
+      await api.post('/suporte/relatar-problema/', problemaForm)
+      setProblemaEnviado(true)
+    } catch (err) {
+      setProblemaErro(extractErrorMessage(err))
+    } finally {
+      setEnviandoProblema(false)
+    }
+  }
   const [removendoFoto, setRemovendoFoto] = useState(false)
 
   const abrirModalSenha = () => {
@@ -156,6 +197,16 @@ export default function Header({ onMenuOpen }) {
             </span>
           </div>
         )}
+        {relatoAtivo && (
+          <button
+            onClick={abrirModalProblema}
+            title="Relatar problema"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-slate-400 dark:hover:bg-navy-700 dark:hover:text-slate-200 transition-colors"
+          >
+            <LifeBuoy className="w-4 h-4" />
+            <span className="hidden sm:block">Problema</span>
+          </button>
+        )}
         <button
           onClick={abrirModalFoto}
           title="Alterar foto"
@@ -283,6 +334,44 @@ export default function Header({ onMenuOpen }) {
               </Button>
             </div>
           </div>
+        </Modal>
+      )}
+
+      {modalProblema && (
+        <Modal title="Relatar problema" onClose={() => setModalProblema(false)}>
+          {problemaEnviado ? (
+            <div className="text-center space-y-4">
+              <p className="text-sm text-gray-600 dark:text-slate-300">Recebemos seu relato. A Uid Software vai analisar.</p>
+              <Button onClick={() => setModalProblema(false)} className="w-full">Fechar</Button>
+            </div>
+          ) : (
+            <form onSubmit={enviarProblema} className="space-y-4">
+              <div className="flex flex-col gap-1">
+                <label htmlFor="problema-descricao" className="text-sm font-medium text-gray-700 dark:text-slate-300">O que aconteceu?</label>
+                <textarea
+                  id="problema-descricao"
+                  rows={5}
+                  maxLength={2000}
+                  required
+                  value={problemaForm.descricao}
+                  onChange={(e) => setProblemaForm({ ...problemaForm, descricao: e.target.value })}
+                  placeholder="Em qual tela, o que você tentou fazer e o que apareceu."
+                  className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm bg-white text-gray-900 dark:bg-navy-800 dark:border-navy-600 dark:text-slate-100"
+                />
+              </div>
+              <Select
+                label="Prioridade"
+                value={problemaForm.prioridade}
+                onChange={(e) => setProblemaForm({ ...problemaForm, prioridade: e.target.value })}
+                options={OPCOES_PRIORIDADE}
+              />
+              {problemaErro && <p className="text-sm text-red-600 dark:text-red-400">{problemaErro}</p>}
+              <div className="flex justify-end gap-3 pt-2">
+                <Button type="button" variant="secondary" onClick={() => setModalProblema(false)}>Cancelar</Button>
+                <Button type="submit" loading={enviandoProblema}>Enviar</Button>
+              </div>
+            </form>
+          )}
         </Modal>
       )}
     </header>

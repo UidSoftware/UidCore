@@ -160,7 +160,7 @@ class ExecutarMatchingTest(TestCase):
         self.assertEqual(len(itens), 1)
         self.assertEqual(itens[0]['status'], 'FALTANDO_BANCO')
 
-    def test_estornado_ignorado_no_matching_rn_d02(self):
+    def test_estornado_entra_no_matching_regime_de_caixa(self):
         LivroCaixa.objects.create(
             conta=self.conta, tipo='ENTRADA', origem='MANUAL', descricao='Lancamento estornado',
             valor=Decimal('100.00'), data=date(2026, 7, 5),
@@ -170,8 +170,37 @@ class ExecutarMatchingTest(TestCase):
             'data': date(2026, 7, 5), 'descricao': 'PIX', 'valor': Decimal('100.00'), 'tipo': 'ENTRADA',
         }]
         itens, lancamentos_sistema = executar_matching(self.conta, transacoes_banco, date(2026, 7, 1))
-        self.assertEqual(lancamentos_sistema, [])
-        self.assertEqual(itens[0]['status'], 'FALTANDO_SISTEMA')
+        self.assertEqual(len(lancamentos_sistema), 1)
+        self.assertEqual(itens[0]['status'], 'CONCILIADO')
+
+    def test_par_lancamento_e_estorno_concilia_as_duas_pontas(self):
+        original = LivroCaixa.objects.create(
+            conta=self.conta, tipo='SAIDA', origem='MANUAL', descricao='Pagamento',
+            valor=Decimal('70.00'), data=date(2026, 7, 5),
+            saldo_anterior=Decimal('0'), saldo_atual=Decimal('-70.00'), estornado=True,
+        )
+        LivroCaixa.objects.create(
+            conta=self.conta, tipo='ENTRADA', origem='MANUAL', descricao='Estorno',
+            valor=Decimal('70.00'), data=date(2026, 7, 6), estorno_de=original,
+            saldo_anterior=Decimal('-70.00'), saldo_atual=Decimal('0'),
+        )
+        transacoes_banco = [
+            {'data': date(2026, 7, 5), 'descricao': 'PIX ENVIADO', 'valor': Decimal('70.00'), 'tipo': 'SAIDA'},
+            {'data': date(2026, 7, 6), 'descricao': 'PIX DEVOLVIDO', 'valor': Decimal('70.00'), 'tipo': 'ENTRADA'},
+        ]
+        itens, _ = executar_matching(self.conta, transacoes_banco, date(2026, 7, 1))
+        self.assertEqual([i['status'] for i in itens], ['CONCILIADO', 'CONCILIADO'])
+
+    def test_btg_ignora_realocacao_da_conta_remunerada(self):
+        texto = (
+            '05/07/2026 Aplicação Conta Remunerada D 200,00\n'
+            '05/07/2026 Crédito na Conta Corrente C 200,00\n'
+            '05/07/2026 Resgate Conta Remunerada C 204,00\n'
+            '05/07/2026 Débito na Conta Corrente D 204,00\n'
+            '05/07/2026 PIX RECEBIDO CLIENTE C 200,00\n'
+        )
+        resultado = parsers.parse_btg(texto, 2026)
+        self.assertEqual([r['descricao'] for r in resultado], ['PIX RECEBIDO CLIENTE'])
 
     def test_livrocaixa_ja_conciliado_nao_e_reutilizado_rn_d01(self):
         lc = LivroCaixa.objects.create(
@@ -2030,3 +2059,23 @@ class ReceitaAssinaturaVinculoAPITest(APITestCase):
         )
         self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.data)
         self.assertEqual(resp.data['observacoes'], 'ajustado')
+
+
+class ReconstruirSaldoLivroCaixaTest(TestCase):
+    def test_reordena_a_cadeia_e_inclui_estornados(self):
+        from django.core.management import call_command
+        conta = _make_conta(nome='Conta Reconstruir', saldo_inicial=Decimal('100.00'))
+        # lancado por ultimo com data mais antiga: a cadeia gravada fica errada
+        recente = LivroCaixa.objects.create(
+            conta=conta, tipo='ENTRADA', origem='MANUAL', descricao='Recente', valor=Decimal('50.00'),
+            data=date(2026, 7, 10), saldo_anterior=Decimal('100.00'), saldo_atual=Decimal('150.00'),
+        )
+        antigo = LivroCaixa.objects.create(
+            conta=conta, tipo='SAIDA', origem='MANUAL', descricao='Retroativo', valor=Decimal('30.00'),
+            data=date(2026, 7, 1), saldo_anterior=Decimal('150.00'), saldo_atual=Decimal('120.00'), estornado=True,
+        )
+        call_command('reconstruir_saldo_livro_caixa', verbosity=0, stdout=open(os.devnull, 'w'))
+        antigo.refresh_from_db()
+        recente.refresh_from_db()
+        self.assertEqual((antigo.saldo_anterior, antigo.saldo_atual), (Decimal('100.00'), Decimal('70.00')))
+        self.assertEqual((recente.saldo_anterior, recente.saldo_atual), (Decimal('70.00'), Decimal('120.00')))

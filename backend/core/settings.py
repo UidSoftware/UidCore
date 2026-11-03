@@ -196,6 +196,11 @@ FRONTEND_URL = config('FRONTEND_URL', default='https://uidcore.uidsoftware.com.b
 APP_NAME = config('APP_NAME', default='UidCore')
 APP_DESCRIPTION = config('APP_DESCRIPTION', default='UidCore — Template Financeiro Multi-Nicho')
 
+# Relatar problema: vira Manutencao no SystemD. Sem chave, o recurso fica
+# desligado (a chave e gerada no SystemD, em OS > gerar-api-key).
+SYSTEMD_API_URL = config('SYSTEMD_API_URL', default='https://uidsoftware.com.br/api/integracoes/manutencoes/')
+SYSTEMD_API_KEY = config('SYSTEMD_API_KEY', default='')
+
 # Token de "definir senha" (default_token_generator) expira em 24h — bate
 # com o texto do email enviado. Sem isso o default do Django e 3 dias
 # (259200s), inconsistente com a mensagem (achado ao replicar do SystemD,

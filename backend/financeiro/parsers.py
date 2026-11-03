@@ -140,6 +140,14 @@ def parse_btg(texto: str, ano: int) -> list[dict]:
         Lista de dicts com chaves: data (date), descricao (str),
         valor (Decimal), tipo ('ENTRADA'|'SAIDA').
     """
+    # Realocacao automatica Conta Corrente <-> Conta Remunerada vem em duas
+    # linhas de efeito liquido zero: nao e transacao externa e, se entrar,
+    # rouba o match da transacao real do mesmo dia/valor.
+    descricoes_internas = (
+        'aplicação conta remunerada', 'débito na conta corrente',
+        'resgate conta remunerada', 'crédito na conta corrente',
+    )
+
     padrao = re.compile(
         r'(\d{2}/\d{2}/\d{4})\s+(.+?)\s+([DC])\s+([\d.]+,\d{2})',
         re.MULTILINE,
@@ -150,6 +158,9 @@ def parse_btg(texto: str, ano: int) -> list[dict]:
         data_str, descricao, dc, valor_str = (
             m.group(1), m.group(2).strip(), m.group(3), m.group(4).strip()
         )
+
+        if any(p in descricao.lower() for p in descricoes_internas):
+            continue
 
         valor = _parse_valor_br(valor_str)
         if valor == Decimal('0'):
