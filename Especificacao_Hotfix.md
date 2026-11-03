@@ -1,505 +1,567 @@
-# Especificação — Manutenção #91
+# Especificação Hotfix — Manutenção #92
 
-**Sistema:** UidCore (OS #7)
-**Título:** Produtos: cadastrar também Serviço (botão "+ Novo Item")
-**Origem:** replicado do fork LifeStyle (Manutenção #84, pedido do Luiz Eduardo, 29/10/2026) — implementado aqui de forma genérica, multi-nicho, sem nada específico de estúdio/pilates, para todo fork novo do UidCore já nascer com a funcionalidade.
-**Autor:** Analista
-**Data:** 2026-11-02
+**Sistema:** UidCore
+**Módulo:** Agendamento (+ RH, leitura)
+**Data:** 2026-11-03
+**Analista:** Claude (modo manutenção)
 
 ---
 
 ## 1. Contexto
 
-O app `produtos` hoje só modela mercadoria física (`Produto` com estoque,
-código de barras, unidade de medida). Vários nichos atendidos pela Uid
-(estúdio, salão, clínica, prestador de serviço em geral) vendem **serviços**
-junto com produtos — sessão, corte, consulta, aula — que não têm estoque,
-não têm unidade de medida e não devem gerar `MovimentoEstoque`.
+Pedido com 3 frentes no módulo Agendamento:
 
-Decisão de modelagem: **Serviço não é um app novo, é um novo `tipo` dentro
-do model `Produto`** existente, reaproveitando nome/preço/observações,
-cadastro, listagem, PDV e Vendas (Orçamento/Pedido) já prontos — evita
-duplicar CRUD, FK e telas inteiras só para trocar os campos exibidos.
+1. `Agenda.profissional` hoje aponta para `accounts.User` (Manutenção #63) — mistura
+   "quem tem login" com "quem é o profissional de verdade" (`rh.Colaborador`).
+   Um barbeiro/dentista/professor sem acesso ao sistema não aparece como opção,
+   e a mesma pessoa física acaba existindo em dois cadastros desencontrados
+   (Colaborador no RH, User no Agendamento). Trocar o vínculo para
+   `rh.Colaborador` (só ativos).
+2. Controle de vagas por horário **já existe no backend** desde a Manutenção #65
+   (`HorarioDisponivel.vagas`, trava com `select_for_update` em
+   `perform_create` do `CompromissoViewSet`, action `ocupacao/` e o fluxo
+   público já mostram `vagas_disponiveis`/`lotado`). O que falta é: (a) expor
+   isso na tela interna de "Novo Compromisso" (hoje só aparece depois de criado,
+   na coluna da listagem) e (b) fechar um buraco real — a mesma trava de vaga
+   **não existe em `perform_update`**, então editar um compromisso trocando
+   horário/data passa batido pela validação.
+3. A aba "Pendentes" já filtra `origem=PUBLICO, status=AGENDADO` e já confirma/
+   recusa — falta só a explicação textual mais clara e mostrar a origem (e,
+   opcionalmente, o canal) em cada pedido.
 
-## 2. AS-IS
-
-- `Produto` (`backend/produtos/models.py`) é sempre mercadoria: tem
-  `quantidade_estoque`, `estoque_minimo`, `unidade_base`, `codigo_barras`.
-- `MovimentoEstoque.save()` sempre debita/credita `Produto.quantidade_estoque`
-  via `F()` ao criar.
-- PDV (`backend/pdv/services.py::finalizar_venda`) sempre valida estoque de
-  TODOS os itens (RF-07 original) e debita estoque de todos ao finalizar;
-  `cancelar_venda`/`devolver_item` sempre revertem estoque.
-- `vendas.ItemPedido`/`vendas.ItemOrcamento` já têm `produto` nullable e
-  **nunca** baixam estoque (ADR-015: módulo B2B sem baixa de estoque) — não
-  precisam de ajuste de estoque, só precisam continuar aceitando produto ou
-  serviço sem diferença de tratamento.
-- Frontend `Produtos.jsx`: botão "+ Novo Produto", 1 form único sempre com
-  campos de produto físico; listagem em cards/tabela sempre mostrando coluna
-  Estoque.
-
-## 3. TO-BE
-
-- `Produto.tipo` (choices `PRODUTO` | `SERVICO`, default `PRODUTO`).
-- Botão "+ Novo Produto" → "+ Novo Item"; primeira escolha no form é o tipo;
-  campos do form mudam conforme o tipo escolhido.
-- Serviço: `nome`, `descricao` (reaproveita `observacoes`), `preco_venda`,
-  `duracao_minutos` (opcional), `categoria_financeira_entrada` (opcional,
-  FK para `financeiro.Categoria` tipo `ENTRADA`). Sem estoque, sem unidade,
-  sem código de barras, sem custo (`valor_unitario`) — campos ficam
-  ocultos/sem sentido para esse tipo (não removidos do model, só não usados).
-- Serviço nunca aciona `MovimentoEstoque` nem entra em alerta de estoque
-  mínimo; a regra "estoque só muda por movimento" (`CLAUDE.md` global,
-  padrão Uid) permanece válida — simplesmente SERVICO nunca gera movimento.
-- Listagem de Produtos com filtro/aba **Produtos | Serviços | Todos**.
-- PDV e Vendas (Orçamento/Pedido) passam a poder vender/listar Serviço sem
-  baixa de estoque.
-
-## 4. Requisitos Funcionais
-
-**RF-01** — `Produto` ganha campo `tipo` (choices `TipoProduto.PRODUTO` /
-`TipoProduto.SERVICO`, default `PRODUTO`, `max_length=10`). Migration de
-schema (`AddField`, default `PRODUTO`) garante que **todo registro
-existente** vira `PRODUTO` automaticamente (default aplicado em massa pelo
-Django na migration, sem precisar de `RunPython` — basta `default='PRODUTO'`
-na definição do campo).
-
-**RF-02** — Novos campos em `Produto`, usados somente quando `tipo=SERVICO`:
-- `duracao_minutos` (`PositiveIntegerField`, `null=True, blank=True`) —
-  duração padrão do serviço em minutos, opcional.
-- `categoria_financeira_entrada` (`ForeignKey` para `financeiro.Categoria`,
-  `null=True, blank=True, on_delete=models.SET_NULL`, `related_name='produtos_servico'`)
-  — categoria de entrada (RECEITA) sugerida quando esse serviço é vendido;
-  puramente informativo nesta manutenção (RN-07), sem efeito automático
-  ainda na geração da Receita.
-
-**RF-03** — Serializer `ProdutoSerializer` expõe `tipo` e os dois campos
-novos. Campos que só fazem sentido para `PRODUTO` (`codigo_barras`,
-`quantidade_estoque`, `estoque_minimo`, `unidade_base`, `valor_unitario`,
-`estoque_inicial`, `nota_fiscal_inicial`) continuam existindo no payload mas
-são ignorados/zerados quando `tipo=SERVICO` (RN-01).
-
-**RF-04** — `ProdutoViewSet.get_queryset()` ganha filtro por `tipo` via
-query param (`?tipo=PRODUTO` / `?tipo=SERVICO` — sem o param, retorna todos,
-igual hoje). Implementado como `filterset_fields` simples ou leitura manual
-de `request.query_params.get('tipo')` em `get_queryset()` — qualquer um dos
-dois é aceitável, manter o padrão de código já usado no app (sem
-`django-filter` configurado neste ViewSet hoje; decisão do Forge: filtro
-manual por `request.query_params`, consistente com o restante do arquivo).
-
-**RF-05** — `MovimentoEstoque` e o endpoint `produtos/{id}/movimentos/`
-(`ProdutoViewSet.movimentos`) passam a bloquear criação de movimento para
-produto com `tipo=SERVICO`: `POST .../movimentos/` em serviço retorna 400
-(`{'tipo': ['Serviço não possui controle de estoque.']}`). A action
-`conversoes` (`ConversaoUnidade`) do mesmo motivo é bloqueada para serviço
-(400) — conversão de unidade não se aplica a quem não tem unidade.
-
-**RF-06** — `ProdutoSerializer.create()` não cria `MovimentoEstoque`
-(estoque inicial) quando `tipo=SERVICO`, mesmo que `estoque_inicial` venha
-preenchido no payload por engano — campo é ignorado nesse caso (RN-02).
-
-**RF-07** — PDV (`backend/pdv/services.py` e `views.py`):
-- `ProdutoViewSet`/`AdicionarItemSerializer`/`adicionar_item` (ação
-  `POST /pdv/vendas/{id}/itens/`) passam a aceitar produto com
-  `tipo=SERVICO`. Para serviço: `unidade` do payload é ignorada (RN-04);
-  `valor_unitario` do item é sempre `produto.preco_venda` direto (sem
-  cálculo de fator de conversão); `ItemVenda.unidade` é gravado como
-  `produto.unidade_base` (valor neutro, nunca usado para cálculo quando
-  o item é de serviço — ver RN-05).
-- `finalizar_venda`: a validação de estoque insuficiente (RF-07 original)
-  e `_debitar_estoque` passam a **pular itens cujo `produto.tipo ==
-  SERVICO`** — nenhuma linha de serviço entra no loop de checagem/débito.
-- `cancelar_venda`: a reversão de estoque (`_reverter_estoque`) passa a
-  **pular itens de serviço** — a reversão financeira (estorno de Receita)
-  continua normal para todo item, produto ou serviço.
-- `devolver_item`: devolução parcial de item de serviço continua permitida
-  no aspecto financeiro (estorno proporcional de Receita), mas **nunca**
-  chama `_reverter_estoque` quando `item.produto.tipo == SERVICO`.
-
-**RF-08** — Vendas (Orçamento/Pedido): nenhuma mudança de lógica é
-necessária em `backend/vendas/` — `ItemOrcamento.produto`/`ItemPedido.produto`
-já são nullable e o app nunca baixa estoque (ADR-015). Confirmar apenas
-(via teste) que criar item de Orçamento/Pedido com produto `tipo=SERVICO`
-funciona sem erro e sem qualquer `MovimentoEstoque` criado.
-
-**RF-09** — Frontend `Produtos.jsx`:
-- Botão "+ Novo Produto" renomeado para "+ Novo Item".
-- Modal do form: primeiro campo é um seletor **Produto | Serviço** (ex.:
-  dois botões/tabs no topo do modal, ou `Select`). A escolha reconfigura os
-  campos exibidos abaixo:
-  - **Produto** (como hoje): nome, código de barras, unidade base, estoque
-    inicial, estoque mínimo, custo (valor_unitario), preço de venda,
-    observações, seção de conversões de unidade, seção "Movimentar
-    Estoque".
-  - **Serviço**: nome, descrição (reaproveita o campo `observacoes`),
-    preço de venda, duração em minutos (opcional), categoria financeira de
-    entrada (select opcional, populado via `GET /api/v1/financeiro/categorias/?tipo=ENTRADA`).
-    Sem código de barras, sem estoque, sem unidade, sem custo, sem seção de
-    conversões, sem seção "Movimentar Estoque".
-  - Ao editar um item existente, o seletor de tipo fica **desabilitado**
-    (RN-06) — trocar PRODUTO↔SERVICO depois de criado não é suportado
-    nesta manutenção (mudaria o significado de estoque/histórico já
-    existente).
-
-**RF-10** — Listagem de Produtos ganha abas/filtro **Produtos | Serviços |
-Todos** acima da tabela/lista de cards — equivalente a um `Tabs`/segmented
-control simples que ajusta o parâmetro `?tipo=` da chamada
-`GET /api/v1/produtos/`. "Todos" é o padrão ao abrir a tela (comportamento
-atual preservado). Card/linha de Serviço na listagem não mostra a coluna
-"Estoque" (mostra "—" ou oculta a célula); mostra um badge "Serviço"
-diferenciando visualmente de "Produto".
-
-**RF-11** — PDV (`FrenteDeCaixa.jsx`/componente de busca de produto) e
-Vendas (`BuscaProdutoRapida`/`ProdutoAutocomplete` em `Vendas.jsx`) passam a
-listar também Serviço nos resultados de busca (sem filtrar por tipo —
-busca já reaproveita `GET /api/v1/produtos/?search=`). Resultado de busca
-mostra um badge "Serviço" para diferenciar. Ao adicionar um item de
-serviço ao carrinho/orçamento/pedido, a UI não pede/mostra campo de
-unidade (campo é ocultado quando o produto escolhido é `tipo=SERVICO`) e
-nunca exibe badge de "Sem estoque" (esse badge é exclusivo de produto com
-`quantidade_estoque <= 0`, nunca se aplica a serviço).
-
-## 5. Requisitos Não Funcionais
-
-**RNF-01** — Migration de `tipo` não pode quebrar nenhum registro
-existente: todo `Produto` já cadastrado deve continuar com
-`quantidade_estoque`/`unidade_base`/etc. intactos e virar `tipo=PRODUTO`
-automaticamente, sem exigir `RunPython` nem intervenção manual.
-
-**RNF-02** — Nenhuma migration de dado (RunPython) é necessária nesta
-manutenção — só `AddField` com `default` resolve o backfill (confirmar no
-teste do Sentinel que 0 registros ficam com `tipo` nulo/vazio).
-
-**RNF-03** — Zero regressão nos testes existentes de PDV, Produtos e
-Vendas (toda a suíte Django precisa continuar passando, incluindo os
-testes de estoque negativo, cadeia de conversão de unidade e split de
-pagamento — nenhum desses fluxos deve mudar de comportamento para
-`tipo=PRODUTO`).
-
-## 6. Atores e Perfis
-
-Sem mudança de RBAC — mesmas permissões já existentes em `ProdutoViewSet`
-(`AuditMixin` + permissão padrão do projeto) valem igual para Produto e
-Serviço. Nenhum perfil novo.
-
-## 7. Regras de Negócio
-
-**RN-01** — Campos de estoque/unidade/custo/código de barras só têm
-significado para `tipo=PRODUTO`. Para `tipo=SERVICO`, o backend sempre
-ignora/zera esses campos no `create`/`update`, independentemente do que o
-payload envie (nunca confiar em validação só no frontend).
-
-**RN-02** — `estoque_inicial`/`nota_fiscal_inicial` (campos write-only do
-`ProdutoSerializer`) são ignorados quando `tipo=SERVICO` — nenhum
-`MovimentoEstoque` é criado nesse caso, mesmo se o valor vier preenchido.
-
-**RN-03** — Estoque só muda por `MovimentoEstoque` (regra já existente,
-preservada) — para Serviço, nenhum caminho do sistema pode criar
-`MovimentoEstoque`: nem cadastro, nem PDV, nem Vendas.
-
-**RN-04** — No PDV, ao adicionar item de Serviço ao carrinho, a conversão
-de unidade (`fator_para_base`) nunca é chamada — `valor_unitario` do item é
-sempre `produto.preco_venda` direto, sem multiplicar por fator nenhum.
-
-**RN-05** — `ItemVenda.unidade` continua sendo um campo obrigatório do
-model (NOT NULL) por motivo de schema compartilhado com `ItemVenda` de
-produto — para serviço, grava-se `produto.unidade_base` (valor default
-`UN`, nunca exibido/usado para cálculo). Essa gravação é só para satisfazer
-a constraint do banco, nunca tem efeito de conversão/estoque para serviço.
-
-**RN-06** — `tipo` de um `Produto` já criado não pode ser alterado via
-`PATCH`/`PUT` — frontend desabilita o seletor na edição; backend marca
-`tipo` como campo que, se vier diferente do valor atual num `update`, é
-ignorado silenciosamente (mesmo padrão já usado para outros campos
-protegidos no projeto — ex.: `is_staff` no serializer de usuário) **ou**
-retorna 400 explícito. Decisão do Forge: usar o padrão já predominante no
-código (campo fica fora de `fields` editáveis nesse contexto / ignorado no
-`update()`), documentando a escolha no código.
-
-**RN-07** — `categoria_financeira_entrada` é apenas sugestão/metadado
-nesta manutenção — **não** altera automaticamente a criação de `Receita`
-no PDV/Vendas (fora de escopo; é preparação para uma manutenção futura que
-use essa categoria na hora de lançar a Receita da venda do serviço).
-
-**RN-08** — Serviço nunca aparece em: seção "Movimentar Estoque" do modal
-de edição, action `conversoes` (`ConversaoUnidade`), alerta/relatório de
-estoque mínimo (se existir hoje em Dashboard — conferir e excluir
-`tipo=SERVICO` do cálculo, caso exista).
-
-## 8. Fora do Escopo
-
-- Geração automática de Receita financeira usando
-  `categoria_financeira_entrada` ao vender um serviço (RN-07) — fica para
-  manutenção futura.
-- Conversão de um `Produto` existente em `Serviço` (ou vice-versa) depois
-  de criado (RN-06) — bloqueado nesta manutenção.
-- Qualquer regra específica de nicho (ex.: duração vinculada a agenda/
-  profissional do módulo `agendamento`) — a duração cadastrada aqui é só um
-  campo informativo, sem integração com `agendamento.Compromisso` nesta
-  manutenção.
-- Combos (`Combo`/`ItemCombo`) contendo Serviço — não testado nem vedado
-  explicitamente; comportamento herdado (FK para `Produto` aceita
-  qualquer `tipo`), sem tratamento especial. Se o Sentinel encontrar
-  problema real nesse cruzamento, reportar como achado, não bloquear a
-  manutenção por isso (fora do pedido original).
-
-## 9. Riscos e Dependências
-
-- Depende do app `financeiro` já ter `Categoria` com `tipo=ENTRADA`
-  (existe desde a Manutenção #88) — sem risco, já em produção.
-- Risco de regressão: qualquer lugar do código que itere
-  `Produto.objects.all()` assumindo implicitamente "é sempre mercadoria
-  com estoque" (ex.: relatório de estoque baixo no Dashboard financeiro,
-  export de catálogo) precisa ser auditado pelo Forge/Loom e, se existir,
-  filtrar por `tipo=PRODUTO` antes de aplicar lógica de estoque. Grep
-  recomendado: `quantidade_estoque`, `estoque_minimo`, `unidade_base` fora
-  de `produtos/` e `pdv/`.
-- Risco de UX: usuários já acostumados com "+ Novo Produto" — o rename
-  para "+ Novo Item" é intencional (pedido explícito), mas vale confirmar
-  que nenhum texto de ajuda/tooltip ficou órfão mencionando "produto"
-  onde agora pode ser serviço.
+**Investigação de código (antes de desenhar a solução) confirmou:**
+- `Agenda.profissional` → FK `User`, nullable, `on_delete=SET_NULL` (migration `0007_agenda_profissional.py`).
+- `AgendaSerializer.profissional_nome` lê `profissional.nome_completo` (campo de `User`).
+- `AgendaViewSet.get_queryset()` filtra por perfil PROFISSIONAL com `Q(profissional=u) | Q(created_by=u)` — compara `profissional` (hoje User) direto com `self.request.user`.
+- `CompromissoViewSet.get_queryset()` tem o mesmo padrão: `Q(created_by=u) | Q(agenda__profissional=u))`.
+- `rh.Colaborador` já tem `usuario` (OneToOneField para `accounts.User`, nullable) — é o vínculo que a migration de dados vai usar para mapear quem já tinha profissional setado.
+- `CompromissoViewSet.perform_create` já valida vaga com `select_for_update` (RF-04/RN-01 da Manutenção #65) — `perform_update` **não tem equivalente**, é herdado puro do `ModelViewSet`.
+- `HorarioDisponivelViewSet.ocupacao` (action `GET .../ocupacao/?data=`) já calcula `vagas`, `vagas_ocupadas`, `vagas_disponiveis` — mas a lógica de contagem (`Compromisso.objects.filter(horario=..., data_horario=..., is_active=True).exclude(status=CANCELADO).count()`) está **duplicada em 4 lugares**: `perform_create`, a action `ocupacao`, `AgendaDisponibilidadePublicaView.get`, e `CompromissoSerializer.get_vagas_restantes`. Nenhuma migration de model é necessária para essa frente, mas a correção de `perform_update` deve reaproveitar a mesma lógica, não duplicar de novo.
+- `rh.ColaboradorViewSet` tem `permission_classes = [IsAdmin]` — se o combo de "Profissional" na tela de Agenda passar a buscar em `/api/v1/rh/colaboradores/`, qualquer usuário OPERACIONAL/MARKETING (que hoje gerencia Agenda livremente, conforme comentário explícito em `AgendaViewSet`) vai receber 403 ao tentar carregar a lista. **Isso é regressão real se não for tratado** — ver RN-01.
+- Aba Pendentes (`PendentesTab`) já existe, já filtra e já confirma/recusa — falta reforçar a explicação e exibir origem/canal por linha.
+- `AgendamentoPublicoView`/`AgendamentoPublicoSerializer` não têm campo `canal` hoje — o pedido pede isso como opcional.
 
 ---
 
-## Spec Backend (Forge)
+## 2. Requisitos Funcionais (RF)
 
-### `backend/produtos/models.py`
+### Frente 1 — Profissional vem do RH
 
-```python
-class TipoProduto(models.TextChoices):
-    PRODUTO = 'PRODUTO', 'Produto'
-    SERVICO = 'SERVICO', 'Serviço'
+- **RF-01.** `Agenda.profissional` passa a ser `ForeignKey` para `rh.Colaborador`
+  (`on_delete=SET_NULL`, `null=True`, `blank=True`, mesmo `related_name`
+  `agendas_vinculadas`), em vez de `accounts.User`.
+- **RF-02.** Migration de dados (`RunPython`, dentro da mesma migration ou em
+  migration separada antes do `RemoveField`): para cada `Agenda` com
+  `profissional_id` (User) preenchido, buscar
+  `rh.Colaborador.objects.filter(usuario_id=agenda.profissional_id, is_active=True).first()`
+  e gravar no novo campo. Se não achar nenhum Colaborador correspondente
+  (ex: User era um perfil administrativo sem Colaborador vinculado, ou o
+  Colaborador está inativo), o novo campo fica `null` — **não falhar a
+  migration**, só coletar e imprimir (via `print()`, aparece no log do
+  `migrate`) a lista de `Agenda.id`/`nome` que ficaram sem profissional, para
+  o Sentinel reportar explicitamente (ver Critério de Aceite CA-10).
+- **RF-03.** Campo de seleção de Profissional (dropdown) só lista
+  `Colaborador` com `is_active=True` — tanto no backend (queryset do campo
+  no serializer) quanto no frontend (endpoint já filtra; não precisa de
+  `filterOptions` adicional).
+- **RF-04.** `AgendaSerializer.profissional_nome` passa a ler
+  `profissional.nome` (campo de `Colaborador`), não mais `.nome_completo`
+  (campo de `User`).
+- **RF-05.** `AgendaViewSet.get_queryset()` e `CompromissoViewSet.get_queryset()`
+  (filtro por perfil PROFISSIONAL) passam a comparar via
+  `profissional__usuario=u` / `agenda__profissional__usuario=u` — como
+  `Colaborador` não é mais o próprio `User` logado, a comparação direta
+  `profissional=u` não funciona mais (seria sempre `False`, quebrando
+  silenciosamente o escopo de dados do perfil PROFISSIONAL).
 
+### Frente 2 — Vagas disponíveis visíveis no Novo Compromisso + trava real
 
-class Produto(BaseModel):
-    tipo = models.CharField(
-        'tipo', max_length=10,
-        choices=TipoProduto.choices, default=TipoProduto.PRODUTO,
-    )
-    nome = models.CharField('nome', max_length=200)
-    codigo_barras = models.CharField('código de barras', max_length=50, blank=True, default='')
-    quantidade_estoque = models.DecimalField(..., default=0)   # inalterado
-    estoque_minimo = models.DecimalField(..., default=0)        # inalterado
-    unidade_base = models.CharField(..., default=UnidadeBase.UN) # inalterado
-    valor_unitario = models.DecimalField(..., default=0)        # inalterado
-    preco_venda = models.DecimalField(..., default=0)           # inalterado
-    observacoes = models.TextField(blank=True, default='')      # reaproveitado como "descrição" do serviço
-    duracao_minutos = models.PositiveIntegerField(
-        'duração (minutos)', null=True, blank=True,
-    )
-    categoria_financeira_entrada = models.ForeignKey(
-        'financeiro.Categoria', null=True, blank=True,
-        on_delete=models.SET_NULL, related_name='produtos_servico',
-    )
-    ...
+- **RF-06.** Endpoint de listagem `GET /api/v1/agendamento/horarios-disponiveis/`
+  aceita parâmetro opcional `?data=YYYY-MM-DD`. Quando presente, cada item
+  do resultado ganha `vagas_ocupadas`, `vagas_disponiveis` e `lotado`
+  calculados para aquela data específica (mesma lógica de contagem já usada
+  em `ocupacao`/`perform_create`/view pública — ver RF-09). Quando `data`
+  não é enviado, esses 3 campos vêm `null` (comportamento atual preservado,
+  sem quebrar quem já consome o endpoint sem esse parâmetro).
+- **RF-07.** Tela "Novo/Editar Compromisso" (`CompromissosResourceCrud` em
+  `Agendamento.jsx`) inverte a ordem dos campos: **Data primeiro, Horário
+  depois**. Ao escolher Agenda + Data, o frontend calcula o dia da semana
+  da data e busca
+  `GET /agendamento/horarios-disponiveis/?agenda={id}&dia_semana={d}&ativo=true&data={data}`
+  — só oferece no dropdown os horários daquele dia da semana, cada opção
+  rotulada `"{hora} — {serviço} (X/Y vagas)"`. Opção com `vagas_disponiveis <= 0`
+  aparece **desabilitada** (`disabled` no `<option>`) com rótulo
+  `"(Lotado)"` no final.
+- **RF-08.** Ao trocar a Data depois de já ter escolhido Horário, o campo
+  Horário é limpo (mesmo padrão já existente para "trocar Agenda limpa
+  Horário").
+- **RF-09.** Centralizar a contagem de ocupação (hoje duplicada em 4 lugares)
+  em uma função única, ex. `agendamento/services.py::contar_ocupacao(horario, data) -> (ocupados, disponiveis)`,
+  reaproveitada por: `perform_create`, `perform_update` (RF-10),
+  a action `ocupacao`, `AgendaDisponibilidadePublicaView.get`,
+  `CompromissoSerializer.get_vagas_restantes` e o novo parâmetro `?data=`
+  do RF-06. Mesmo princípio já cobrado em outros módulos financeiros do
+  projeto: nunca duplicar a mesma regra de cálculo em lugares diferentes.
+- **RF-10.** `CompromissoViewSet.perform_update` passa a ter a MESMA
+  validação de vaga de `perform_create` (select_for_update no
+  `HorarioDisponivel`, contar ocupados, comparar com `vagas`) **sempre que
+  o payload do PATCH/PUT alterar `horario` ou `data_horario`** — excluindo
+  o próprio compromisso (`pk` atual) da contagem de ocupados, senão um
+  compromisso que já está contando como "ocupado" no próprio horário se
+  autobloquearia ao ser só confirmado/editado sem trocar de slot.
+- **RF-11.** O backend continua sendo a fonte de verdade (nunca confiar só
+  na tela) — toda validação de tela do RF-07 é complementar, não substitui
+  RF-10/trava existente.
+
+### Frente 3 — Aba Pendentes explicada + origem/canal visível
+
+- **RF-12.** Aba "Pendentes" ganha um texto de explicação mais completo, substituindo a frase atual por algo como:
+  > "Pedidos feitos pelo **link público de agendamento** (aberto pelo cliente final, sem login) chegam aqui como pendentes — o estúdio precisa Confirmar ou Recusar cada um. Compromissos criados direto pela equipe (aba Compromissos) não passam por esta etapa."
+- **RF-13.** Cada linha da tabela de Pendentes passa a exibir a **origem**
+  (hoje sempre "Público", já que a aba filtra `origem=PUBLICO` — mostrar
+  mesmo assim, de forma explícita, como badge, igual ao já usado no modal
+  de edição de Compromisso) e, se existir, o **canal** (RF-14, opcional).
+- **RF-14 (opcional).** Link público aceita querystring `?canal=` (ex.:
+  `/agendar/estudio-x?canal=instagram`). A página pública
+  (`AgendamentoPublico.jsx`) lê esse parâmetro da própria URL (sem exigir
+  nenhuma navegação adicional do visitante) e envia como campo `canal` no
+  `POST /api/v1/publico/agenda/{slug}/agendar/`. Backend grava em
+  `Compromisso.canal` (novo campo, `CharField` com `choices` livres —
+  `SITE`, `INSTAGRAM`, `WHATSAPP`, `OUTRO` — default `''`/`OUTRO` quando
+  não vier nada). Aba Pendentes mostra o canal como badge adicional ao
+  lado da origem; se vazio, mostra "—".
+  **Esta sub-frente é opcional e não bloqueia a aceitação da manutenção**
+  — pode ficar para um ciclo futuro se o tempo não permitir nesta rodada,
+  mas o Analista recomenda implementar junto por ser de baixo custo
+  (1 campo + 1 migration + 1 leitura de querystring).
+
+---
+
+## 3. Regras de Negócio (RN)
+
+- **RN-01 (crítica — regressão a evitar).** `rh.ColaboradorViewSet` hoje é
+  `permission_classes = [IsAdmin]` (toda a ação, inclusive `list`/`retrieve`).
+  Se o combo "Profissional" da tela de Agenda passar a chamar
+  `GET /api/v1/rh/colaboradores/` sem mudar isso, qualquer usuário
+  OPERACIONAL/MARKETING que hoje gerencia Agenda livremente (comentário
+  explícito no código: *"restringir quebraria OPERACIONAL/MARKETING, que
+  hoje gerenciam agendas livremente"*) vai receber 403 ao abrir o formulário
+  de Agenda — regressão real, não hipotética. Corrigir com
+  `ColaboradorViewSet.get_permissions()` liberando `list`/`retrieve` para
+  qualquer autenticado, mantendo `create`/`update`/`partial_update`/`destroy`
+  restritos a `IsAdmin` (mesmo padrão de override documentado no CLAUDE.md
+  global — `get_permissions()` sempre vence sobre `permission_classes` do
+  decorator, então o `if self.action in (...)` tem que estar dentro dele).
+- **RN-02.** Só `Colaborador` com `is_active=True` pode ser selecionado como
+  profissional de uma Agenda — Colaborador desligado (soft delete) não
+  aparece na lista nem é aceito num POST/PATCH direto (validação no
+  serializer, queryset do campo FK restrito a `is_active=True`).
+- **RN-03.** A migration de dados (RF-02) é **não-destrutiva por design**:
+  nunca falha por falta de Colaborador correspondente — só reporta. A
+  'Agenda' em si nunca é bloqueada ou apagada por ficar sem profissional.
+- **RN-04.** Trava de vaga (RF-10) nunca conta o próprio compromisso sendo
+  editado como ocupante do slot — só os outros compromissos ativos
+  (`is_active=True`, excluindo `CANCELADO`) daquele `horario`+`data_horario`.
+- **RN-05.** Trava de vaga em `perform_update` só precisa rodar quando
+  `horario` ou `data_horario` mudam no payload — editar só `titulo`,
+  `observacoes`, `status` etc. sem tocar nesses dois campos não deve pagar
+  o custo (nem o risco) de uma validação de vaga que não é relevante para
+  a mudança.
+- **RN-06.** `canal` (RF-14, se implementado) é só um rótulo informativo —
+  nunca usado para alterar permissão, preço ou qualquer regra de negócio.
+  Não exigir obrigatoriedade: ausência de `canal` (link sem querystring)
+  é o caso normal e esperado hoje (link único, sem distinção de canal).
+- **RN-07.** Nenhuma mudança nesta manutenção altera o comportamento já
+  existente do fluxo público de agendamento (`AgendaDisponibilidadePublicaView`/
+  `AgendamentoPublicoView`) quanto a vagas — ele já funciona corretamente
+  (Manutenção #65); a única adição ali é o campo opcional `canal`.
+
+---
+
+## 4. Telas (detalhamento para o Loom)
+
+### 4.1 Agendamento → aba Agendas (formulário Nova/Editar Agenda)
+
+Campo "Profissional responsável" (hoje `select-remote` em
+`accounts/usuarios` filtrando `perfil=PROFISSIONAL`) passa a ser:
+
+```js
+{
+  name: 'profissional',
+  label: 'Profissional responsável',
+  type: 'select-remote',
+  endpoint: 'rh/colaboradores',
+  labelField: 'nome',
+  params: {},              // backend já restringe a is_active=True
+}
 ```
 
-Migration: `0008_produto_tipo_servico.py` — `AddField tipo` (default
-`PRODUTO`), `AddField duracao_minutos`, `AddField
-categoria_financeira_entrada`. Sem `RunPython` (RNF-02).
+Coluna da tabela de Agendas continua `profissional_nome` (agora vem de
+`Colaborador.nome`, sem mudança visual de posição/rótulo).
 
-### `backend/produtos/serializers.py` (`ProdutoSerializer`)
+### 4.2 Agendamento → aba Compromissos (modal Novo/Editar Compromisso)
 
-- Adicionar `tipo`, `tipo_display` (`SerializerMethodField`/
-  `get_tipo_display`), `duracao_minutos`, `categoria_financeira_entrada`,
-  `categoria_financeira_entrada_nome` (read-only) aos `fields`.
-- `validate()` (novo): se `tipo == SERVICO`, força em `attrs`
-  `quantidade_estoque`/`estoque_minimo` para não aceitar valor diferente de
-  0 silenciosamente adulterado — na prática, como esses campos já são
-  `read_only_fields`/calculados, o ponto real de ignorar é em
-  `estoque_inicial`/`nota_fiscal_inicial` dentro de `create()` (ver abaixo).
-  Para `codigo_barras`/`unidade_base`/`valor_unitario`, aceitar o que vier
-  (não é crítico zerar — são campos inofensivos sem lógica de negócio
-  acoplada, mas o Brush/Loom não deve exibi-los no form de Serviço, RN-01).
-- `create()`: só cria `MovimentoEstoque` de `estoque_inicial` quando
-  `validated_data.get('tipo', TipoProduto.PRODUTO) == TipoProduto.PRODUTO`
-  (RN-02).
-- `update()` (se não existir sobrescrito hoje — confirmar; se o
-  `ModelViewSet` usa o `update()` padrão do `ModelSerializer`, adicionar um
-  `update()` customizado só para aplicar RN-06: remover `tipo` de
-  `validated_data` antes de salvar, sempre que `self.instance` já existir
-  — ou seja, `tipo` só é gravável no `create`).
+Reordenar o bloco "Horário disponível" (hoje: Horário → Data) para
+Data → Horário:
 
-### `backend/produtos/views.py` (`ProdutoViewSet`)
+1. Campo **Data do Compromisso** (`type="date"`) vem antes do Horário.
+   Habilitado assim que uma Agenda é escolhida.
+2. Ao preencher a Data (e já ter Agenda escolhida), calcular o dia da
+   semana (`new Date(data).getDay()`, convertendo para a convenção
+   0=Segunda usada pelo backend) e buscar os horários daquele dia via
+   `GET /agendamento/horarios-disponiveis/?agenda={id}&dia_semana={d}&ativo=true&data={data}`.
+3. Campo **Horário Disponível** (select) só aparece habilitado depois da
+   Data preenchida. Cada opção mostra:
+   `"{hora_inicio} — {servico || 'Sem rótulo'} ({vagas_ocupadas}/{vagas} vagas)"`
+   — opção com `vagas_disponiveis <= 0` vem com `disabled` e sufixo
+   `" (Lotado)"`.
+4. Trocar a Data limpa o Horário selecionado (mesmo padrão já existente
+   para Agenda → Horário).
+5. Submissão continua enviando `agenda`, `horario`, `data_horario` como
+   hoje — o backend valida de novo (RF-10/RF-11), e se vier 400 com
+   `{"erro": "Horário sem vagas disponíveis."}` o toast de erro já existente
+   (`extractErrorMessage`) mostra a mensagem; o modal permanece aberto para
+   o usuário escolher outro horário/data.
 
-- `get_queryset()`: ler `tipo = self.request.query_params.get('tipo')`; se
-  presente e válido (`PRODUTO`/`SERVICO`), aplicar `.filter(tipo=tipo)`
-  além do `is_active=True` já existente.
-- `movimentos()` (action): no início, após `produto = self.get_object()`,
-  checar `if produto.tipo == TipoProduto.SERVICO: return Response({'tipo':
-  ['Serviço não possui controle de estoque.']}, status=400)` — bloqueia
-  tanto `GET` (histórico, sempre vazio para serviço — retornar lista vazia
-  é aceitável também, mas 400 deixa explícito; decisão do Forge entre as
-  duas, documentar a escolhida) quanto `POST`.
-- `conversoes()` (action): mesma checagem — serviço não tem
-  `unidade_base` relevante para conversão; bloquear com 400 análogo.
+### 4.3 Agendamento → aba Pendentes
 
-### `backend/pdv/views.py` (`adicionar_item`)
+- Substituir o texto abaixo do título `"Compromissos recebidos pelo
+  agendamento público aguardando confirmação."` pelo texto do RF-12
+  (pode manter curto, mas precisa deixar claro a diferença entre
+  "vindo do link público" vs "criado pela equipe").
+- Nova coluna **Origem** na tabela (entre "Serviço" e "Recebido em"),
+  sempre mostrando o badge "🌐 Público" (reaproveitar o mesmo estilo de
+  badge já usado no modal de edição de Compromisso, `Globe`/`Shield` da
+  lucide-react) — redundante com o filtro da aba, mas pedido explicitamente
+  pelo cliente para deixar claro de onde cada pedido vem.
+- Se RF-14 (canal) for implementado: badge adicional ao lado, ex.
+  `📷 Instagram` / `🌐 Site` / `💬 WhatsApp` / `—` quando vazio.
 
-Após obter `produto`:
+### 4.4 Página pública `/agendar/{slug}` (só se RF-14 for implementado)
+
+- Ao montar a página, ler `?canal=` da própria URL
+  (`new URLSearchParams(window.location.search).get('canal')`), validar
+  contra os valores aceitos (`site`, `instagram`, `whatsapp` — case
+  insensitive) e guardar em estado local.
+- Incluir `canal` no payload do `POST /publico/agenda/{slug}/agendar/`
+  (campo opcional — enviar `''`/omitir se não vier nenhum valor reconhecido
+  na URL).
+
+---
+
+## 5. Spec Backend (para o Forge)
+
+### 5.1 Models
+
+**`agendamento/models.py` — `Agenda`:**
 ```python
-if produto.tipo == TipoProduto.SERVICO:
-    valor_unitario = produto.preco_venda
-    unidade = produto.unidade_base  # RN-05: valor neutro, sem efeito
-else:
-    unidade = d['unidade']
-    if unidade not in UnidadeBase.values:
-        ...
-    if unidade == produto.unidade_base:
-        valor_unitario = produto.preco_venda
+profissional = models.ForeignKey(
+    'rh.Colaborador', verbose_name='profissional responsável',
+    null=True, blank=True, on_delete=models.SET_NULL,
+    related_name='agendas_vinculadas',
+    limit_choices_to={'is_active': True},
+)
+```
+(trocar o `to=settings.AUTH_USER_MODEL` por `'rh.Colaborador'` — atenção à
+dependência circular de apps: `agendamento` precisa poder referenciar
+`rh` via string `'rh.Colaborador'`, sem import direto no topo do módulo,
+igual ao padrão já usado para `'clientes.Cliente'` em `Compromisso`.)
+
+**`agendamento/models.py` — `Compromisso` (só se RF-14 for implementado):**
+```python
+class CanalCompromisso(models.TextChoices):
+    SITE      = 'SITE', 'Site'
+    INSTAGRAM = 'INSTAGRAM', 'Instagram'
+    WHATSAPP  = 'WHATSAPP', 'WhatsApp'
+    OUTRO     = 'OUTRO', 'Outro'
+
+canal = models.CharField(
+    max_length=10, choices=CanalCompromisso.choices, blank=True, default='',
+)
+```
+
+### 5.2 Migrations (agendamento)
+
+Sequência obrigatória (3 migrations, nesta ordem, para nunca perder dado):
+
+1. `0011_agenda_profissional_colaborador.py` — `AddField` de um campo
+   temporário `profissional_colaborador` (FK para `rh.Colaborador`, mesmas
+   opções do RF-01) **sem tocar no campo `profissional` (User) antigo**.
+2. `0012_migra_profissional_para_colaborador.py` — `RunPython` (RF-02):
+   ```python
+   def migrar(apps, schema_editor):
+       Agenda = apps.get_model('agendamento', 'Agenda')
+       Colaborador = apps.get_model('rh', 'Colaborador')
+       sem_match = []
+       for agenda in Agenda.objects.filter(profissional_id__isnull=False):
+           colaborador = Colaborador.objects.filter(
+               usuario_id=agenda.profissional_id, is_active=True,
+           ).first()
+           if colaborador:
+               agenda.profissional_colaborador = colaborador
+               agenda.save(update_fields=['profissional_colaborador'])
+           else:
+               sem_match.append(f'Agenda#{agenda.id} ({agenda.nome})')
+       if sem_match:
+           print(
+               f'[Manutencao 92] {len(sem_match)} agenda(s) sem Colaborador '
+               f'correspondente, profissional ficou vazio: {", ".join(sem_match)}'
+           )
+       else:
+           print('[Manutencao 92] todas as agendas com profissional foram migradas com sucesso.')
+   ```
+   (função reversa pode ser no-op — `migrations.RunPython.noop` — já que é
+   migração de dado derivado, não primário).
+3. `0013_agenda_remove_profissional_rename.py` — `RemoveField('profissional')`
+   (o antigo, FK para User) seguido de `RenameField('profissional_colaborador',
+   'profissional')`.
+
+**Importante para o Sentinel:** rodar a migration 2 em produção e capturar
+a saída do `print()` no log do `migrate` — é o relatório pedido no RF-02/RN-03.
+Se a lista vier vazia, documentar isso explicitamente ("0 agendas sem
+profissional correspondente") em vez de omitir.
+
+Migration adicional (só se RF-14): `0014_compromisso_canal.py` — `AddField`
+simples, sem `RunPython` (default `''` cobre todos os registros existentes).
+
+### 5.3 Serializers
+
+**`AgendaSerializer`:**
+- `profissional_nome = serializers.CharField(source='profissional.nome', read_only=True, allow_null=True)` (trocar `.nome_completo` por `.nome`).
+- Campo `profissional` (gerado automaticamente pelo `ModelSerializer` a
+  partir do model) deve restringir o queryset a `Colaborador.objects.filter(is_active=True)`
+  — como o manager padrão (`BaseModelManager`) já filtra `deleted_at__isnull=True`
+  mas não necessariamente `is_active` sozinho, declarar explicitamente:
+  ```python
+  profissional = serializers.PrimaryKeyRelatedField(
+      queryset=Colaborador.objects.filter(is_active=True), required=False, allow_null=True,
+  )
+  ```
+
+**`HorarioDisponivelSerializer`** (RF-06): adicionar campos calculados
+opcionais:
+```python
+vagas_ocupadas    = serializers.SerializerMethodField(read_only=True)
+vagas_disponiveis = serializers.SerializerMethodField(read_only=True)
+lotado            = serializers.SerializerMethodField(read_only=True)
+
+def _data_contexto(self):
+    request = self.context.get('request')
+    if not request:
+        return None
+    data_str = request.query_params.get('data')
+    if not data_str:
+        return None
+    try:
+        return date.fromisoformat(data_str)
+    except ValueError:
+        return None
+
+def get_vagas_ocupadas(self, obj):
+    data = self._data_contexto()
+    if not data:
+        return None
+    ocupados, _ = contar_ocupacao(obj, data)
+    return ocupados
+
+def get_vagas_disponiveis(self, obj):
+    data = self._data_contexto()
+    if not data:
+        return None
+    _, disponiveis = contar_ocupacao(obj, data)
+    return disponiveis
+
+def get_lotado(self, obj):
+    disp = self.get_vagas_disponiveis(obj)
+    return disp is not None and disp <= 0
+```
+(`contar_ocupacao` importado de `agendamento/services.py`, RF-09 —
+precisa passar `context={'request': request}` ao serializer na view, que
+o `ModelViewSet` já faz por padrão.)
+
+**`CompromissoSerializer.get_vagas_restantes`** passa a chamar
+`contar_ocupacao` também, em vez da query inline duplicada.
+
+**(Se RF-14) `AgendamentoPublicoSerializer`:** novo campo opcional
+`canal = serializers.ChoiceField(choices=CanalCompromisso.choices, required=False, allow_blank=True, default='')`.
+
+### 5.4 Services (novo)
+
+`agendamento/services.py` (novo arquivo, RF-09):
+```python
+def contar_ocupacao(horario, data_horario, excluir_pk=None):
+    """
+    Retorna (ocupados, disponiveis) para um HorarioDisponivel numa data
+    especifica. Nao usa select_for_update aqui (leitura) -- quem precisa
+    de trava contra corrida (perform_create/perform_update) faz o
+    select_for_update no HorarioDisponivel ANTES de chamar esta funcao,
+    dentro do proprio transaction.atomic().
+
+    excluir_pk: pk do Compromisso a excluir da contagem (RN-04) -- usado
+    na edicao, para o proprio compromisso nao contar como ocupante do
+    slot que ele mesmo ja ocupa.
+    """
+    from .models import Compromisso, StatusCompromisso
+    qs = Compromisso.objects.filter(
+        horario=horario, data_horario=data_horario, is_active=True,
+    ).exclude(status=StatusCompromisso.CANCELADO)
+    if excluir_pk:
+        qs = qs.exclude(pk=excluir_pk)
+    ocupados = qs.count()
+    disponiveis = max(0, horario.vagas - ocupados)
+    return ocupados, disponiveis
+```
+Reaproveitar em: `perform_create`, `perform_update` (novo, passando
+`excluir_pk=instance.pk`), action `ocupacao`,
+`AgendaDisponibilidadePublicaView.get`,
+`CompromissoSerializer.get_vagas_restantes` (passando
+`excluir_pk=obj.pk`, já que o próprio objeto sempre está na contagem
+quando se olha `vagas_restantes` de um compromisso existente — mesmo
+raciocínio do RN-04), `HorarioDisponivelSerializer` (RF-06, sem
+`excluir_pk`, pois ali não há compromisso de referência).
+
+### 5.5 Views
+
+**`CompromissoViewSet.perform_update`** (RF-10, novo método — hoje não
+existe, herda do `AuditMixin`):
+```python
+def perform_update(self, serializer):
+    instance = serializer.instance
+    horario_mudou = 'horario' in serializer.validated_data and serializer.validated_data['horario'] != instance.horario
+    data_mudou = 'data_horario' in serializer.validated_data and serializer.validated_data['data_horario'] != instance.data_horario
+
+    if not (horario_mudou or data_mudou):
+        serializer.save(updated_by=self.request.user)
+        return
+
+    horario = serializer.validated_data.get('horario', instance.horario)
+    data_horario = serializer.validated_data.get('data_horario', instance.data_horario)
+
+    if horario and data_horario:
+        with transaction.atomic():
+            h = HorarioDisponivel.objects.select_for_update().get(pk=horario.pk)
+            ocupados, _ = contar_ocupacao(h, data_horario, excluir_pk=instance.pk)
+            if ocupados >= h.vagas:
+                raise ValidationError({'erro': 'Horário sem vagas disponíveis.'})
+            serializer.save(updated_by=self.request.user)
     else:
-        ... fator_para_base ...
+        serializer.save(updated_by=self.request.user)
 ```
 
-### `backend/pdv/services.py`
+**`AgendaViewSet.get_queryset`** (RF-05):
+```python
+qs = qs.filter(Q(profissional__usuario=u) | Q(created_by=u))
+```
 
-- `_debitar_estoque(item)` e `_reverter_estoque(item, quantidade)`: no
-  início de cada função, `if item.produto.tipo == TipoProduto.SERVICO:
-  return` (no-op para serviço).
-- `finalizar_venda()`: no loop de validação de estoque insuficiente
-  (`itens_sem_estoque`), pular item quando `item.produto.tipo ==
-  TipoProduto.SERVICO` (não entra na checagem, nunca pode ficar
-  "sem estoque"). O loop de débito já fica correto automaticamente ao
-  tornar `_debitar_estoque` um no-op para serviço — mas preferir o skip
-  explícito também no loop de validação, para não gastar uma query de
-  `select_for_update()` desnecessária por item de serviço (pequena
-  otimização, não obrigatória).
-- `cancelar_venda()`: o `_reverter_estoque` já vira no-op para serviço
-  automaticamente — nenhuma mudança adicional necessária na função em si.
-- `devolver_item()`: idem, `_reverter_estoque` já é no-op — o restante da
-  função (estorno financeiro) continua rodando normalmente.
+**`CompromissoViewSet.get_queryset`** (RF-05):
+```python
+qs = qs.filter(Q(created_by=u) | Q(agenda__profissional__usuario=u))
+```
 
-### `backend/vendas/` — sem alteração de código
+**`HorarioDisponivelViewSet.get_queryset`/listagem** (RF-06): garantir que
+o `context` passado ao serializer inclui `request` (padrão do DRF já faz
+isso automaticamente via `get_serializer_context()` do `ModelViewSet` —
+só confirmar que não foi sobrescrito sem repassar `request`).
 
-Confirmar via teste (Sentinel) que criar `ItemOrcamento`/`ItemPedido` com
-`produto.tipo=SERVICO` funciona sem erro (já é esperado, já que o app
-nunca acessa `quantidade_estoque`/`unidade_base` em lugar nenhum do
-`models.py`/`serializers.py`/`views.py` atual — confirmar com grep antes de
-considerar RF-08 fechado).
+**`rh/views.py` — `ColaboradorViewSet`** (RN-01):
+```python
+def get_permissions(self):
+    if self.action in ('list', 'retrieve'):
+        return [IsAuthenticated()]
+    return [IsAdmin()]
+```
 
-### Testes obrigatórios (Sentinel)
+### 5.6 Testes esperados (Sentinel vai cobrar)
 
-- Criar Produto `tipo=PRODUTO` (comportamento legado intacto).
-- Criar Produto `tipo=SERVICO` sem estoque → sucesso, `quantidade_estoque=0`,
-  nenhum `MovimentoEstoque` criado.
-- Criar Serviço com `estoque_inicial` preenchido no payload → ignorado,
-  nenhum `MovimentoEstoque`.
-- `POST .../movimentos/` em Serviço → 400.
-- `POST .../conversoes/` em Serviço → 400.
-- Migration aplicada sobre fixture com produtos pré-existentes → todos
-  virando `tipo=PRODUTO`, zero null.
-- PDV: adicionar item de Serviço ao carrinho → `ItemVenda` criado, sem
-  checagem de unidade/fator.
-- PDV: `finalizar_venda` com carrinho tendo 1 Produto + 1 Serviço → baixa
-  de estoque só no Produto; Serviço não gera `MovimentoEstoque`; venda
-  finaliza normalmente, Receita criada pelo valor total (produto+serviço).
-- PDV: `finalizar_venda` só com Serviço, estoque do serviço "zero" (sem
-  sentido) → nunca bloqueia por "estoque insuficiente".
-- PDV: `cancelar_venda` de venda com Serviço → não tenta reverter estoque
-  de serviço (sem erro, sem alterar `quantidade_estoque` de nada
-  relacionado a ele).
-- PDV: `devolver_item` de item de Serviço → estorno financeiro ocorre,
-  sem chamada de reversão de estoque.
-- Vendas: `ItemOrcamento`/`ItemPedido` com produto Serviço → sucesso, 0
-  `MovimentoEstoque` relacionado.
-- Tentar alterar `tipo` de um Produto existente via `PATCH` → valor
-  permanece o original (RN-06).
-- `GET /api/v1/produtos/?tipo=SERVICO` / `?tipo=PRODUTO` → cada filtro
-  retorna só o subconjunto correto; sem o param, retorna todos (0
-  regressão).
+- Agenda com `profissional` setado para Colaborador ativo → aparece
+  corretamente no serializer (`profissional_nome`).
+- Agenda com `profissional` apontando para Colaborador inativo → rejeitado
+  no POST/PATCH (ou nunca chega a essa situação pois o queryset do campo
+  já filtra ativos).
+- Migration de dados: criar cenário com Agenda.profissional(User) com e
+  sem Colaborador correspondente, rodar a migration, confirmar os dois
+  resultados.
+- `HorarioDisponivel` com 2 vagas: criar 2 Compromissos AGENDADO/CONFIRMADO
+  no mesmo horário+data → sucesso; 3º → 400 com `"Horário sem vagas disponíveis."`.
+- `GET /horarios-disponiveis/?data=...` retorna `vagas_ocupadas`/
+  `vagas_disponiveis`/`lotado` corretos; sem `?data=` retorna `null` nos 3 campos.
+- PATCH mudando `horario`/`data_horario` de um compromisso existente para
+  um slot lotado → 400; PATCH mudando só `titulo`/`status` sem tocar
+  horario/data_horario → sucesso mesmo que o horário já esteja "lotado"
+  por outros (não deve re-validar vaga nesse caso, RN-05).
+- PATCH re-salvando o MESMO horario+data_horario que o compromisso já tinha
+  (ex.: edição que não mexe no slot, mas o campo vem no payload igual)
+  → sucesso, não conta o próprio compromisso contra si mesmo (RN-04).
+- `ColaboradorViewSet`: usuário OPERACIONAL consegue `GET /rh/colaboradores/`
+  (200), mas `POST`/`PATCH`/`DELETE` continuam 403 para ele.
+- (Se RF-14) `POST /publico/agenda/{slug}/agendar/` com `?canal=` ou campo
+  `canal` no payload grava corretamente; sem `canal` grava `''`/`OUTRO`.
 
 ---
 
-## Spec Frontend (Loom)
+## 6. Critérios de Aceite (CA)
 
-### `frontend/src/pages/Produtos.jsx`
-
-- `TIPO_OPTIONS = [{value:'PRODUTO', label:'Produto'}, {value:'SERVICO', label:'Serviço'}]`.
-- `EMPTY_FORM` ganha `tipo: 'PRODUTO'`, `duracao_minutos: ''`,
-  `categoria_financeira_entrada: ''`.
-- Botão do header: `+ Novo Produto` → `+ Novo Item`.
-- Modal (`title={editingId ? 'Editar Item' : 'Novo Item'}`): logo abaixo do
-  título, seletor de tipo (dois botões estilo toggle, ou `Select`
-  `TIPO_OPTIONS`) — `disabled` quando `editingId` existe (RN-06).
-- Renderização condicional dos campos do form conforme `form.tipo`:
-  - `PRODUTO`: bloco atual inteiro (código de barras, unidade base,
-    estoque inicial/mínimo, custo, preço de venda, observações, seção
-    conversões, seção "Movimentar Estoque") — sem mudança de layout.
-  - `SERVICO`: nome, descrição (reaproveita input de `observacoes`, label
-    "Descrição"), preço de venda, duração em minutos (`Input type=number`,
-    opcional), categoria financeira de entrada (`Select` populado via
-    `GET /api/v1/financeiro/categorias/?tipo=ENTRADA`, opcional). Nenhuma
-    seção de conversões nem "Movimentar Estoque" aparece.
-- `handleSubmit`: ao montar o payload, se `form.tipo === 'SERVICO'`, não
-  enviar `codigo_barras`/`unidade_base`/`estoque_inicial`/
-  `nota_fiscal_inicial`/`estoque_minimo`/`valor_unitario` (ou enviar
-  vazios/zero — backend já ignora, mas evitar poluir o payload é mais
-  limpo); enviar `duracao_minutos`/`categoria_financeira_entrada` só
-  quando preenchidos.
-- Listagem: novo controle de abas/filtro acima da tabela —
-  `['Todos', 'Produtos', 'Serviços']` — ao trocar, refaz
-  `GET /api/v1/produtos/?tipo=...&search=...&page=...` com o `tipo`
-  correspondente (ou sem `tipo` para "Todos"). Estado novo:
-  `const [filtroTipo, setFiltroTipo] = useState('')`.
-- Card/linha da listagem: mostrar badge "Produto"/"Serviço"
-  (`p.tipo_display` ou mapeado localmente); quando `p.tipo === 'SERVICO'`,
-  ocultar a célula/linha "Estoque" (ex.: renderizar "—" ou nada).
-
-### PDV (`frontend/src/pages/pdv/FrenteDeCaixa.jsx` e componentes de busca)
-
-- Resultado de busca de produto: exibir badge "Serviço" quando
-  `produto.tipo === 'SERVICO'`; nunca exibir o badge "Sem estoque" nesse
-  caso (badge de estoque continua exclusivo de Produto com
-  `quantidade_estoque <= 0`).
-- Ao adicionar um item de Serviço ao carrinho: não solicitar/exibir campo
-  de unidade na linha do carrinho (ou exibir vazio/"—" em vez do seletor
-  de unidade usado para Produto).
-
-### Vendas (`frontend/src/pages/Vendas.jsx` — `BuscaProdutoRapida` e
-`ProdutoAutocomplete`, usados em Orçamento/Pedido)
-
-- Mesmo tratamento do PDV: badge "Serviço" no resultado de busca; item de
-  serviço adicionado à lista de itens do Orçamento/Pedido sem campo de
-  unidade (o model `ItemOrcamento`/`ItemPedido` já não tem campo
-  `unidade`, então não há mudança de payload aqui — é só visual, exibir
-  badge no autocomplete).
-
-### Combos (`ComboForm`, dentro de `Produtos.jsx`)
-
-- Sem mudança obrigatória — autocomplete de produto do Combo pode
-  continuar listando Produto e Serviço juntos (fora de escopo vedar isso,
-  ver seção "Fora do Escopo").
+- **CA-01.** `Agenda.profissional` é FK para `rh.Colaborador`; dropdown de
+  Profissional na tela de Agenda busca em `rh/colaboradores` e só lista
+  ativos.
+- **CA-02.** Usuário com perfil OPERACIONAL ou MARKETING continua
+  conseguindo abrir o formulário de Agenda e escolher um Profissional sem
+  erro 403 (RN-01 verificada via API real com usuário não-admin).
+- **CA-03.** Migration de dados executada em produção/teste real: toda
+  Agenda que tinha `profissional` (User) com Colaborador correspondente
+  ativo migrou para esse Colaborador; as que não tinham ficaram com
+  `profissional=null` e aparecem listadas no log do `migrate` (conferido
+  pelo Sentinel, reportado explicitamente mesmo se a lista for vazia).
+- **CA-04.** `HorarioDisponivel` com 2 vagas aceita exatamente 2
+  Compromissos (não cancelados) no mesmo horário+data e recusa o 3º via
+  API com 400 — testado tanto em `POST` (criação) quanto em `PATCH`
+  (edição trocando horário/data de um compromisso existente para um slot
+  já com 2 ocupados).
+- **CA-05.** Editar um compromisso sem tocar em `horario`/`data_horario`
+  (ex.: só mudar `status` de AGENDADO para CONFIRMADO) nunca é bloqueado
+  por falta de vaga, mesmo que o horário esteja no limite.
+- **CA-06.** Tela "Novo Compromisso": ao escolher Agenda + Data, o dropdown
+  de Horário mostra só os horários daquele dia da semana, com contagem
+  "X/Y vagas" visível, e horário lotado aparece desabilitado na lista.
+- **CA-07.** Aba Pendentes mostra o texto explicativo novo (RF-12) e a
+  coluna/badge de Origem em cada linha.
+- **CA-08 (se RF-14 implementado).** Link público com `?canal=instagram`
+  grava o canal no Compromisso criado e a aba Pendentes mostra o badge
+  correspondente; link sem `?canal=` continua funcionando normalmente,
+  gravando canal vazio/OUTRO.
+- **CA-09.** Nenhuma regressão nos fluxos já existentes do agendamento
+  público (`AgendaDisponibilidadePublicaView`/`AgendamentoPublicoView`) —
+  continuam calculando vaga corretamente após a centralização em
+  `contar_ocupacao` (RF-09).
+- **CA-10.** `makemigrations --check --dry-run` limpo (0 pendências) após
+  as 3 migrations do RF-01/RF-02 (+ a de `canal`, se aplicável).
+- **CA-11.** 100% dos testes existentes do módulo `agendamento` e `rh`
+  continuam passando (0 regressão), mais os testes novos listados na
+  seção 5.6.
 
 ---
 
-## Critérios de Aceite
+## 7. Fora do Escopo
 
-- CA-01: migration aplicada sem erro; todo `Produto` pré-existente fica
-  `tipo=PRODUTO`.
-- CA-02: criar Serviço via API sem estoque → sucesso, 0 `MovimentoEstoque`
-  criado, `quantidade_estoque` permanece 0.
-- CA-03: `POST /produtos/{id}/movimentos/` em Serviço → 400.
-- CA-04: `POST /produtos/{id}/conversoes/` em Serviço → 400.
-- CA-05: vender um Serviço no PDV (`finalizar_venda`) → nenhum
-  `MovimentoEstoque` criado, nenhuma tentativa de baixa de estoque, venda
-  finalizada normalmente com Receita pelo valor correto.
-- CA-06: vender Produto + Serviço na mesma Venda → só o Produto baixa
-  estoque; total da venda soma os dois corretamente.
-- CA-07: cancelar venda com item de Serviço → sem erro, sem alteração de
-  estoque relacionada ao serviço; estorno financeiro ocorre normalmente.
-- CA-08: `GET /produtos/?tipo=PRODUTO` e `?tipo=SERVICO` retornam
-  subconjuntos corretos; sem o parâmetro, retorna todos (0 regressão).
-- CA-09: tentar trocar `tipo` de um Produto existente via PATCH não altera
-  o valor gravado.
-- CA-10: criar item de Serviço em Orçamento/Pedido → sucesso, 0
-  `MovimentoEstoque`.
-- CA-11: frontend — botão "+ Novo Item" presente; form muda de campos
-  conforme Produto/Serviço escolhido; listagem com abas Produtos/Serviços/
-  Todos funcionando; seletor de tipo desabilitado na edição.
-- CA-12: 100% dos testes Django pré-existentes continuam passando (0
-  regressão) — suíte completa, não só os testes novos desta manutenção.
+- Qualquer tela de RH (CRUD de Colaborador em si) — só o uso de leitura
+  para popular o dropdown de Profissional.
+- Qualquer mudança em `Colaborador.usuario` (continua como está).
+- Dashboard/relatório agregando agendamentos por canal (RF-14 só grava e
+  exibe por linha, não cria relatório novo).
+- Qualquer mudança no fluxo de autenticação/perfil PROFISSIONAL além da
+  correção pontual do `get_queryset` (RF-05) — já é comportamento
+  existente da Manutenção #63, só ajustado para continuar funcionando com
+  a troca de FK.
 
 ---
 
-*Gerado pelo Analista — Manutenção #91, UidCore. Pronto para Blueprint/
-Forge/Loom seguirem via Planner.*
+## 8. Observações para o Blueprint/Brush (se aplicável)
+
+Esta é uma manutenção de módulo já existente (sem tela nova de ponta a
+ponta) — não requer novo design_system nem ADR de arquitetura. Loom deve
+seguir os tokens/componentes já usados em `Agendamento.jsx` (`Select`,
+`Input`, `Button`, paleta navy/violet) sem introduzir padrão visual novo.
+
+---
+
+ANALISTA CONCLUIDO
