@@ -149,10 +149,18 @@ específico de estúdio), para todo fork novo já nascer com isso.
 - Status: APROVADO
 
 **Deploy:**
-- Data: PILOT_DEPLOY_PLACEHOLDER
-- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml)
+- Data: 2026-11-03T03:25:25Z UTC (00:25:25 -03)
+- Método: git push origin main → CI/CD GitHub Actions (.github/workflows/deploy.yml) — run 41572051198, sucesso em 37s
+- Push confirmado: 17ac048..1a52fe4 main -> main (3 commits: eb9ec70 e a0fd340 já existiam localmente + 1a52fe4 de docs desta execução)
+- Container uidcore-backend-1 recriado: 2026-11-03T03:25:25Z (StartedAt confirmado via docker inspect, comparado contra baseline pré-deploy da Manutenção #90, 2026-11-02T19:22:58Z); gunicorn 3 workers up sem crash (log confirmado)
+- Container uidcore-nginx-1 não recriado (sem mudança de infra nesta manutenção — esperado; StartedAt ainda 2026-10-28, herdado da Manutenção #71)
+- Migration `produtos.0008_produto_tipo_servico` aplicada em produção (showmigrations confirmado); `makemigrations --check --dry-run`: "No changes detected" — 0 pendências
+- Campo `Produto.tipo` confirmado via shell: choices `[('PRODUTO', 'Produto'), ('SERVICO', 'Serviço')]`
+- Frontend rebuildado: bundle novo `index-KfGixn9R.js` (736 KB) + `index-Dq4f-VdS.css`, mtime 2026-11-03 03:25 UTC batendo exatamente com a recriação do backend; referenciado em `index.html`; confirmado contendo as strings "SERVICO" e "Novo Item"
+- Health check: HTTP 200 em https://uidcore.uidsoftware.com.br/; HTTP 401 em /api/v1/produtos/ e /api/v1/financeiro/dashboard/ (esperado, requer auth — rotas confirmadas ativas)
+- SystemD: Manutenção #91 marcada `feito=True` via `docker exec sytemd-backend-1 python manage.py disparar_hotfix --concluir 91`
 - URL: https://uidcore.uidsoftware.com.br (porta interna 8006)
-- Status: ✅ Aprovado por Sentinel / PILOT_STATUS_PLACEHOLDER
+- Status: ✅ Aprovado por Sentinel / ✅ Deploy confirmado em produção
 
 ---
 
